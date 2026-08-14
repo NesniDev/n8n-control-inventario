@@ -13,19 +13,64 @@ from app.services.logging_service import registrar_evento
 
 
 class EntregaDuplicada(Exception):
-    def __init__(self, numero_guia: str):
+    def __init__(self, numero_guia: str, mensaje: str | None = None):
         self.numero_guia = numero_guia
-        super().__init__(f"La guia {numero_guia} ya fue procesada por otra sede.")
+        super().__init__(mensaje or f"La guia {numero_guia} ya fue procesada por otra sede.")
+
+
+async def _buscar_duplicado_por_destinatario_y_fecha(entrega: dict) -> dict | None:
+    """Chequeo de negocio adicional al `unique (numero_guia, remitente)`: si
+    ya existe una entrega para el mismo destinatario el mismo dia, es casi
+    seguro el mismo envio aunque el numero de guia se haya leido distinto
+    (p.ej. la IA confundio un digito). Compara solo la fecha, no la hora
+    exacta, y descarta destinatarios vacios (no distinguen nada)."""
+    destinatario = (entrega.get("destinatario") or "").strip()
+    if not destinatario:
+        return None
+
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        select id, numero_guia, capturado_at from entregas
+        where lower(destinatario) = lower($1)
+          and capturado_at::date = $2::date
+        limit 1
+        """,
+        destinatario,
+        entrega["capturado_at"],
+    )
+    return dict(row) if row else None
 
 
 async def insertar_si_no_duplicada(entrega: dict, *, actor_id: str, sede_id: str) -> str:
-    """Intenta insertar la entrega. Si la restriccion unique la rechaza,
-    registra el intento de duplicado (quien, cuando, desde donde) y relanza
-    como EntregaDuplicada para que el router responda 409.
+    """Intenta insertar la entrega. Si ya existe una para el mismo
+    destinatario+fecha, o si la restriccion unique de la DB la rechaza
+    (mismo numero_guia+remitente o mismo hash de evidencia), registra el
+    intento de duplicado (quien, cuando, desde donde) y relanza como
+    EntregaDuplicada para que el router responda 409.
 
     Retorna el id insertado en el caso exitoso.
     """
     pool = await get_pool()
+
+    existente = await _buscar_duplicado_por_destinatario_y_fecha(entrega)
+    if existente is not None:
+        fecha = existente["capturado_at"].date().isoformat()
+        mensaje = (
+            f"Ya fue registrado un envio para {entrega['destinatario']} el {fecha} "
+            f"(guia {existente['numero_guia'] or 'sin numero'})."
+        )
+        await registrar_evento(
+            EventoLog.DUPLICADO_BLOQUEADO,
+            entidad_tipo="entrega",
+            entidad_id=entrega.get("numero_guia", "desconocido"),
+            actor_id=actor_id,
+            sede_id=sede_id,
+            resultado="bloqueado",
+            detalle={"motivo": "mismo_destinatario_y_fecha", "destinatario": entrega["destinatario"], "fecha": fecha},
+        )
+        raise EntregaDuplicada(entrega.get("numero_guia", "desconocido"), mensaje)
+
     try:
         entrega_id = await pool.fetchval(
             """

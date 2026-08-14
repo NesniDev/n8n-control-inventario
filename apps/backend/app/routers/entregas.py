@@ -100,10 +100,7 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
             entrega, actor_id=payload.operador_id, sede_id=payload.sede_origen_id
         )
     except EntregaDuplicada as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Duplicado: {exc.numero_guia} ya fue procesada por otra sede.",
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     # Sync en tiempo real (Figura 1: DB -> dashboards). Con Supabase esto se
     # resuelve con Realtime (replicacion logica de Postgres) escuchando la
