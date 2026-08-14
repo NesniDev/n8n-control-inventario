@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import { fetchEntregas, fetchLogs, type Entrega } from "@/lib/api";
+import { EXPORT_CSV_URL, fetchEntregas, fetchLogs, type Entrega } from "@/lib/api";
 
 const ESTADO_LABEL: Record<Entrega["estado"], string> = {
   procesada: "Procesada",
@@ -51,9 +51,17 @@ export default function DashboardPage() {
       ) : null}
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
-          Entregas recientes
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
+            Entregas recientes
+          </h2>
+          <a
+            href={EXPORT_CSV_URL}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+          >
+            Descargar CSV (Excel)
+          </a>
+        </div>
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-neutral-900 text-neutral-500">

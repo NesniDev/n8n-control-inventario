@@ -36,3 +36,7 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const fetchEntregas = () => getJson<Entrega[]>("/entregas?limit=50");
 export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=30");
+
+// Descarga directa (no XHR) — el navegador la maneja como un archivo, no
+// necesita CORS de fetch.
+export const EXPORT_CSV_URL = `${API_BASE_URL}/entregas/export.csv`;

@@ -6,7 +6,11 @@ En produccion, el paso "n8n webhook" de la Figura 1 llama a este endpoint
 aqui) tras subir la evidencia. Este router es la implementacion de referencia.
 """
 
+import csv
+import io
+
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.db import get_pool
@@ -139,3 +143,47 @@ async def listar_entregas(sede_id: str | None = None, limit: int = 50) -> list[d
         item["id"] = str(item["id"])
         resultado.append(item)
     return resultado
+
+
+_EXPORT_COLUMNAS = [
+    "capturado_at",
+    "numero_guia",
+    "sede_origen_id",
+    "sede_destino_id",
+    "remitente",
+    "destinatario",
+    "estado",
+    "operador_id",
+    "hash_evidencia",
+    "evidencia_url",
+]
+
+
+@router.get("/export.csv")
+async def exportar_entregas_csv(sede_id: str | None = None) -> StreamingResponse:
+    """CSV de todas las entregas para llevar control en Excel/Sheets. Se abre
+    directo con doble click (Excel detecta la coma como separador) o se
+    importa como "Datos > Desde texto/CSV".
+    """
+    pool = await get_pool()
+    if sede_id:
+        rows = await pool.fetch(
+            "select * from entregas where sede_origen_id = $1 order by capturado_at desc",
+            sede_id,
+        )
+    else:
+        rows = await pool.fetch("select * from entregas order by capturado_at desc")
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=_EXPORT_COLUMNAS, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        item = dict(row)
+        writer.writerow(item)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=entregas.csv"},
+    )
