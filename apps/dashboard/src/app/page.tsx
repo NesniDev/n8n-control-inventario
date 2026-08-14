@@ -135,8 +135,18 @@ export default function DashboardPage() {
   });
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState("");
 
   const error = entregasError instanceof Error ? entregasError.message : null;
+
+  const termino = busqueda.trim().toLowerCase();
+  const entregasFiltradas = !termino
+    ? entregas
+    : entregas?.filter((e) =>
+        [e.numero_guia, e.remitente, e.destinatario, e.sede_origen_nombre, e.operador_id]
+          .filter(Boolean)
+          .some((campo) => campo!.toLowerCase().includes(termino))
+      );
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-8 px-6 py-10">
@@ -157,7 +167,7 @@ export default function DashboardPage() {
       ) : null}
 
       <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
             Entregas recientes
           </h2>
@@ -168,6 +178,12 @@ export default function DashboardPage() {
             Descargar CSV (Excel)
           </a>
         </div>
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar por guía, remitente, destinatario, sede u operador..."
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
+        />
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-neutral-900 text-neutral-500">
@@ -187,7 +203,14 @@ export default function DashboardPage() {
                   </td>
                 </tr>
               ) : null}
-              {entregas?.map((e) => (
+              {!entregasCargando && termino && entregasFiltradas?.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-neutral-500">
+                    Sin resultados para &quot;{busqueda}&quot;.
+                  </td>
+                </tr>
+              ) : null}
+              {entregasFiltradas?.map((e) => (
                 <>
                   <tr
                     key={e.id}
