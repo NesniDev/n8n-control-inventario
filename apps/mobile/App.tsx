@@ -6,6 +6,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   View,
@@ -19,6 +20,12 @@ import { fetchSedes, procesarEntrega, subirEvidencia, type Sede } from './api';
 const OPERADOR_ID = 'operador-demo';
 
 type Estado = 'idle' | 'subiendo' | 'procesada' | 'pendiente_revision' | 'error';
+
+const ESTADO_INFO: Record<Exclude<Estado, 'idle' | 'subiendo'>, { icono: string; texto: string; color: string; fondo: string }> = {
+  procesada: { icono: '✅', texto: 'Procesada', color: '#34d399', fondo: 'rgba(52,211,153,0.12)' },
+  pendiente_revision: { icono: '🕵️', texto: 'Pendiente de revisión', color: '#fbbf24', fondo: 'rgba(251,191,36,0.12)' },
+  error: { icono: '⚠️', texto: 'Error', color: '#f87171', fondo: 'rgba(248,113,113,0.12)' },
+};
 
 export default function App() {
   const [foto, setFoto] = useState<string | null>(null);
@@ -103,119 +110,205 @@ export default function App() {
     setMensaje('');
   };
 
+  const puedeEnviar = !!foto && !!sedeSeleccionada && estado !== 'subiendo';
+  const infoEstado = estado !== 'idle' && estado !== 'subiendo' ? ESTADO_INFO[estado] : null;
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="auto" />
-      <Text style={styles.titulo}>Captura de Despacho</Text>
+      <StatusBar style="light" />
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={styles.titulo}>📦 Captura de Despacho</Text>
+          <Text style={styles.subtitulo}>Fotografiá la guía y el sistema hace el resto</Text>
+        </View>
 
-      {errorSedes ? (
-        <Text style={[styles.mensaje, styles.mensajeError]}>{errorSedes}</Text>
-      ) : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.selectorSedes}
-          contentContainerStyle={styles.selectorSedesContenido}
-        >
-          {sedes.map((s) => (
-            <Pressable
-              key={s.id}
-              onPress={() => setSedeSeleccionada(s)}
-              style={[
-                styles.chipSede,
-                sedeSeleccionada?.id === s.id && styles.chipSedeActiva,
-              ]}
+        <View style={styles.tarjeta}>
+          <Text style={styles.etiquetaSeccion}>Sede</Text>
+          {errorSedes ? (
+            <Text style={styles.textoErrorInline}>{errorSedes}</Text>
+          ) : sedes.length === 0 ? (
+            <ActivityIndicator style={{ alignSelf: 'flex-start', marginTop: 4 }} color="#c8631f" />
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.selectorSedesContenido}
             >
-              <Text
-                style={[
-                  styles.chipSedeTexto,
-                  sedeSeleccionada?.id === s.id && styles.chipSedeTextoActivo,
-                ]}
-              >
-                {s.nombre}
+              {sedes.map((s) => {
+                const activa = sedeSeleccionada?.id === s.id;
+                return (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => setSedeSeleccionada(s)}
+                    style={[styles.chipSede, activa && styles.chipSedeActiva]}
+                  >
+                    <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
+                      {activa ? '📍 ' : ''}
+                      {s.nombre}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        <View style={styles.tarjeta}>
+          <Text style={styles.etiquetaSeccion}>Evidencia</Text>
+          {foto ? (
+            <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
+          ) : (
+            <View style={[styles.preview, styles.previewVacio]}>
+              <Text style={styles.previewIcono}>📷</Text>
+              <Text style={styles.previewTexto}>Sin foto capturada</Text>
+              <Text style={styles.previewSubtexto}>
+                Encuadrá el documento completo, con buena luz
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {estado === 'subiendo' ? (
+          <View style={[styles.tarjeta, styles.estadoBox]}>
+            <ActivityIndicator color="#c8631f" />
+            <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+          </View>
+        ) : infoEstado ? (
+          <View style={[styles.badgeEstado, { backgroundColor: infoEstado.fondo }]}>
+            <Text style={styles.badgeEstadoIcono}>{infoEstado.icono}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.badgeEstadoTitulo, { color: infoEstado.color }]}>
+                {infoEstado.texto}
+              </Text>
+              <Text style={styles.badgeEstadoMensaje}>{mensaje}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.acciones}>
+          <Pressable
+            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+            onPress={tomarFoto}
+          >
+            <Text style={styles.botonTexto}>{foto ? '🔁 Repetir foto' : '📷 Tomar foto'}</Text>
+          </Pressable>
+
+          {foto && estado !== 'procesada' && estado !== 'pendiente_revision' && (
+            <Pressable
+              disabled={!puedeEnviar}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                !puedeEnviar && styles.botonDeshabilitado,
+                pressed && puedeEnviar && styles.botonPresionado,
+              ]}
+              onPress={enviar}
+            >
+              <Text style={styles.botonTexto}>
+                {estado === 'subiendo' ? 'Procesando...' : '✅ Enviar y procesar'}
               </Text>
             </Pressable>
-          ))}
-        </ScrollView>
-      )}
+          )}
 
-      {foto ? (
-        <Image source={{ uri: foto }} style={styles.preview} />
-      ) : (
-        <View style={[styles.preview, styles.previewVacio]}>
-          <Text style={styles.previewTexto}>Sin foto capturada</Text>
+          {(estado === 'procesada' || estado === 'pendiente_revision') && (
+            <Pressable
+              style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+              onPress={reiniciar}
+            >
+              <Text style={styles.botonTexto}>➕ Nueva captura</Text>
+            </Pressable>
+          )}
         </View>
-      )}
-
-      {estado === 'subiendo' ? (
-        <View style={styles.estadoBox}>
-          <ActivityIndicator />
-          <Text style={styles.mensaje}>{mensaje}</Text>
-        </View>
-      ) : mensaje ? (
-        <Text
-          style={[
-            styles.mensaje,
-            estado === 'error' && styles.mensajeError,
-            estado === 'procesada' && styles.mensajeOk,
-          ]}
-        >
-          {mensaje}
-        </Text>
-      ) : null}
-
-      <View style={styles.acciones}>
-        <Pressable style={styles.boton} onPress={tomarFoto}>
-          <Text style={styles.botonTexto}>{foto ? 'Repetir foto' : 'Tomar foto'}</Text>
-        </Pressable>
-
-        {foto && estado !== 'subiendo' && sedeSeleccionada && (
-          <Pressable style={[styles.boton, styles.botonPrimario]} onPress={enviar}>
-            <Text style={styles.botonTexto}>Enviar y procesar</Text>
-          </Pressable>
-        )}
-
-        {(estado === 'procesada' || estado === 'pendiente_revision') && (
-          <Pressable style={styles.boton} onPress={reiniciar}>
-            <Text style={styles.botonTexto}>Nueva captura</Text>
-          </Pressable>
-        )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
+const NEUTRAL_900 = '#111827';
+const NEUTRAL_850 = '#161f2e';
+const NEUTRAL_800 = '#1c2534';
+const NEUTRAL_700 = '#2a3446';
+const NEUTRAL_500 = '#6b7688';
+const NEUTRAL_400 = '#8a94a6';
+const ACENTO = '#c8631f';
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#101826', padding: 20, alignItems: 'center' },
-  titulo: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 12 },
-  subtitulo: { color: '#8a94a6', fontSize: 13, marginBottom: 20 },
-  selectorSedes: { alignSelf: 'stretch', marginTop: 10, marginBottom: 16 },
-  selectorSedesContenido: { gap: 8, paddingRight: 8 },
+  container: {
+    flex: 1,
+    backgroundColor: NEUTRAL_900,
+    paddingTop: RNStatusBar.currentHeight ?? 0,
+  },
+  scroll: { padding: 20, paddingBottom: 40, gap: 16 },
+  header: { marginTop: 8, marginBottom: 4, gap: 4 },
+  titulo: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  subtitulo: { color: NEUTRAL_400, fontSize: 13 },
+  tarjeta: {
+    backgroundColor: NEUTRAL_850,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    padding: 14,
+    gap: 10,
+  },
+  etiquetaSeccion: {
+    color: NEUTRAL_500,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  textoErrorInline: { color: '#f87171', fontSize: 13 },
+  selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 20,
-    backgroundColor: '#1c2534',
+    backgroundColor: NEUTRAL_800,
     borderWidth: 1,
-    borderColor: '#2a3446',
+    borderColor: NEUTRAL_700,
   },
-  chipSedeActiva: { backgroundColor: '#c8631f', borderColor: '#c8631f' },
-  chipSedeTexto: { color: '#8a94a6', fontSize: 13, fontWeight: '600' },
+  chipSedeActiva: { backgroundColor: ACENTO, borderColor: ACENTO },
+  chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontWeight: '600' },
   chipSedeTextoActivo: { color: '#fff' },
-  preview: { width: '100%', height: 320, borderRadius: 10, backgroundColor: '#1c2534' },
-  previewVacio: { alignItems: 'center', justifyContent: 'center' },
-  previewTexto: { color: '#5c6779' },
-  estadoBox: { alignItems: 'center', marginTop: 16, gap: 8 },
-  mensaje: { color: '#d3d9e6', marginTop: 16, textAlign: 'center' },
-  mensajeOk: { color: '#3ecf8e' },
-  mensajeError: { color: '#ef5350' },
-  acciones: { marginTop: 24, width: '100%', gap: 12 },
+  preview: { width: '100%', height: 300, borderRadius: 12, backgroundColor: NEUTRAL_800 },
+  previewVacio: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: NEUTRAL_700,
+    borderStyle: 'dashed',
+    gap: 4,
+  },
+  previewIcono: { fontSize: 40, marginBottom: 4 },
+  previewTexto: { color: NEUTRAL_400, fontSize: 14, fontWeight: '600' },
+  previewSubtexto: { color: NEUTRAL_500, fontSize: 12 },
+  estadoBox: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  mensajeSubiendo: { color: '#d3d9e6', fontSize: 14, flexShrink: 1 },
+  badgeEstado: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 14,
+    padding: 14,
+  },
+  badgeEstadoIcono: { fontSize: 22 },
+  badgeEstadoTitulo: { fontSize: 14, fontWeight: '700' },
+  badgeEstadoMensaje: { color: '#d3d9e6', fontSize: 13, marginTop: 2 },
+  acciones: { gap: 10, marginTop: 4 },
   boton: {
-    backgroundColor: '#1c2534',
-    paddingVertical: 14,
-    borderRadius: 8,
+    backgroundColor: NEUTRAL_800,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    paddingVertical: 15,
+    borderRadius: 12,
     alignItems: 'center',
   },
-  botonPrimario: { backgroundColor: '#c8631f' },
-  botonTexto: { color: '#fff', fontWeight: '600' },
+  botonPresionado: { opacity: 0.75 },
+  botonDeshabilitado: { opacity: 0.4 },
+  botonPrimario: { backgroundColor: ACENTO, borderColor: ACENTO },
+  botonTexto: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });
