@@ -73,7 +73,7 @@ class ExtraccionFallida(Exception):
 
 
 async def _descargar_imagen(evidencia_url: str) -> tuple[bytes, str]:
-    async with httpx.AsyncClient(timeout=20.0) as http:
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as http:
         resp = await http.get(evidencia_url)
         resp.raise_for_status()
         media_type = resp.headers.get("content-type", "image/jpeg").split(";")[0]
