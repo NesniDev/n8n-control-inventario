@@ -10,3 +10,4 @@ class EventoLog(StrEnum):
     DUPLICADO_BLOQUEADO = "duplicado_bloqueado"
     SYNC_TIEMPO_REAL = "sync_tiempo_real"
     TURNOS_GENERADOS = "turnos_generados"
+    REVISION_MANUAL_APROBADA = "revision_manual_aprobada"

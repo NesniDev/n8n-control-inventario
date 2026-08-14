@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.db import get_pool
-from app.models.entrega import EntregaCreate, EstadoEntrega
+from app.models.entrega import EntregaCreate, EntregaRevision, EstadoEntrega
 from app.models.log import EventoLog
 from app.services.duplicates import EntregaDuplicada, insertar_si_no_duplicada, marcar_estado_por_confianza
 from app.services.logging_service import registrar_evento
@@ -157,6 +157,57 @@ _EXPORT_COLUMNAS = [
     "hash_evidencia",
     "evidencia_url",
 ]
+
+
+@router.patch("/{entrega_id}/revisar")
+async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
+    """Corrige los campos de baja confianza y aprueba una entrega que estaba
+    en 'pendiente_revision', dejandola como 'procesada'. Usado por el boton
+    de revision manual del dashboard.
+    """
+    pool = await get_pool()
+    actual = await pool.fetchrow("select * from entregas where id = $1::uuid", entrega_id)
+    if actual is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+
+    campos = {
+        "numero_guia": payload.numero_guia,
+        "remitente": payload.remitente,
+        "destinatario": payload.destinatario,
+    }
+    campos = {k: v for k, v in campos.items() if v is not None}
+
+    row = await pool.fetchrow(
+        """
+        update entregas
+        set numero_guia = coalesce($2, numero_guia),
+            remitente = coalesce($3, remitente),
+            destinatario = coalesce($4, destinatario),
+            estado = $5,
+            actualizado_at = now()
+        where id = $1::uuid
+        returning *
+        """,
+        entrega_id,
+        campos.get("numero_guia"),
+        campos.get("remitente"),
+        campos.get("destinatario"),
+        EstadoEntrega.PROCESADA.value,
+    )
+
+    await registrar_evento(
+        EventoLog.REVISION_MANUAL_APROBADA,
+        entidad_tipo="entrega",
+        entidad_id=entrega_id,
+        actor_id=payload.revisado_por,
+        sede_id=actual["sede_origen_id"],
+        resultado="ok",
+        detalle={"campos_corregidos": list(campos.keys())},
+    )
+
+    resultado = dict(row)
+    resultado["id"] = str(resultado["id"])
+    return resultado
 
 
 @router.get("/export.csv")

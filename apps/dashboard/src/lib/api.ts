@@ -5,18 +5,20 @@
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export interface Entrega {
-  _id: string;
+  id: string;
   numero_guia: string;
   remitente: string;
   destinatario: string;
   sede_origen_id: string;
   estado: "procesada" | "pendiente_revision" | "duplicado_bloqueado";
   operador_id: string;
-  timestamps: { capturado_at: string; procesado_at: string | null };
+  confianza_ia: Record<string, number>;
+  evidencia_url: string;
+  capturado_at: string;
 }
 
 export interface LogEvent {
-  _id: string;
+  id: string;
   evento: string;
   entidad_tipo: string;
   entidad_id: string;
@@ -36,6 +38,21 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const fetchEntregas = () => getJson<Entrega[]>("/entregas?limit=50");
 export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=30");
+
+export async function revisarEntrega(
+  id: string,
+  campos: { numero_guia?: string; remitente?: string; destinatario?: string }
+): Promise<Entrega> {
+  const res = await fetch(`${API_BASE_URL}/entregas/${id}/revisar`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(campos),
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo aprobar la entrega (${res.status})`);
+  }
+  return res.json();
+}
 
 // Descarga directa (no XHR) — el navegador la maneja como un archivo, no
 // necesita CORS de fetch.

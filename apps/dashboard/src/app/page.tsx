@@ -1,7 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
-import { EXPORT_CSV_URL, fetchEntregas, fetchLogs, type Entrega } from "@/lib/api";
+import {
+  EXPORT_CSV_URL,
+  fetchEntregas,
+  fetchLogs,
+  revisarEntrega,
+  type Entrega,
+} from "@/lib/api";
 
 const ESTADO_LABEL: Record<Entrega["estado"], string> = {
   procesada: "Procesada",
@@ -17,6 +24,102 @@ const ESTADO_CLASS: Record<Entrega["estado"], string> = {
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function FilaRevision({
+  entrega,
+  onGuardado,
+}: {
+  entrega: Entrega;
+  onGuardado: () => void;
+}) {
+  const [numeroGuia, setNumeroGuia] = useState(entrega.numero_guia);
+  const [remitente, setRemitente] = useState(entrega.remitente);
+  const [destinatario, setDestinatario] = useState(entrega.destinatario);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const camposBajaConfianza = Object.entries(entrega.confianza_ia ?? {})
+    .filter(([, valor]) => valor < 0.75)
+    .map(([campo]) => campo);
+
+  const guardar = async () => {
+    setGuardando(true);
+    setError(null);
+    try {
+      await revisarEntrega(entrega.id, {
+        numero_guia: numeroGuia,
+        remitente,
+        destinatario,
+      });
+      onGuardado();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al guardar");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <tr className="bg-amber-500/5">
+      <td colSpan={5} className="px-4 py-3">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+            <span>Revisar antes de aprobar — campos con baja confianza de la IA:</span>
+            {camposBajaConfianza.length > 0 ? (
+              <span className="font-mono text-amber-400">{camposBajaConfianza.join(", ")}</span>
+            ) : (
+              <span className="text-neutral-600">(ninguno — revisar por las dudas)</span>
+            )}
+            <a
+              href={entrega.evidencia_url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto text-orange-400 hover:underline"
+            >
+              Ver foto original ↗
+            </a>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Número de guía
+              <input
+                value={numeroGuia}
+                onChange={(e) => setNumeroGuia(e.target.value)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Remitente
+              <input
+                value={remitente}
+                onChange={(e) => setRemitente(e.target.value)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Destinatario
+              <input
+                value={destinatario}
+                onChange={(e) => setDestinatario(e.target.value)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+              />
+            </label>
+          </div>
+          {error ? <p className="text-xs text-red-400">{error}</p> : null}
+          <div>
+            <button
+              onClick={guardar}
+              disabled={guardando}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {guardando ? "Guardando..." : "Guardar y aprobar"}
+            </button>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export default function DashboardPage() {
   // SWR dedupea llamadas concurrentes, reintenta ante error y revalida al
   // volver a la pestaña, ademas del polling — sin el useEffect/setInterval
@@ -25,10 +128,13 @@ export default function DashboardPage() {
     data: entregas,
     error: entregasError,
     isLoading: entregasCargando,
+    mutate: recargarEntregas,
   } = useSWR("entregas", fetchEntregas, { refreshInterval: 5000 });
   const { data: logs, isLoading: logsCargando } = useSWR("logs", fetchLogs, {
     refreshInterval: 5000,
   });
+
+  const [enRevision, setEnRevision] = useState<string | null>(null);
 
   const error = entregasError instanceof Error ? entregasError.message : null;
 
@@ -82,23 +188,44 @@ export default function DashboardPage() {
                 </tr>
               ) : null}
               {entregas?.map((e) => (
-                <tr key={e._id}>
-                  <td className="px-4 py-2 font-mono text-neutral-300">{e.numero_guia || "—"}</td>
-                  <td className="px-4 py-2 text-neutral-300">{e.sede_origen_id}</td>
-                  <td className="px-4 py-2 text-neutral-300">
-                    {e.remitente || "—"} → {e.destinatario || "—"}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}>
-                      {ESTADO_LABEL[e.estado]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-neutral-500">
-                    {e.timestamps?.capturado_at
-                      ? new Date(e.timestamps.capturado_at).toLocaleString()
-                      : "—"}
-                  </td>
-                </tr>
+                <>
+                  <tr
+                    key={e.id}
+                    className={e.estado === "pendiente_revision" ? "cursor-pointer" : undefined}
+                    onClick={() =>
+                      e.estado === "pendiente_revision"
+                        ? setEnRevision(enRevision === e.id ? null : e.id)
+                        : undefined
+                    }
+                  >
+                    <td className="px-4 py-2 font-mono text-neutral-300">{e.numero_guia || "—"}</td>
+                    <td className="px-4 py-2 text-neutral-300">{e.sede_origen_id}</td>
+                    <td className="px-4 py-2 text-neutral-300">
+                      {e.remitente || "—"} → {e.destinatario || "—"}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
+                      >
+                        {ESTADO_LABEL[e.estado]}
+                        {e.estado === "pendiente_revision" ? " · revisar ↕" : ""}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-neutral-500">
+                      {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                  {enRevision === e.id ? (
+                    <FilaRevision
+                      key={`${e.id}-revision`}
+                      entrega={e}
+                      onGuardado={() => {
+                        setEnRevision(null);
+                        recargarEntregas();
+                      }}
+                    />
+                  ) : null}
+                </>
               ))}
             </tbody>
           </table>
@@ -114,7 +241,7 @@ export default function DashboardPage() {
             <li className="text-neutral-500">Sin eventos registrados todavía.</li>
           ) : null}
           {logs?.map((log) => (
-            <li key={log._id} className="flex items-center justify-between gap-3 text-neutral-400">
+            <li key={log.id} className="flex items-center justify-between gap-3 text-neutral-400">
               <span className="font-mono text-neutral-300">{log.evento}</span>
               <span className="truncate text-neutral-500">
                 {log.sede_id} · {log.actor_id} · {log.resultado}
