@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import {
   EXPORT_CSV_URL,
@@ -9,6 +9,7 @@ import {
   revisarEntrega,
   type Entrega,
 } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 const ESTADO_LABEL: Record<Entrega["estado"], string> = {
   procesada: "Procesada",
@@ -130,12 +131,37 @@ export default function DashboardPage() {
     isLoading: entregasCargando,
     mutate: recargarEntregas,
   } = useSWR("entregas", fetchEntregas, { refreshInterval: 5000 });
-  const { data: logs, isLoading: logsCargando } = useSWR("logs", fetchLogs, {
-    refreshInterval: 5000,
-  });
+  const {
+    data: logs,
+    isLoading: logsCargando,
+    mutate: recargarLogs,
+  } = useSWR("logs", fetchLogs, { refreshInterval: 5000 });
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
+  const [enVivo, setEnVivo] = useState(false);
+
+  // Realtime de Supabase: cuando entra/cambia una fila, revalidamos al
+  // instante en vez de esperar el proximo tick de polling (que sigue
+  // activo como red de seguridad si el socket se corta).
+  useEffect(() => {
+    const cliente = supabase;
+    if (!cliente) return;
+
+    const canal = cliente
+      .channel("dashboard-entregas-logs")
+      .on("postgres_changes", { event: "*", schema: "public", table: "entregas" }, () => {
+        recargarEntregas();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "logs" }, () => {
+        recargarLogs();
+      })
+      .subscribe((status) => setEnVivo(status === "SUBSCRIBED"));
+
+    return () => {
+      cliente.removeChannel(canal);
+    };
+  }, [recargarEntregas, recargarLogs]);
 
   const error = entregasError instanceof Error ? entregasError.message : null;
 
@@ -151,12 +177,24 @@ export default function DashboardPage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-8 px-6 py-10">
       <header className="flex flex-col gap-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-          Control logístico · multi-sede
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            Control logístico · multi-sede
+          </p>
+          <span
+            className={`flex items-center gap-1.5 text-xs font-medium ${
+              enVivo ? "text-emerald-400" : "text-neutral-600"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${enVivo ? "bg-emerald-400" : "bg-neutral-600"}`}
+            />
+            {enVivo ? "En vivo" : "Conectando..."}
+          </span>
+        </div>
         <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
         <p className="text-sm text-neutral-400">
-          Entregas y auditoría en tiempo (casi) real — actualiza cada 5 segundos.
+          Entregas y auditoría en tiempo real — se actualiza al instante ante cualquier cambio.
         </p>
       </header>
 

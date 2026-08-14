@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import close_pool, ensure_schema
-from app.routers import entregas, logs, sedes, shifts
+from app.routers import auth, empleados, entregas, logs, sedes, shifts
 
 
 @asynccontextmanager
@@ -36,6 +36,8 @@ app.include_router(entregas.router)
 app.include_router(sedes.router)
 app.include_router(logs.router)
 app.include_router(shifts.router)
+app.include_router(empleados.router)
+app.include_router(auth.router)
 
 
 @app.get("/health")

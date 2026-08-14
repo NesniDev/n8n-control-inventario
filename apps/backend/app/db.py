@@ -39,8 +39,15 @@ create table if not exists empleados (
     sede_id text not null,
     rol text not null default 'operador' check (rol in ('operador', 'supervisor', 'admin')),
     estado text not null default 'activo',
+    pin_hash text,
+    pin_salt text,
     created_at timestamptz not null default now()
 );
+
+-- Columnas agregadas despues del primer deploy: CREATE TABLE IF NOT EXISTS
+-- no altera una tabla que ya existe, asi que las agregamos aparte (idempotente).
+alter table empleados add column if not exists pin_hash text;
+alter table empleados add column if not exists pin_salt text;
 
 create table if not exists entregas (
     id uuid primary key default gen_random_uuid(),
@@ -103,6 +110,24 @@ create table if not exists logs (
 
 create index if not exists idx_logs_timestamp on logs ("timestamp" desc);
 create index if not exists idx_logs_entidad on logs (entidad_tipo, entidad_id);
+
+-- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
+-- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban
+-- agregadas o si la publicacion no existe (p.ej. Postgres self-hosted sin
+-- la extension de Supabase) para no romper el arranque del backend.
+do $$
+begin
+    if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+        begin
+            alter publication supabase_realtime add table entregas;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table logs;
+        exception when duplicate_object then null;
+        end;
+    end if;
+end $$;
 """
 
 

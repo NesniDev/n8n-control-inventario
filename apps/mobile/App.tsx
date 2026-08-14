@@ -14,10 +14,8 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 
-import { fetchSedes, procesarEntrega, subirEvidencia, type Sede } from './api';
-
-// TODO: reemplazar por el login real del operador (empleado autenticado).
-const OPERADOR_ID = 'operador-demo';
+import { fetchSedes, procesarEntrega, subirEvidencia, type Empleado, type Sede } from './api';
+import PantallaLogin from './PantallaLogin';
 
 type Estado = 'idle' | 'subiendo' | 'procesada' | 'pendiente_revision' | 'error';
 
@@ -28,6 +26,22 @@ const ESTADO_INFO: Record<Exclude<Estado, 'idle' | 'subiendo'>, { icono: string;
 };
 
 export default function App() {
+  const [empleado, setEmpleado] = useState<Empleado | null>(null);
+
+  if (!empleado) {
+    return <PantallaLogin onLogin={setEmpleado} />;
+  }
+
+  return <PantallaCaptura empleado={empleado} onCerrarSesion={() => setEmpleado(null)} />;
+}
+
+function PantallaCaptura({
+  empleado,
+  onCerrarSesion,
+}: {
+  empleado: Empleado;
+  onCerrarSesion: () => void;
+}) {
   const [foto, setFoto] = useState<string | null>(null);
   const [estado, setEstado] = useState<Estado>('idle');
   const [mensaje, setMensaje] = useState('');
@@ -39,10 +53,14 @@ export default function App() {
     fetchSedes()
       .then((lista) => {
         setSedes(lista);
-        setSedeSeleccionada((actual) => actual ?? lista[0] ?? null);
+        // Preseleccionamos la sede del empleado logueado, pero se puede
+        // cambiar (un operador puede estar cubriendo otra sede ese dia).
+        setSedeSeleccionada(
+          (actual) => actual ?? lista.find((s) => s.id === empleado.sede_id) ?? lista[0] ?? null
+        );
       })
       .catch((err) => setErrorSedes(err?.message ?? 'No se pudieron cargar las sedes'));
-  }, []);
+  }, [empleado.sede_id]);
 
   const tomarFoto = async () => {
     const permiso = await ImagePicker.requestCameraPermissionsAsync();
@@ -77,7 +95,7 @@ export default function App() {
         evidencia_url: url,
         hash_evidencia: hash,
         sede_origen_id: sedeSeleccionada.id,
-        operador_id: OPERADOR_ID,
+        operador_id: empleado.id,
         capturado_at: new Date().toISOString(),
       });
 
@@ -122,8 +140,15 @@ export default function App() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.titulo}>📦 Captura de Despacho</Text>
-          <Text style={styles.subtitulo}>Fotografiá la guía y el sistema hace el resto</Text>
+          <View style={styles.headerFila}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.titulo}>📦 Captura de Despacho</Text>
+              <Text style={styles.subtitulo}>👤 {empleado.nombre}</Text>
+            </View>
+            <Pressable onPress={onCerrarSesion} hitSlop={8}>
+              <Text style={styles.cerrarSesion}>Cerrar sesión</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.tarjeta}>
@@ -244,8 +269,10 @@ const styles = StyleSheet.create({
   },
   scroll: { padding: 20, paddingBottom: 40, gap: 16 },
   header: { marginTop: 8, marginBottom: 4, gap: 4 },
+  headerFila: { flexDirection: 'row', alignItems: 'flex-start' },
   titulo: { color: '#fff', fontSize: 24, fontWeight: '800' },
   subtitulo: { color: NEUTRAL_400, fontSize: 13 },
+  cerrarSesion: { color: '#f87171', fontSize: 12, fontWeight: '600', marginTop: 6 },
   tarjeta: {
     backgroundColor: NEUTRAL_850,
     borderRadius: 16,

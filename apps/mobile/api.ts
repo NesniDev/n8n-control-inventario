@@ -41,6 +41,27 @@ export async function fetchSedes(): Promise<Sede[]> {
   return res.json();
 }
 
+export interface Empleado {
+  id: string;
+  nombre: string;
+  sede_id: string;
+  rol: 'operador' | 'supervisor' | 'admin';
+}
+
+/** Login sin correo/contrasena: solo un PIN de 4 a 6 digitos. */
+export async function loginConPin(pin: string): Promise<Empleado> {
+  const res = await fetch(`${API_BASE_URL}/auth/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? 'PIN incorrecto');
+  }
+  return res.json();
+}
+
 /**
  * Sube la foto al bucket "evidencia" de Supabase Storage y devuelve la URL
  * publica + un hash del contenido (para el chequeo de duplicados/idempotencia
