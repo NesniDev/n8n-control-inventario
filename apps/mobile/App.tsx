@@ -70,10 +70,17 @@ export default function App() {
       );
     } catch (err: any) {
       setEstado('error');
+      const mensajeError: string =
+        err?.status === 409
+          ? (err?.detail ?? 'Esta entrega ya fue procesada — acción bloqueada.')
+          : (err?.detail ?? err?.message ?? 'Error al procesar la entrega.');
+      setMensaje(mensajeError);
+
       if (err?.status === 409) {
-        setMensaje('Esta guía ya fue procesada por otra sede — acción bloqueada.');
-      } else {
-        setMensaje(err?.detail ?? err?.message ?? 'Error al procesar la entrega.');
+        // Duplicado: es la alerta mas importante del flujo (evita doble
+        // despacho entre sedes) — un popup nativo no se puede pasar por
+        // alto como el texto en pantalla.
+        Alert.alert('⚠️ Entrega duplicada', mensajeError, [{ text: 'Entendido' }]);
       }
     }
   };
