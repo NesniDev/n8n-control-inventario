@@ -1,0 +1,31 @@
+# Node / Next.js / Expo
+node_modules/
+.next/
+out/
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+n8n/.env.n8n
+.n8n/
