@@ -117,21 +117,25 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
     return {"id": entrega_id, "estado": estado.value}
 
 
+_SELECT_ENTREGAS_CON_SEDE = """
+    select e.*, s.nombre as sede_origen_nombre
+    from entregas e
+    left join sedes s on s.id::text = e.sede_origen_id
+"""
+
+
 @router.get("")
 async def listar_entregas(sede_id: str | None = None, limit: int = 50) -> list[dict]:
     pool = await get_pool()
     if sede_id:
         rows = await pool.fetch(
-            """
-            select * from entregas where sede_origen_id = $1
-            order by capturado_at desc limit $2
-            """,
+            _SELECT_ENTREGAS_CON_SEDE + " where e.sede_origen_id = $1 order by e.capturado_at desc limit $2",
             sede_id,
             limit,
         )
     else:
         rows = await pool.fetch(
-            "select * from entregas order by capturado_at desc limit $1", limit
+            _SELECT_ENTREGAS_CON_SEDE + " order by e.capturado_at desc limit $1", limit
         )
 
     resultado = []

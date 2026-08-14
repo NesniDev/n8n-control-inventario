@@ -10,6 +10,7 @@ export interface Entrega {
   remitente: string;
   destinatario: string;
   sede_origen_id: string;
+  sede_origen_nombre: string | null;
   estado: "procesada" | "pendiente_revision" | "duplicado_bloqueado";
   operador_id: string;
   confianza_ia: Record<string, number>;

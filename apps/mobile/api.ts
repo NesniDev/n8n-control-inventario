@@ -5,7 +5,9 @@
  */
 
 import * as Crypto from 'expo-crypto';
-import * as FileSystem from 'expo-file-system';
+// SDK 57 reemplazo readAsStringAsync por las clases File/Directory; usamos el
+// import legacy explicito para no migrar ahora y evitar el warning de deprecacion.
+import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 
 import { EVIDENCIA_BUCKET, supabase } from './supabase';
@@ -23,6 +25,20 @@ export interface ResultadoEnvio {
 export interface ErrorEnvio {
   status: number;
   detail: string;
+}
+
+export interface Sede {
+  id: string;
+  nombre: string;
+  codigo: string;
+}
+
+export async function fetchSedes(): Promise<Sede[]> {
+  const res = await fetch(`${API_BASE_URL}/sedes`);
+  if (!res.ok) {
+    throw new Error(`No se pudieron cargar las sedes (${res.status})`);
+  }
+  return res.json();
 }
 
 /**

@@ -199,7 +199,9 @@ export default function DashboardPage() {
                     }
                   >
                     <td className="px-4 py-2 font-mono text-neutral-300">{e.numero_guia || "—"}</td>
-                    <td className="px-4 py-2 text-neutral-300">{e.sede_origen_id}</td>
+                    <td className="px-4 py-2 text-neutral-300">
+                      {e.sede_origen_nombre ?? e.sede_origen_id}
+                    </td>
                     <td className="px-4 py-2 text-neutral-300">
                       {e.remitente || "—"} → {e.destinatario || "—"}
                     </td>

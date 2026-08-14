@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,10 +13,9 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 
-import { procesarEntrega, subirEvidencia } from './api';
+import { fetchSedes, procesarEntrega, subirEvidencia, type Sede } from './api';
 
-// TODO: reemplazar por el login real del operador (sede + empleado autenticado).
-const SEDE_ORIGEN_ID = 'sede-demo';
+// TODO: reemplazar por el login real del operador (empleado autenticado).
 const OPERADOR_ID = 'operador-demo';
 
 type Estado = 'idle' | 'subiendo' | 'procesada' | 'pendiente_revision' | 'error';
@@ -24,6 +24,18 @@ export default function App() {
   const [foto, setFoto] = useState<string | null>(null);
   const [estado, setEstado] = useState<Estado>('idle');
   const [mensaje, setMensaje] = useState('');
+  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [sedeSeleccionada, setSedeSeleccionada] = useState<Sede | null>(null);
+  const [errorSedes, setErrorSedes] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchSedes()
+      .then((lista) => {
+        setSedes(lista);
+        setSedeSeleccionada((actual) => actual ?? lista[0] ?? null);
+      })
+      .catch((err) => setErrorSedes(err?.message ?? 'No se pudieron cargar las sedes'));
+  }, []);
 
   const tomarFoto = async () => {
     const permiso = await ImagePicker.requestCameraPermissionsAsync();
@@ -46,7 +58,7 @@ export default function App() {
   };
 
   const enviar = async () => {
-    if (!foto) return;
+    if (!foto || !sedeSeleccionada) return;
     setEstado('subiendo');
     setMensaje('Subiendo evidencia...');
 
@@ -57,7 +69,7 @@ export default function App() {
       const resultado = await procesarEntrega({
         evidencia_url: url,
         hash_evidencia: hash,
-        sede_origen_id: SEDE_ORIGEN_ID,
+        sede_origen_id: sedeSeleccionada.id,
         operador_id: OPERADOR_ID,
         capturado_at: new Date().toISOString(),
       });
@@ -95,7 +107,37 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="auto" />
       <Text style={styles.titulo}>Captura de Despacho</Text>
-      <Text style={styles.subtitulo}>Sede: {SEDE_ORIGEN_ID}</Text>
+
+      {errorSedes ? (
+        <Text style={[styles.mensaje, styles.mensajeError]}>{errorSedes}</Text>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.selectorSedes}
+          contentContainerStyle={styles.selectorSedesContenido}
+        >
+          {sedes.map((s) => (
+            <Pressable
+              key={s.id}
+              onPress={() => setSedeSeleccionada(s)}
+              style={[
+                styles.chipSede,
+                sedeSeleccionada?.id === s.id && styles.chipSedeActiva,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.chipSedeTexto,
+                  sedeSeleccionada?.id === s.id && styles.chipSedeTextoActivo,
+                ]}
+              >
+                {s.nombre}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
 
       {foto ? (
         <Image source={{ uri: foto }} style={styles.preview} />
@@ -127,7 +169,7 @@ export default function App() {
           <Text style={styles.botonTexto}>{foto ? 'Repetir foto' : 'Tomar foto'}</Text>
         </Pressable>
 
-        {foto && estado !== 'subiendo' && (
+        {foto && estado !== 'subiendo' && sedeSeleccionada && (
           <Pressable style={[styles.boton, styles.botonPrimario]} onPress={enviar}>
             <Text style={styles.botonTexto}>Enviar y procesar</Text>
           </Pressable>
@@ -147,6 +189,19 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#101826', padding: 20, alignItems: 'center' },
   titulo: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 12 },
   subtitulo: { color: '#8a94a6', fontSize: 13, marginBottom: 20 },
+  selectorSedes: { alignSelf: 'stretch', marginTop: 10, marginBottom: 16 },
+  selectorSedesContenido: { gap: 8, paddingRight: 8 },
+  chipSede: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#1c2534',
+    borderWidth: 1,
+    borderColor: '#2a3446',
+  },
+  chipSedeActiva: { backgroundColor: '#c8631f', borderColor: '#c8631f' },
+  chipSedeTexto: { color: '#8a94a6', fontSize: 13, fontWeight: '600' },
+  chipSedeTextoActivo: { color: '#fff' },
   preview: { width: '100%', height: 320, borderRadius: 10, backgroundColor: '#1c2534' },
   previewVacio: { alignItems: 'center', justifyContent: 'center' },
   previewTexto: { color: '#5c6779' },
