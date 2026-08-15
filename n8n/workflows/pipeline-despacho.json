@@ -12,7 +12,10 @@
       "name": "Webhook: foto subida",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-400, 260],
+      "position": [
+        -400,
+        272
+      ],
       "webhookId": "pipeline-despacho-foto-subida"
     },
     {
@@ -25,8 +28,7 @@
         "options": {
           "response": {
             "response": {
-              "neverError": true,
-              "fullResponse": false
+              "neverError": true
             }
           }
         }
@@ -35,7 +37,10 @@
       "name": "HTTP: procesar entrega",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-160, 260]
+      "position": [
+        -160,
+        272
+      ]
     },
     {
       "parameters": {
@@ -43,7 +48,8 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -65,7 +71,10 @@
       "name": "IF: hubo error",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [100, 260]
+      "position": [
+        112,
+        272
+      ]
     },
     {
       "parameters": {
@@ -73,7 +82,8 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -94,29 +104,32 @@
       "name": "IF: necesita revision",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [360, 380]
+      "position": [
+        368,
+        384
+      ]
     },
     {
-      "parameters": {
-        "content": "## Notificar: duplicado bloqueado o error\n\nReemplazar este nodo NoOp por Slack/Email real.\nDetalle del error/duplicado viene en `$json.detail`\n(ver `logs` en el backend para el rastro completo:\nquien, desde que sede, cuando).",
-        "height": 180,
-        "width": 260
-      },
+      "parameters": {},
       "id": "a1e11111-0000-4000-8000-000000000005",
       "name": "Notificar: duplicado o error",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [360, 120]
+      "position": [
+        368,
+        128
+      ]
     },
     {
-      "parameters": {
-        "content": "## Notificar: revision manual\n\nReemplazar este nodo NoOp por Slack/Email real.\nAviso al supervisor de la sede — confianza de la\nIA por debajo del umbral (ver MIN_CONFIDENCE)."
-      },
+      "parameters": {},
       "id": "a1e11111-0000-4000-8000-000000000006",
       "name": "Notificar: revision manual",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [620, 500]
+      "position": [
+        624,
+        512
+      ]
     },
     {
       "parameters": {
@@ -127,7 +140,10 @@
       "name": "Responder al webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [880, 260]
+      "position": [
+        880,
+        272
+      ]
     }
   ],
   "connections": {
@@ -200,10 +216,14 @@
       ]
     },
     "Notificar: duplicado o error": {
-      "main": [[]]
+      "main": [
+        []
+      ]
     },
     "Notificar: revision manual": {
-      "main": [[]]
+      "main": [
+        []
+      ]
     }
   },
   "pinData": {},
