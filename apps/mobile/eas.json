@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://learning-backend.nxepde.easypanel.host",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://geczvoxkeocmwabisbrr.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlY3p2b3hrZW9jbXdhYmlzYnJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MzczNzYsImV4cCI6MjEwMjIxMzM3Nn0.WB5pxJTNVD0wiXWoXAMT0BotRdJDdkzUiJkJJRiKL10"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

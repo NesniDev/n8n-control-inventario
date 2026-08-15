@@ -10,13 +10,17 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.controllogistico.despacho",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -28,6 +32,12 @@
           "cameraPermission": "Esta app usa la cámara para capturar guías de despacho."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ee84cf8b-3ace-4a7e-ad72-dcf7f4157b77"
+      }
+    },
+    "owner": "cimperio2026"
   }
 }

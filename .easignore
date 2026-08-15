@@ -1,0 +1,8 @@
+# EAS Build empaqueta desde la raiz del repo (monorepo) — excluimos todo lo
+# que no hace falta para compilar apps/mobile, y en particular los symlinks
+# de skills del dashboard que Windows no puede recrear en el tarball.
+apps/dashboard
+apps/backend
+n8n
+docs
+*.md
