@@ -20,7 +20,14 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""
 
+    # Lista separada por comas — permite el dashboard en prod (Vercel) y el
+    # dashboard local (localhost:3000) al mismo tiempo mientras se sigue
+    # desarrollando contra el backend ya desplegado.
     dashboard_origin: str = "http://localhost:3000"
+
+    @property
+    def dashboard_origins(self) -> list[str]:
+        return [o.strip() for o in self.dashboard_origin.split(",") if o.strip()]
 
     # Confianza minima por campo obligatorio antes de auto-aprobar una entrega.
     min_confidence: float = 0.75
