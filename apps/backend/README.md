@@ -56,6 +56,6 @@ Borra todas las `entregas`, `logs` y las fotos del bucket `evidencia` — deja e
 ## Notas de arquitectura
 
 - El **bloqueo de duplicados** no depende solo de la lógica de la app: `app/db.py` define un `unique (numero_guia, remitente)` en la tabla `entregas`, que es la barrera real (ver `services/duplicates.py`, que captura `asyncpg.UniqueViolationError`).
-- La **sincronización en tiempo real** hacia los dashboards de cada sede se resuelve con **Supabase Realtime** (replicación lógica de Postgres) — el dashboard puede suscribirse directo a la tabla `entregas` sin un relay propio que mantener (a diferencia de MongoDB Change Streams, que sí requerían un listener separado). Pendiente de cablear en `apps/dashboard` — hoy usa polling.
+- La **sincronización en tiempo real** hacia los dashboards de cada sede se resuelve con **Supabase Realtime** (replicación lógica de Postgres) — `ensure_schema()` agrega `entregas`/`logs` a la publicación `supabase_realtime`, y el dashboard se suscribe directo a esas tablas (`apps/dashboard/src/lib/supabase.ts`) sin un relay propio que mantener. El polling de 5s sigue activo como red de seguridad si el socket se corta.
 - La **IA de visión** (`services/vision.py`) usa salida estructurada (`response_format` `json_schema`, modo `strict`) de la API de OpenAI (`VISION_MODEL`, por defecto `gpt-5.6-luna` — ~$0.0003 por foto), no parsing de texto libre.
 - Conexión provisionada vía Marketplace de Vercel (`vercel integration add supabase`), que generó el proyecto Supabase y los env vars automáticamente.

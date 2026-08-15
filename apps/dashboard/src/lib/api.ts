@@ -1,6 +1,7 @@
-// Cliente hacia el backend (ver apps/backend). El dashboard hace polling
-// cada pocos segundos en vez de Change Streams reales — ver README para el
-// plan de reemplazo por WebSocket/SSE cuando haya un listener de Mongo.
+// Cliente hacia el backend (ver apps/backend). Los datos se leen por HTTP,
+// pero la revalidacion es instantanea via Supabase Realtime (ver
+// lib/supabase.ts y app/page.tsx) — el polling de 5s de SWR queda como red
+// de seguridad si el socket de Realtime se corta.
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 

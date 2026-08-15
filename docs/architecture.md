@@ -28,7 +28,7 @@ Parámetros de diseño:
 - FastAPI (Python): orquesta la subida, la llamada a IA, la validación/normalización, la escritura en DB y el logging.
 
 **IA de extracción (Data Entry por Visión)**
-- OpenAI (GPT-4o) vía API, con salida estructurada (`response_format` de tipo `json_schema`, modo `strict`) forzando un JSON schema fijo.
+- OpenAI (`VISION_MODEL`, por defecto `gpt-5.6-luna`) vía API, con salida estructurada (`response_format` de tipo `json_schema`, modo `strict`) forzando un JSON schema fijo.
 - Score de confianza por campo; si es bajo o faltan campos críticos → estado `pendiente_revision`.
 
 **Base de datos (multi-sede, tiempo real)** — provisionada vía Marketplace de Vercel (`vercel integration add supabase`)
@@ -38,10 +38,10 @@ Parámetros de diseño:
 - Object storage — la DB solo guarda URL + hash SHA-256. Candidato natural: Supabase Storage (mismo proyecto, sin un proveedor aparte), o S3/R2/GCS si se prefiere separar responsabilidades.
 
 **Orquestación** — `n8n/workflows`
-- n8n: recibe el webhook "foto subida", llama a la IA, valida, escribe en Mongo, dispara notificaciones y corre el job semanal de turnos.
+- n8n: recibe el webhook "foto subida", llama al backend (que a su vez llama a la IA, valida, escribe en Supabase), dispara notificaciones y corre el job semanal de turnos.
 
 **Dashboard administrativo** — `apps/dashboard`
-- Next.js: entregas en tiempo (casi) real, alertas de duplicado, logs.
+- Next.js: entregas en tiempo real (Supabase Realtime), alertas de duplicado, logs.
 
 ## 2. Flujo de automatización (paso a paso)
 
