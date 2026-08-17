@@ -12,7 +12,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
 
     openai_api_key: str = ""
-    vision_model: str = "gpt-4o"
+    # GPT-5.6 Luna: mas barato/rapido de la familia 5.6, alcanza de sobra para
+    # extraer campos estructurados de una guia legible. GPT-4o esta en retiro
+    # por parte de OpenAI, dejo de ser el default seguro.
+    vision_model: str = "gpt-5.6-luna"
 
     # Supabase Storage — solo la usa scripts/setup_storage.py (provisioning),
     # el backend web no toca Storage directamente. La app movil sube con la
