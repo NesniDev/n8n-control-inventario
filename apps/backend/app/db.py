@@ -17,7 +17,7 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
         "json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
     )
 
-# El indice unico sobre (numero_guia, remitente) es la barrera real contra
+# El indice unico sobre (tipo, indicativo_numero) es la barrera real contra
 # duplicados entre sedes: la validacion en la app es UX, esta es la que no
 # se puede saltar (ver app/services/duplicates.py).
 _SCHEMA = """
@@ -51,13 +51,12 @@ alter table empleados add column if not exists pin_salt text;
 
 create table if not exists entregas (
     id uuid primary key default gen_random_uuid(),
-    numero_guia text not null,
+    tipo text not null default 'FEI',
+    indicativo_numero text not null default '',
     hash_evidencia text not null unique,
     sede_origen_id text not null,
-    sede_destino_id text,
-    remitente text not null,
-    destinatario text not null,
-    items jsonb not null default '[]',
+    cantidad_entregada integer not null default 0,
+    cantidad_pendiente integer not null default 0,
     estado text not null default 'pendiente_revision'
         check (estado in ('procesada', 'pendiente_revision', 'duplicado_bloqueado')),
     confianza_ia jsonb not null default '{}',
@@ -65,12 +64,43 @@ create table if not exists entregas (
     operador_id text not null,
     capturado_at timestamptz not null,
     procesado_at timestamptz,
-    actualizado_at timestamptz not null default now(),
-    unique (numero_guia, remitente)
+    actualizado_at timestamptz not null default now()
 );
 
 create index if not exists idx_entregas_sede_capturado
     on entregas (sede_origen_id, capturado_at desc);
+
+-- Migracion desde el modelo anterior (numero_guia/remitente/destinatario/items,
+-- duplicado por numero_guia+remitente) al modelo de documentos (tipo +
+-- indicativo/numero, cantidad entregada/pendiente). Idempotente: corre igual
+-- de bien contra una DB nueva que contra una que ya tenia el esquema viejo.
+alter table entregas add column if not exists tipo text not null default 'FEI';
+alter table entregas add column if not exists indicativo_numero text not null default '';
+alter table entregas add column if not exists cantidad_entregada integer not null default 0;
+alter table entregas add column if not exists cantidad_pendiente integer not null default 0;
+alter table entregas drop column if exists numero_guia;
+alter table entregas drop column if exists remitente;
+alter table entregas drop column if exists destinatario;
+alter table entregas drop column if exists items;
+alter table entregas drop column if exists sede_destino_id;
+
+do $$
+begin
+    alter table entregas drop constraint if exists entregas_numero_guia_remitente_key;
+exception when undefined_object then null;
+end $$;
+
+do $$
+begin
+    alter table entregas add constraint entregas_tipo_check check (tipo in ('FEI', 'TB', 'RM3', 'RM2'));
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+    alter table entregas add constraint entregas_tipo_indicativo_numero_key unique (tipo, indicativo_numero);
+exception when duplicate_object then null;
+end $$;
 
 create table if not exists turnos (
     id uuid primary key default gen_random_uuid(),

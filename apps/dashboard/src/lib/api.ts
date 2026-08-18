@@ -5,13 +5,16 @@
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+export type TipoDocumento = "FEI" | "TB" | "RM3" | "RM2";
+
 export interface Entrega {
   id: string;
-  numero_guia: string;
-  remitente: string;
-  destinatario: string;
+  tipo: TipoDocumento;
+  indicativo_numero: string;
   sede_origen_id: string;
   sede_origen_nombre: string | null;
+  cantidad_entregada: number;
+  cantidad_pendiente: number;
   estado: "procesada" | "pendiente_revision" | "duplicado_bloqueado";
   operador_id: string;
   confianza_ia: Record<string, number>;
@@ -43,7 +46,12 @@ export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=30");
 
 export async function revisarEntrega(
   id: string,
-  campos: { numero_guia?: string; remitente?: string; destinatario?: string }
+  campos: {
+    tipo?: TipoDocumento;
+    indicativo_numero?: string;
+    cantidad_entregada?: number;
+    cantidad_pendiente?: number;
+  }
 ): Promise<Entrega> {
   const res = await fetch(`${API_BASE_URL}/entregas/${id}/revisar`, {
     method: "PATCH",

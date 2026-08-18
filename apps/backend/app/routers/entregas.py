@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.db import get_pool
-from app.models.entrega import EntregaCreate, EntregaRevision, EstadoEntrega
+from app.models.entrega import EntregaCreate, EntregaRevision, EstadoEntrega, TipoDocumento
 from app.models.log import EventoLog
 from app.services.duplicates import EntregaDuplicada, insertar_si_no_duplicada, marcar_estado_por_confianza
 from app.services.logging_service import registrar_evento
@@ -57,7 +57,7 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
         actor_id=payload.operador_id,
         sede_id=payload.sede_origen_id,
         resultado="ok",
-        detalle={"numero_guia": extraido.get("numero_guia")},
+        detalle={"tipo": extraido.get("tipo"), "indicativo_numero": extraido.get("indicativo_numero")},
     )
 
     estado = marcar_estado_por_confianza(extraido.get("confianza", {}), settings.min_confidence)
@@ -72,13 +72,12 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
     )
 
     entrega = {
-        "numero_guia": extraido.get("numero_guia", ""),
+        "tipo": extraido.get("tipo") or TipoDocumento.FEI.value,
+        "indicativo_numero": extraido.get("indicativo_numero", ""),
         "hash_evidencia": payload.hash_evidencia,
         "sede_origen_id": payload.sede_origen_id,
-        "sede_destino_id": extraido.get("sede_destino_sugerida") or None,
-        "remitente": extraido.get("remitente", ""),
-        "destinatario": extraido.get("destinatario", ""),
-        "items": extraido.get("items", []),
+        "cantidad_entregada": extraido.get("cantidad_entregada", 0),
+        "cantidad_pendiente": extraido.get("cantidad_pendiente", 0),
         "estado": estado.value,
         "confianza_ia": extraido.get("confianza", {}),
         "evidencia_url": payload.evidencia_url,
@@ -148,11 +147,11 @@ async def listar_entregas(sede_id: str | None = None, limit: int = 50) -> list[d
 
 _EXPORT_COLUMNAS = [
     "capturado_at",
-    "numero_guia",
+    "tipo",
+    "indicativo_numero",
     "sede_origen_id",
-    "sede_destino_id",
-    "remitente",
-    "destinatario",
+    "cantidad_entregada",
+    "cantidad_pendiente",
     "estado",
     "operador_id",
     "hash_evidencia",
@@ -172,27 +171,30 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     campos = {
-        "numero_guia": payload.numero_guia,
-        "remitente": payload.remitente,
-        "destinatario": payload.destinatario,
+        "tipo": payload.tipo.value if payload.tipo else None,
+        "indicativo_numero": payload.indicativo_numero,
+        "cantidad_entregada": payload.cantidad_entregada,
+        "cantidad_pendiente": payload.cantidad_pendiente,
     }
     campos = {k: v for k, v in campos.items() if v is not None}
 
     row = await pool.fetchrow(
         """
         update entregas
-        set numero_guia = coalesce($2, numero_guia),
-            remitente = coalesce($3, remitente),
-            destinatario = coalesce($4, destinatario),
-            estado = $5,
+        set tipo = coalesce($2, tipo),
+            indicativo_numero = coalesce($3, indicativo_numero),
+            cantidad_entregada = coalesce($4, cantidad_entregada),
+            cantidad_pendiente = coalesce($5, cantidad_pendiente),
+            estado = $6,
             actualizado_at = now()
         where id = $1::uuid
         returning *
         """,
         entrega_id,
-        campos.get("numero_guia"),
-        campos.get("remitente"),
-        campos.get("destinatario"),
+        campos.get("tipo"),
+        campos.get("indicativo_numero"),
+        campos.get("cantidad_entregada"),
+        campos.get("cantidad_pendiente"),
         EstadoEntrega.PROCESADA.value,
     )
 

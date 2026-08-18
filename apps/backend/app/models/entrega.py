@@ -10,9 +10,13 @@ class EstadoEntrega(StrEnum):
     DUPLICADO_BLOQUEADO = "duplicado_bloqueado"
 
 
-class ItemEntrega(BaseModel):
-    descripcion: str
-    cantidad: int = 1
+class TipoDocumento(StrEnum):
+    """Factura (FEI), traslado entre bodegas (TB) o remision (RM3/RM2)."""
+
+    FEI = "FEI"
+    TB = "TB"
+    RM3 = "RM3"
+    RM2 = "RM2"
 
 
 class EntregaCreate(BaseModel):
@@ -29,7 +33,8 @@ class EntregaRevision(BaseModel):
     """Payload para corregir/aprobar una entrega en 'pendiente_revision' desde
     el dashboard. Solo se envian los campos que un supervisor corrigio."""
 
-    numero_guia: str | None = None
-    remitente: str | None = None
-    destinatario: str | None = None
+    tipo: TipoDocumento | None = None
+    indicativo_numero: str | None = None
+    cantidad_entregada: int | None = None
+    cantidad_pendiente: int | None = None
     revisado_por: str = "supervisor"

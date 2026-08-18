@@ -11,6 +11,10 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 
+# Tipos de documento que reconoce el pipeline: factura (FEI), traslado entre
+# bodegas (TB) o remision (RM3/RM2) — ver app.models.entrega.TipoDocumento.
+_TIPOS_DOCUMENTO = ("FEI", "TB", "RM3", "RM2")
+
 # Esquema fijo que el modelo debe respetar. response_format=json_schema (modo
 # strict) garantiza que la respuesta valida contra este schema (o falla
 # explicitamente), asi que no necesitamos un parser de texto libre ni
@@ -18,53 +22,39 @@ from app.config import get_settings
 _EXTRACTION_SCHEMA = {
     "type": "object",
     "properties": {
-        "numero_guia": {"type": "string"},
-        "remitente": {"type": "string"},
-        "destinatario": {"type": "string"},
-        "sede_destino_sugerida": {"type": "string"},
-        "items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "descripcion": {"type": "string"},
-                    "cantidad": {"type": "integer"},
-                },
-                "required": ["descripcion", "cantidad"],
-                "additionalProperties": False,
-            },
-        },
+        "tipo": {"type": "string", "enum": list(_TIPOS_DOCUMENTO)},
+        "indicativo_numero": {"type": "string"},
+        "cantidad_entregada": {"type": "integer"},
+        "cantidad_pendiente": {"type": "integer"},
         "confianza": {
             "type": "object",
             "description": "Score 0-1 de confianza por cada campo obligatorio extraido.",
             "properties": {
-                "numero_guia": {"type": "number"},
-                "remitente": {"type": "number"},
-                "destinatario": {"type": "number"},
+                "tipo": {"type": "number"},
+                "indicativo_numero": {"type": "number"},
+                "cantidad_entregada": {"type": "number"},
+                "cantidad_pendiente": {"type": "number"},
             },
-            "required": ["numero_guia", "remitente", "destinatario"],
+            "required": ["tipo", "indicativo_numero", "cantidad_entregada", "cantidad_pendiente"],
             "additionalProperties": False,
         },
     },
-    "required": [
-        "numero_guia",
-        "remitente",
-        "destinatario",
-        "sede_destino_sugerida",
-        "items",
-        "confianza",
-    ],
+    "required": ["tipo", "indicativo_numero", "cantidad_entregada", "cantidad_pendiente", "confianza"],
     "additionalProperties": False,
 }
 
 _EXTRACTION_PROMPT = (
-    "Esta es una foto de una guia de despacho o remision logistica. "
-    "Extrae el numero de guia, remitente, destinatario, los items listados "
-    "(descripcion + cantidad) y la sede destino si aparece escrita. "
-    "Para cada campo obligatorio (numero_guia, remitente, destinatario) "
-    "asigna un score de confianza entre 0 y 1 segun que tan legible/clara "
-    "estaba esa parte de la imagen. Si un campo no es legible, usa cadena "
-    "vacia y confianza baja en vez de inventar un valor."
+    "Esta es una foto de un documento de despacho: puede ser una factura "
+    "(tipo FEI), un traslado entre bodegas (tipo TB) o una remision (tipo "
+    "RM3 o RM2, segun lo que diga el documento). Identifica el tipo de "
+    "documento, su indicativo/numero (el consecutivo impreso, por ejemplo si "
+    "el documento dice 'FEI 10254' el indicativo_numero es '10254'), la "
+    "cantidad total entregada y la cantidad total pendiente. Si el documento "
+    "no distingue entre entregado y pendiente, usa la cantidad total como "
+    "entregada y 0 como pendiente. Para cada campo obligatorio asigna un "
+    "score de confianza entre 0 y 1 segun que tan legible/clara estaba esa "
+    "parte de la imagen. Si un campo no es legible, usa cadena vacia (o 0 "
+    "para las cantidades) y confianza baja en vez de inventar un valor."
 )
 
 

@@ -32,7 +32,7 @@ Parámetros de diseño:
 - Score de confianza por campo; si es bajo o faltan campos críticos → estado `pendiente_revision`.
 
 **Base de datos (multi-sede, tiempo real)** — provisionada vía Marketplace de Vercel (`vercel integration add supabase`)
-- Supabase (Postgres): `unique (numero_guia, remitente)` que bloquea duplicados a nivel de base de datos, y Supabase Realtime (replicación lógica de Postgres) para notificar en tiempo real a todas las sedes sin un relay propio.
+- Supabase (Postgres): `unique (tipo, indicativo_numero)` que bloquea duplicados a nivel de base de datos (ej. no puede haber dos "FEI 10254"), y Supabase Realtime (replicación lógica de Postgres) para notificar en tiempo real a todas las sedes sin un relay propio.
 
 **Almacenamiento de evidencia**
 - Object storage — la DB solo guarda URL + hash SHA-256. Candidato natural: Supabase Storage (mismo proyecto, sin un proveedor aparte), o S3/R2/GCS si se prefiere separar responsabilidades.
@@ -48,9 +48,9 @@ Parámetros de diseño:
 1. **Captura**: operador en Sede A fotografía la guía; la app adjunta `sede_id`, `operador_id`, timestamp.
 2. **Subida**: imagen a object storage; se genera hash SHA-256.
 3. **Trigger**: evento "imagen subida" dispara webhook a n8n.
-4. **Extracción IA**: se llama al LLM de visión con la imagen + schema JSON; se recibe JSON estructurado + confianza por campo.
+4. **Extracción IA**: se llama al LLM de visión con la imagen + schema JSON; se recibe el tipo de documento (FEI/TB/RM3/RM2), indicativo/número, cantidad entregada y cantidad pendiente, + confianza por campo.
 5. **Validación automática**: confianza alta y campos completos → continúa; confianza baja → `pendiente_revision` + notificación.
-6. **Chequeo de duplicados**: índice único (nº guía + remitente) antes de insertar. Si ya existe → se bloquea, se registra en `logs`, se notifica a ambas sedes.
+6. **Chequeo de duplicados**: índice único (tipo + indicativo/número) antes de insertar. Si ya existe → se bloquea, se registra en `logs`, se notifica a ambas sedes.
 7. **Persistencia**: si no hay duplicado, se inserta en `entregas` con estado `procesada`.
 8. **Propagación en tiempo real**: Change Stream/listener actualiza dashboards/apps.
 9. **Logging**: cada paso anterior escribe un evento inmutable en `logs`.
@@ -63,10 +63,11 @@ Ver el diagrama enlazado arriba para el flujo visual completo, incluyendo las ra
 ```
 sedes            (id uuid pk, nombre, codigo unique, direccion, timezone, activa, created_at)
 empleados        (id uuid pk, nombre, sede_id, rol, estado, created_at)
-entregas         (id uuid pk, numero_guia, hash_evidencia unique, sede_origen_id, sede_destino_id,
-                   remitente, destinatario, items jsonb, estado, confianza_ia jsonb,
+entregas         (id uuid pk, tipo, indicativo_numero, hash_evidencia unique, sede_origen_id,
+                   cantidad_entregada, cantidad_pendiente, estado, confianza_ia jsonb,
                    evidencia_url, operador_id, capturado_at, procesado_at, actualizado_at)
-                  -- unique (numero_guia, remitente)  ← barrera anti-duplicado real
+                  -- tipo in ('FEI', 'TB', 'RM3', 'RM2'): factura, traslado o remision
+                  -- unique (tipo, indicativo_numero)  ← barrera anti-duplicado real (ej. "FEI 10254")
 turnos                (id uuid pk, empleado_id, sede_id, fecha, hora_inicio, hora_fin, origen)
 shift_recommendations (id uuid pk, sede_id, semana_iso, bloques_sugeridos jsonb, generado_at, modelo_usado)
                        -- unique (sede_id, semana_iso)
@@ -81,7 +82,7 @@ DDL exacto: `apps/backend/app/db.py` (`_SCHEMA`, aplicado automáticamente al ar
 |---|---|
 | Calidad de imagen (borrosa, mal iluminada) | Validación de nitidez en el cliente antes de subir, guía visual de encuadre |
 | Latencia de la IA de visión | Subida asíncrona: confirmación instantánea + notificación push con el resultado |
-| Falsos positivos/negativos en duplicados | Restricción `unique` a nivel de DB (`numero_guia` + `remitente`) + `hash_evidencia` único como respaldo |
+| Falsos positivos/negativos en duplicados | Restricción `unique` a nivel de DB (`tipo` + `indicativo_numero`) + `hash_evidencia` único como respaldo |
 | Condición de carrera entre 2 sedes casi simultáneas | `INSERT` atómico contra el `unique` constraint como barrera final; Postgres rechaza el segundo insert con `UniqueViolationError` (`app/services/duplicates.py`) |
 | Costo/rate limits del proveedor de IA | Cola con reintentos y backoff en n8n; cachear por hash de imagen |
 | Conectividad intermitente en sede | Cola offline con idempotency key por captura (pendiente en `apps/mobile`) |

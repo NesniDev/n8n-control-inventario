@@ -8,6 +8,7 @@ import {
   fetchLogs,
   revisarEntrega,
   type Entrega,
+  type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
@@ -23,6 +24,10 @@ const ESTADO_CLASS: Record<Entrega["estado"], string> = {
   duplicado_bloqueado: "bg-red-500/15 text-red-400",
 };
 
+// Factura (FEI), traslado entre bodegas (TB) o remision (RM3/RM2) — ver
+// app.models.entrega.TipoDocumento en el backend.
+const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "TB", "RM3", "RM2"];
+
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function FilaRevision({
@@ -32,9 +37,10 @@ function FilaRevision({
   entrega: Entrega;
   onGuardado: () => void;
 }) {
-  const [numeroGuia, setNumeroGuia] = useState(entrega.numero_guia);
-  const [remitente, setRemitente] = useState(entrega.remitente);
-  const [destinatario, setDestinatario] = useState(entrega.destinatario);
+  const [tipo, setTipo] = useState<TipoDocumento>(entrega.tipo);
+  const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
+  const [cantidadEntregada, setCantidadEntregada] = useState(entrega.cantidad_entregada);
+  const [cantidadPendiente, setCantidadPendiente] = useState(entrega.cantidad_pendiente);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,9 +53,10 @@ function FilaRevision({
     setError(null);
     try {
       await revisarEntrega(entrega.id, {
-        numero_guia: numeroGuia,
-        remitente,
-        destinatario,
+        tipo,
+        indicativo_numero: indicativoNumero,
+        cantidad_entregada: cantidadEntregada,
+        cantidad_pendiente: cantidadPendiente,
       });
       onGuardado();
     } catch (err) {
@@ -61,7 +68,7 @@ function FilaRevision({
 
   return (
     <tr className="bg-amber-500/5">
-      <td colSpan={5} className="px-4 py-3">
+      <td colSpan={8} className="px-4 py-3">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
             <span>Revisar antes de aprobar — campos con baja confianza de la IA:</span>
@@ -79,28 +86,44 @@ function FilaRevision({
               Ver foto original ↗
             </a>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Número de guía
+              Tipo
+              <select
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value as TipoDocumento)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+              >
+                {TIPOS_DOCUMENTO.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Indicativo/número
               <input
-                value={numeroGuia}
-                onChange={(e) => setNumeroGuia(e.target.value)}
+                value={indicativoNumero}
+                onChange={(e) => setIndicativoNumero(e.target.value)}
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Remitente
+              Cantidad entregada
               <input
-                value={remitente}
-                onChange={(e) => setRemitente(e.target.value)}
+                type="number"
+                value={cantidadEntregada}
+                onChange={(e) => setCantidadEntregada(Number(e.target.value))}
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Destinatario
+              Cantidad pendiente
               <input
-                value={destinatario}
-                onChange={(e) => setDestinatario(e.target.value)}
+                type="number"
+                value={cantidadPendiente}
+                onChange={(e) => setCantidadPendiente(Number(e.target.value))}
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
               />
             </label>
@@ -169,7 +192,7 @@ export default function DashboardPage() {
   const entregasFiltradas = !termino
     ? entregas
     : entregas?.filter((e) =>
-        [e.numero_guia, e.remitente, e.destinatario, e.sede_origen_nombre, e.operador_id]
+        [e.tipo, e.indicativo_numero, e.sede_origen_nombre, e.operador_id]
           .filter(Boolean)
           .some((campo) => campo!.toLowerCase().includes(termino))
       );
@@ -219,31 +242,34 @@ export default function DashboardPage() {
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar por guía, remitente, destinatario, sede u operador..."
+          placeholder="Buscar por tipo, indicativo/número, sede u operador..."
           className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
         />
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
-          <table className="w-full min-w-[640px] text-left text-sm">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="bg-neutral-900 text-neutral-500">
               <tr>
-                <th className="px-4 py-2 font-medium">Guía</th>
+                <th className="px-4 py-2 font-medium">Tipo</th>
+                <th className="px-4 py-2 font-medium">Indicativo/número</th>
                 <th className="px-4 py-2 font-medium">Sede origen</th>
-                <th className="px-4 py-2 font-medium">Remitente → Destinatario</th>
+                <th className="px-4 py-2 font-medium">Entregada</th>
+                <th className="px-4 py-2 font-medium">Pendiente</th>
                 <th className="px-4 py-2 font-medium">Estado</th>
                 <th className="px-4 py-2 font-medium">Capturado</th>
+                <th className="px-4 py-2 font-medium">Foto</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
               {!entregasCargando && entregas?.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={8} className="px-4 py-6 text-center text-neutral-500">
                     Sin entregas todavía.
                   </td>
                 </tr>
               ) : null}
               {!entregasCargando && termino && entregasFiltradas?.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={8} className="px-4 py-6 text-center text-neutral-500">
                     Sin resultados para &quot;{busqueda}&quot;.
                   </td>
                 </tr>
@@ -259,13 +285,15 @@ export default function DashboardPage() {
                         : undefined
                     }
                   >
-                    <td className="px-4 py-2 font-mono text-neutral-300">{e.numero_guia || "—"}</td>
+                    <td className="px-4 py-2 font-mono text-neutral-300">{e.tipo || "—"}</td>
+                    <td className="px-4 py-2 font-mono text-neutral-300">
+                      {e.indicativo_numero || "—"}
+                    </td>
                     <td className="px-4 py-2 text-neutral-300">
                       {e.sede_origen_nombre ?? e.sede_origen_id}
                     </td>
-                    <td className="px-4 py-2 text-neutral-300">
-                      {e.remitente || "—"} → {e.destinatario || "—"}
-                    </td>
+                    <td className="px-4 py-2 text-neutral-300">{e.cantidad_entregada}</td>
+                    <td className="px-4 py-2 text-neutral-300">{e.cantidad_pendiente}</td>
                     <td className="px-4 py-2">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
@@ -276,6 +304,17 @@ export default function DashboardPage() {
                     </td>
                     <td className="px-4 py-2 text-neutral-500">
                       {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="px-4 py-2">
+                      <a
+                        href={e.evidencia_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(ev) => ev.stopPropagation()}
+                        className="text-orange-400 hover:underline"
+                      >
+                        Ver foto ↗
+                      </a>
                     </td>
                   </tr>
                   {enRevision === e.id ? (
