@@ -27,6 +27,11 @@ class EntregaCreate(BaseModel):
     sede_origen_id: str
     operador_id: str
     capturado_at: datetime
+    # La ingresa el bodeguero a mano al momento de la captura — manda sobre
+    # lo que la IA de vision llegue a leer en el documento para este campo
+    # (ver app/routers/entregas.py: procesar_entrega). cantidad_entregada en
+    # cambio sigue saliendo de la extraccion por IA.
+    cantidad_pendiente: int
 
 
 class EntregaRevision(BaseModel):

@@ -81,7 +81,9 @@ async def insertar_si_no_duplicada(entrega: dict, *, actor_id: str, sede_id: str
 
 
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
-    campos_criticos = ("tipo", "indicativo_numero", "cantidad_entregada", "cantidad_pendiente")
+    # cantidad_pendiente queda afuera: la ingresa el bodeguero a mano (ver
+    # app/routers/entregas.py), no hay confianza de IA que evaluar ahi.
+    campos_criticos = ("tipo", "indicativo_numero", "cantidad_entregada")
     if any(confianza.get(campo, 0.0) < min_confidence for campo in campos_criticos):
         return EstadoEntrega.PENDIENTE_REVISION
     return EstadoEntrega.PROCESADA

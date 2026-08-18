@@ -98,6 +98,9 @@ export async function procesarEntrega(payload: {
   sede_origen_id: string;
   operador_id: string;
   capturado_at: string;
+  // La ingresa el bodeguero a mano al tomar la foto — manda sobre lo que la
+  // IA de vision llegue a leer para ese campo (ver EntregaCreate en el backend).
+  cantidad_pendiente: number;
 }): Promise<ResultadoEnvio> {
   const res = await fetch(`${API_BASE_URL}/entregas/procesar`, {
     method: 'POST',

@@ -9,6 +9,7 @@ import {
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -48,6 +49,9 @@ function PantallaCaptura({
   const [sedes, setSedes] = useState<Sede[]>([]);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<Sede | null>(null);
   const [errorSedes, setErrorSedes] = useState<string | null>(null);
+  // La cuenta el bodeguero a mano al tomar la foto — manda sobre lo que la
+  // IA de vision llegue a leer para este campo (ver api.ts/procesarEntrega).
+  const [cantidadPendiente, setCantidadPendiente] = useState('');
 
   useEffect(() => {
     fetchSedes()
@@ -79,11 +83,14 @@ function PantallaCaptura({
       setFoto(resultado.assets[0].uri);
       setEstado('idle');
       setMensaje('');
+      setCantidadPendiente('');
     }
   };
 
+  const cantidadPendienteValida = /^\d+$/.test(cantidadPendiente.trim());
+
   const enviar = async () => {
-    if (!foto || !sedeSeleccionada) return;
+    if (!foto || !sedeSeleccionada || !cantidadPendienteValida) return;
     setEstado('subiendo');
     setMensaje('Subiendo evidencia...');
 
@@ -97,6 +104,7 @@ function PantallaCaptura({
         sede_origen_id: sedeSeleccionada.id,
         operador_id: empleado.id,
         capturado_at: new Date().toISOString(),
+        cantidad_pendiente: Number(cantidadPendiente.trim()),
       });
 
       setEstado(resultado.estado);
@@ -126,9 +134,11 @@ function PantallaCaptura({
     setFoto(null);
     setEstado('idle');
     setMensaje('');
+    setCantidadPendiente('');
   };
 
-  const puedeEnviar = !!foto && !!sedeSeleccionada && estado !== 'subiendo';
+  const puedeEnviar =
+    !!foto && !!sedeSeleccionada && cantidadPendienteValida && estado !== 'subiendo';
   const infoEstado = estado !== 'idle' && estado !== 'subiendo' ? ESTADO_INFO[estado] : null;
 
   return (
@@ -196,6 +206,23 @@ function PantallaCaptura({
             </View>
           )}
         </View>
+
+        {foto ? (
+          <View style={styles.tarjeta}>
+            <Text style={styles.etiquetaSeccion}>Cantidad pendiente</Text>
+            <TextInput
+              value={cantidadPendiente}
+              onChangeText={setCantidadPendiente}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor="#6b7688"
+              style={styles.inputCantidad}
+            />
+            <Text style={styles.previewSubtexto}>
+              Cuántas unidades quedaron pendientes de este despacho
+            </Text>
+          </View>
+        ) : null}
 
         {estado === 'subiendo' ? (
           <View style={[styles.tarjeta, styles.estadoBox]}>
@@ -289,6 +316,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   textoErrorInline: { color: '#f87171', fontSize: 13 },
+  inputCantidad: {
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,

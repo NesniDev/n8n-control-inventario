@@ -90,16 +90,29 @@ begin
 exception when undefined_object then null;
 end $$;
 
+-- OJO: un unique constraint crea un indice con el mismo nombre por debajo;
+-- si ya existe, Postgres tira duplicate_table (42P07) en vez de
+-- duplicate_object (42710) al intentar recrearlo, asi que la constraint por
+-- excepcion (como la del publication de mas abajo) no alcanza aca — hay que
+-- chequear existencia antes en pg_constraint.
 do $$
 begin
-    alter table entregas add constraint entregas_tipo_check check (tipo in ('FEI', 'TB', 'RM3', 'RM2'));
-exception when duplicate_object then null;
+    if not exists (
+        select 1 from pg_constraint
+        where conname = 'entregas_tipo_check' and conrelid = 'entregas'::regclass
+    ) then
+        alter table entregas add constraint entregas_tipo_check check (tipo in ('FEI', 'TB', 'RM3', 'RM2'));
+    end if;
 end $$;
 
 do $$
 begin
-    alter table entregas add constraint entregas_tipo_indicativo_numero_key unique (tipo, indicativo_numero);
-exception when duplicate_object then null;
+    if not exists (
+        select 1 from pg_constraint
+        where conname = 'entregas_tipo_indicativo_numero_key' and conrelid = 'entregas'::regclass
+    ) then
+        alter table entregas add constraint entregas_tipo_indicativo_numero_key unique (tipo, indicativo_numero);
+    end if;
 end $$;
 
 create table if not exists turnos (

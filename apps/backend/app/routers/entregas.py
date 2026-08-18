@@ -57,7 +57,14 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
         actor_id=payload.operador_id,
         sede_id=payload.sede_origen_id,
         resultado="ok",
-        detalle={"tipo": extraido.get("tipo"), "indicativo_numero": extraido.get("indicativo_numero")},
+        detalle={
+            "tipo": extraido.get("tipo"),
+            "indicativo_numero": extraido.get("indicativo_numero"),
+            "cantidad_entregada": extraido.get("cantidad_entregada"),
+            # Guia leida por la IA, solo a modo de auditoria — la que se
+            # persiste es la que ingresa el bodeguero (payload.cantidad_pendiente).
+            "cantidad_pendiente_ia": extraido.get("cantidad_pendiente"),
+        },
     )
 
     estado = marcar_estado_por_confianza(extraido.get("confianza", {}), settings.min_confidence)
@@ -77,7 +84,9 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
         "hash_evidencia": payload.hash_evidencia,
         "sede_origen_id": payload.sede_origen_id,
         "cantidad_entregada": extraido.get("cantidad_entregada", 0),
-        "cantidad_pendiente": extraido.get("cantidad_pendiente", 0),
+        # La del bodeguero manda sobre lo que haya leido la IA (ver
+        # EntregaCreate.cantidad_pendiente y el log EXTRACCION_IA de arriba).
+        "cantidad_pendiente": payload.cantidad_pendiente,
         "estado": estado.value,
         "confianza_ia": extraido.get("confianza", {}),
         "evidencia_url": payload.evidencia_url,
