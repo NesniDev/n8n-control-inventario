@@ -1,16 +1,18 @@
 # Flujos de n8n
 
-Referencia de los dos workflows de orquestación descritos en la
-[arquitectura](../../docs/architecture.md). n8n no reimplementa la lógica de
-negocio (eso vive en `apps/backend`) — orquesta el trigger, las llamadas
-externas y las notificaciones alrededor de ella.
+Referencia de los workflows de orquestación descritos en la
+[arquitectura](../../docs/architecture.md) (Workflows 1 y 2) más el de
+monitoreo (Workflow 3, no está en el diagrama). n8n no reimplementa la
+lógica de negocio (eso vive en `apps/backend`) — orquesta el trigger, las
+llamadas externas y las notificaciones alrededor de ella.
 
-**`pipeline-despacho.json`** en esta misma carpeta es un export real e
-importable (Workflows → Import from File en la UI de n8n) del Workflow 1
-descrito abajo — sin credenciales de Slack/Email reales (esos nodos vienen
-como `NoOp`, listos para reemplazar). El Workflow 2 (cron de turnos) no se
-versiona como JSON porque es un `Schedule Trigger` + `Execute Command`
-directo, más simple de armar a mano siguiendo la tabla de abajo.
+**`pipeline-despacho.json`** y **`monitoreo-salud.json`** en esta misma
+carpeta son exports reales e importables (Workflows → Import from File en la
+UI de n8n) de los Workflows 1 y 3 descritos abajo — el primero sin
+credenciales de Slack/Email reales (esos nodos vienen como `NoOp`, listos
+para reemplazar). El Workflow 2 (cron de turnos) no se versiona como JSON
+porque es un `Schedule Trigger` + `Execute Command` directo, más simple de
+armar a mano siguiendo la tabla de abajo.
 
 ## Workflow 1 — Pipeline de despacho
 
@@ -53,9 +55,32 @@ Corresponde a la Figura 2. Se dispara por cron, no por evento.
 | 3 | `HTTP: obtener recomendaciones` | HTTP Request | `GET {{$env.API_BASE_URL}}/turnos/recomendaciones` para armar el mensaje de notificación. |
 | 4 | `Notificar: RRHH/supervisores` | Slack / Email | Envía el resumen de bloques sugeridos por sede. |
 
+## Workflow 3 — Monitoreo de salud
+
+`monitoreo-salud.json` en esta misma carpeta es un export real e importable.
+No forma parte del pipeline de despacho — corre en paralelo, cada 5 minutos,
+para detectar si el backend se cayó.
+
+| # | Nodo | Tipo | Qué hace |
+|---|---|---|---|
+| 1 | `Cron: cada 5 minutos` | Schedule Trigger | Dispara el chequeo periódicamente. |
+| 2 | `HTTP: chequear salud` | HTTP Request | `GET {{$env.API_BASE_URL}}/health`, timeout 10s. Usa `onError: continueErrorOutput` — cualquier falla (timeout, conexión rechazada, backend caído) sale por la rama de error en vez de cortar el workflow. |
+| 3 | `HTTP: registrar caida en logs` | HTTP Request | Solo corre si el paso 2 falló. Inserta un evento `health_check_fallido` directo contra la REST API de Supabase (`POST {{$env.SUPABASE_URL}}/rest/v1/logs`) — **no** le pide al backend que se loguee a sí mismo, porque si está caído no puede. Queda visible en la sección de auditoría del dashboard como cualquier otro evento. |
+
+**Por qué REST de Supabase y no un nodo Postgres:** mismo tipo de nodo
+(`httpRequest`) que ya usa el resto de los workflows — nada de credenciales
+nuevas que configurar en n8n aparte de las dos variables de entorno de abajo.
+
+**Por qué no hay notificación push (email/Slack/etc.):** decisión explícita
+para no depender de un canal nuevo a configurar. Si más adelante querés que
+además avise en vivo (Telegram es gratis y rápido de armar), se agrega un
+nodo más después de `HTTP: registrar caida en logs`.
+
 ## Variables de entorno de n8n
 
-| Variable | Ejemplo |
-|---|---|
-| `API_BASE_URL` | `https://api.tuempresa.com` |
-| `SLACK_WEBHOOK_URL` / credencial Slack | — |
+| Variable | Ejemplo | Usada por |
+|---|---|---|
+| `API_BASE_URL` | `https://learning-backend.nxepde.easypanel.host` | Workflows 1, 2, 3 |
+| `SUPABASE_URL` | `https://geczvoxkeocmwabisbrr.supabase.co` | Workflow 3 |
+| `SUPABASE_SERVICE_ROLE_KEY` | (secreto — `apps/backend/.env`) | Workflow 3 |
+| `SLACK_WEBHOOK_URL` / credencial Slack | — | Workflow 1 (pendiente) |

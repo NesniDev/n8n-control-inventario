@@ -1,0 +1,106 @@
+{
+  "name": "Monitoreo de salud",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "a2e22222-0000-4000-8000-000000000001",
+      "name": "Cron: cada 5 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.API_BASE_URL }}/health",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a2e22222-0000-4000-8000-000000000002",
+      "name": "HTTP: chequear salud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        -160,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ evento: 'health_check_fallido', entidad_tipo: 'sistema', entidad_id: 'backend', actor_id: 'n8n', sede_id: 'sistema', resultado: 'error', detalle: { error: ($json.error && $json.error.message) || $json.message || 'desconocido', url: $env.API_BASE_URL + '/health' } }) }}"
+      },
+      "id": "a2e22222-0000-4000-8000-000000000003",
+      "name": "HTTP: registrar caida en logs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        112,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Cron: cada 5 minutos": {
+      "main": [
+        [
+          {
+            "node": "HTTP: chequear salud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: chequear salud": {
+      "main": [
+        [],
+        [
+          {
+            "node": "HTTP: registrar caida en logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
