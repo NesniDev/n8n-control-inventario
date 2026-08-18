@@ -84,7 +84,7 @@ DDL exacto: `apps/backend/app/db.py` (`_SCHEMA`, aplicado automáticamente al ar
 | Latencia de la IA de visión | Subida asíncrona: confirmación instantánea + notificación push con el resultado |
 | Falsos positivos/negativos en duplicados | Restricción `unique` a nivel de DB (`tipo` + `indicativo_numero`) + `hash_evidencia` único como respaldo |
 | Condición de carrera entre 2 sedes casi simultáneas | `INSERT` atómico contra el `unique` constraint como barrera final; Postgres rechaza el segundo insert con `UniqueViolationError` (`app/services/duplicates.py`) |
-| Costo/rate limits del proveedor de IA | Cola con reintentos y backoff en n8n; cachear por hash de imagen |
+| Costo/rate limits del proveedor de IA | El cliente de OpenAI reintenta solo con backoff exponencial ante 429/5xx/timeouts (`max_retries` del SDK); `HTTP: procesar entrega` en n8n reintenta ante caídas de conexión contra el backend (`retryOnFail` en `pipeline-despacho.json`). Cachear por hash de imagen sigue pendiente |
 | Conectividad intermitente en sede | Cola offline con idempotency key por captura (pendiente en `apps/mobile`) |
 | Poco histórico para el modelo de turnos | Empezar con percentiles simples (implementado), avanzar a forecasting estacional con ≥2-3 meses de datos |
 

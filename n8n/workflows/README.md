@@ -26,9 +26,21 @@ operador sube una foto desde la app móvil.
 | 4b | `Notificar: duplicado bloqueado` | Slack / Email | Aviso a ambas sedes involucradas (origen del intento + sede que ya la había registrado) citando el evento de `logs`. |
 | 5 | `Respond to Webhook` | Respond to Webhook | Devuelve el resultado a la app móvil (código 201 / 409 / 502 según corresponda). |
 
-**Reintentos:** configurar el nodo HTTP Request con reintento exponencial
-(2-3 intentos) para absorber rate limits transitorios del proveedor de IA de
-visión — ver la tabla de riesgos en `docs/architecture.md`.
+**Reintentos:**
+- `HTTP: procesar entrega` tiene `retryOnFail` (3 intentos, 2s entre cada uno)
+  configurado en `pipeline-despacho.json` — absorbe caídas transitorias de
+  red/conexión contra el backend (ej. el VPS reiniciando a mitad de un
+  deploy). El nodo usa `neverError: true` para poder ramificar sobre
+  respuestas de negocio (409 duplicado, 422 validación) sin que n8n las trate
+  como fallo, así que estos reintentos solo se disparan ante errores reales
+  de conexión, no ante esos códigos de estado — reintentarlos no tendría
+  sentido, van a fallar siempre igual.
+- La IA de visión (`apps/backend/app/services/vision.py`) **no necesita**
+  reintento acá: el cliente de OpenAI (`openai==1.59.6`) ya reintenta solo,
+  con backoff exponencial + jitter, ante 408/409/429/5xx y errores de
+  conexión/timeout (`max_retries=2` por defecto = 3 intentos totales). Si
+  `/entregas/procesar` devuelve 502, es porque ya se agotaron esos intentos
+  del lado del backend.
 
 ## Workflow 2 — Analítica semanal de turnos
 
