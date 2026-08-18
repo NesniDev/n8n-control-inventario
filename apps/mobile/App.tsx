@@ -66,6 +66,15 @@ function PantallaCaptura({
       .catch((err) => setErrorSedes(err?.message ?? 'No se pudieron cargar las sedes'));
   }, [empleado.sede_id]);
 
+  const usarResultado = (resultado: ImagePicker.ImagePickerResult) => {
+    if (!resultado.canceled && resultado.assets[0]) {
+      setFoto(resultado.assets[0].uri);
+      setEstado('idle');
+      setMensaje('');
+      setCantidadPendiente('');
+    }
+  };
+
   const tomarFoto = async () => {
     const permiso = await ImagePicker.requestCameraPermissionsAsync();
     if (!permiso.granted) {
@@ -79,12 +88,23 @@ function PantallaCaptura({
       exif: false,
     });
 
-    if (!resultado.canceled && resultado.assets[0]) {
-      setFoto(resultado.assets[0].uri);
-      setEstado('idle');
-      setMensaje('');
-      setCantidadPendiente('');
+    usarResultado(resultado);
+  };
+
+  const elegirDeGaleria = async () => {
+    const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a las fotos para elegir la guía.');
+      return;
     }
+
+    const resultado = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.8,
+      allowsEditing: false,
+      exif: false,
+    });
+
+    usarResultado(resultado);
   };
 
   const cantidadPendienteValida = /^\d+$/.test(cantidadPendiente.trim());
@@ -247,6 +267,13 @@ function PantallaCaptura({
             onPress={tomarFoto}
           >
             <Text style={styles.botonTexto}>{foto ? '🔁 Repetir foto' : '📷 Tomar foto'}</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+            onPress={elegirDeGaleria}
+          >
+            <Text style={styles.botonTexto}>{foto ? '🖼️ Cambiar de galería' : '🖼️ Elegir de galería'}</Text>
           </Pressable>
 
           {foto && estado !== 'procesada' && estado !== 'pendiente_revision' && (
