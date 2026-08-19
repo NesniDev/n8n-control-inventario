@@ -66,6 +66,13 @@ function topeValor(item: ItemFormulario, situacion: 'nueva' | 'actualizable'): n
   return situacion === 'actualizable' ? item.cantidad_pendiente : item.cantidad_entregada;
 }
 
+// Valor que corresponde al check "ya se entrego todo esto" -- para 'nueva'
+// es 0 (no queda nada pendiente de este producto); para 'actualizable' es el
+// pendiente actual completo (se entrego todo lo que faltaba).
+function valorTodoEntregado(item: ItemFormulario, situacion: 'nueva' | 'actualizable'): number {
+  return situacion === 'actualizable' ? item.cantidad_pendiente : 0;
+}
+
 function valorValido(item: ItemFormulario, situacion: 'nueva' | 'actualizable'): boolean {
   const valor = item.valor.trim();
   if (!/^\d+$/.test(valor)) return false;
@@ -273,6 +280,15 @@ function PantallaCaptura({
 
   const actualizarValorItem = (id: string, valor: string) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, valor } : item)));
+  };
+
+  // Check "todo entregado" -- evita tener que tipear el numero a mano.
+  // Tocarlo de nuevo lo destilda y deja el campo vacio para tipear otra cosa.
+  const alternarTodoEntregado = (item: ItemFormulario) => {
+    if (!situacion) return;
+    const completo = String(valorTodoEntregado(item, situacion));
+    const marcado = item.valor.trim() === completo;
+    actualizarValorItem(item.id, marcado ? '' : completo);
   };
 
   const reiniciar = () => {
@@ -499,6 +515,8 @@ function PantallaCaptura({
               const bloqueado = situacion ? esBloqueado(item, situacion) : false;
               const tope = situacion ? topeValor(item, situacion) : 0;
               const valorTexto = item.valor.trim();
+              const marcadoTodoEntregado =
+                !bloqueado && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
               // Se avisa en el momento, sin esperar el error del servidor --
               // el backend igual lo vuelve a validar (ver PATCH /items).
               const excedeTope =
@@ -511,6 +529,24 @@ function PantallaCaptura({
                       ? `Cantidad leída: ${item.cantidad_entregada}`
                       : `Pendiente actual: ${item.cantidad_pendiente}`}
                   </Text>
+
+                  {bloqueado ? null : (
+                    <Pressable
+                      onPress={() => alternarTodoEntregado(item)}
+                      hitSlop={8}
+                      style={styles.checkboxFila}
+                    >
+                      <View style={[styles.checkboxCaja, marcadoTodoEntregado && styles.checkboxCajaMarcada]}>
+                        {marcadoTodoEntregado ? <Text style={styles.checkboxCheck}>✓</Text> : null}
+                      </View>
+                      <Text style={styles.checkboxTexto}>
+                        {situacion === 'nueva'
+                          ? 'Todo entregado (nada pendiente)'
+                          : 'Entregué todo lo que quedaba pendiente'}
+                      </Text>
+                    </Pressable>
+                  )}
+
                   <Text style={styles.etiquetaSeccion}>
                     {situacion === 'nueva' ? 'Cantidad pendiente' : 'Entregado hoy'}
                   </Text>
@@ -520,10 +556,10 @@ function PantallaCaptura({
                     keyboardType="number-pad"
                     placeholder="0"
                     placeholderTextColor="#6b7688"
-                    editable={!bloqueado}
+                    editable={!bloqueado && !marcadoTodoEntregado}
                     style={[
                       styles.inputCantidad,
-                      bloqueado && styles.inputCantidadBloqueado,
+                      (bloqueado || marcadoTodoEntregado) && styles.inputCantidadBloqueado,
                       excedeTope && styles.inputCantidadError,
                     ]}
                   />
@@ -665,6 +701,20 @@ const styles = StyleSheet.create({
   },
   inputCantidadBloqueado: { opacity: 0.5 },
   inputCantidadError: { borderColor: '#f87171' },
+  checkboxFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checkboxCaja: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxCajaMarcada: { backgroundColor: ACENTO, borderColor: ACENTO },
+  checkboxCheck: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  checkboxTexto: { color: '#d3d9e6', fontSize: 13, fontWeight: '600', flexShrink: 1 },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,
