@@ -63,7 +63,15 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             resultado="error",
             detalle={"error": str(exc)},
         )
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # 422 y no 502: el proxy de EasyPanel (Traefik) intercepta cualquier
+        # respuesta 502/503/504 y la reemplaza por su propia pagina HTML de
+        # "Service is not reachable" -- pensando que el contenedor esta caido
+        # -- en vez de dejar pasar nuestro JSON con el detail real. Eso hacia
+        # que un fallo de IA (legitimo, ej. imagen ilegible) le llegara al
+        # movil como una respuesta no-JSON, mostrando el mensaje generico de
+        # "Error del servidor" en vez del motivo real. 422 no esta en esa
+        # lista y se propaga tal cual.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     await registrar_evento(
         EventoLog.EXTRACCION_IA,

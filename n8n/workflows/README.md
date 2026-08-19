@@ -23,7 +23,7 @@ operador sube una foto desde la app móvil.
 |---|---|---|---|
 | 1 | `Webhook: foto subida` | Webhook Trigger | Recibe `{ evidencia_url, hash_evidencia, sede_origen_id, operador_id, capturado_at }` una vez que la app móvil confirma la subida a Storage. |
 | 2 | `HTTP: procesar entrega` | HTTP Request | `POST` al backend: `{{$env.API_BASE_URL}}/entregas/procesar` con el body del webhook — **paso 1** del flujo de dos pasos (ver abajo). El backend ejecuta extracción por IA, identifica el documento y responde `{ id, situacion, estado, items }` sin pedir cantidades todavía. |
-| 3 | `IF: estado` | IF | Rama según la respuesta: `$json.detail` existe → hubo error (409 nada pendiente / 502 falló la IA); si no, `$json.estado === 'pendiente_revision'` → notificar supervisor; si no, seguir. |
+| 3 | `IF: estado` | IF | Rama según la respuesta: `$json.detail` existe → hubo error (409 nada pendiente / 422 falló la IA); si no, `$json.estado === 'pendiente_revision'` → notificar supervisor; si no, seguir. |
 | 4a | `Notificar: revisión manual` | Slack / Email / WhatsApp Business | Aviso al supervisor de la sede con el link a la entrega en el dashboard. |
 | 4b | `Notificar: duplicado o error` | Slack / Email | Aviso si `/procesar` devolvió error — ej. el documento ya estaba entregado por completo (nada pendiente que actualizar). |
 | 5 | `Respond to Webhook` | Respond to Webhook | Devuelve el resultado (id/situacion/estado/items) a quien haya llamado al webhook. |
@@ -48,8 +48,11 @@ segundo webhook + nodo HTTP apuntando a `/entregas/{id}/items`.
   reintento acá: el cliente de OpenAI (`openai==1.59.6`) ya reintenta solo,
   con backoff exponencial + jitter, ante 408/409/429/5xx y errores de
   conexión/timeout (`max_retries=2` por defecto = 3 intentos totales). Si
-  `/entregas/procesar` devuelve 502, es porque ya se agotaron esos intentos
-  del lado del backend.
+  `/entregas/procesar` devuelve 422 con detail de extracción, es porque ya se
+  agotaron esos intentos del lado del backend (o el modelo rechazó la imagen).
+  Ojo: el backend usa 422 a propósito acá y no 502/503/504 -- el proxy de
+  EasyPanel (Traefik) intercepta esos tres códigos y los reemplaza por su
+  propia página de "Service is not reachable", tapando el `detail` real.
 
 ## Workflow 2 — Analítica semanal de turnos
 

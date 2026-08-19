@@ -128,7 +128,8 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
         # del SDK (rate limit agotado, imagen rechazada por tamano/formato,
         # timeout, etc.) -- OpenAIError es la base de TODAS las excepciones de
         # este SDK. Sin este catch, cualquiera de estas tiraba un 500 crudo
-        # (no JSON) en vez del 502 con detail que espera el cliente.
+        # (no JSON) en vez del error con detail que espera el cliente (ver
+        # entregas.py -- el router mapea ExtraccionFallida a un 422).
         raise ExtraccionFallida(f"Fallo la extraccion con IA: {exc}") from exc
 
     mensaje = response.choices[0].message
