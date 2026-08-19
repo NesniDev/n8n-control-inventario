@@ -32,6 +32,7 @@ from app.services.duplicates import (
     CantidadInvalida,
     EntregaDuplicada,
     aplicar_actualizacion_items,
+    cancelar_entrega_no_confirmada,
     procesar_extraccion,
 )
 from app.services.logging_service import registrar_evento
@@ -143,6 +144,18 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             "items": [item.model_dump() for item in items],
         },
     )
+
+
+@router.delete("/{entrega_id}")
+async def cancelar_entrega(entrega_id: str, operador_id: str = "desconocido", sede_id: str = "desconocida") -> dict:
+    """El bodeguero cancela en la pantalla de confirmacion (paso 2) sin
+    guardar nada -- deshace el insert que hizo POST /procesar (paso 1). Solo
+    borra si todavia nadie confirmo cantidades (ver
+    cancelar_entrega_no_confirmada); nunca borra una entrega real que ya
+    tenia historial. Idempotente y nunca falla: cancelar dos veces, o
+    cancelar algo que ya no existe, simplemente no hace nada."""
+    cancelado = await cancelar_entrega_no_confirmada(entrega_id, operador_id=operador_id, sede_id=sede_id)
+    return {"cancelado": cancelado}
 
 
 @router.patch("/{entrega_id}/items")

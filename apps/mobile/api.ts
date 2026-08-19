@@ -175,6 +175,18 @@ export async function buscarEntrega(tipo: string, indicativoNumero: string): Pro
 }
 
 /**
+ * Cancela en la pantalla de confirmacion (paso 2) sin guardar nada -- deshace
+ * el insert que hizo procesarEntrega (paso 1). El backend solo borra de
+ * verdad si todavia nadie confirmo cantidades; nunca toca una entrega real
+ * ya confirmada. Nunca lanza -- cancelar es siempre "seguro" del lado del
+ * cliente (best-effort: si falla la red, el llamador igual sigue adelante).
+ */
+export async function cancelarEntrega(entregaId: string, operadorId: string, sedeId: string): Promise<void> {
+  const params = new URLSearchParams({ operador_id: operadorId, sede_id: sedeId });
+  await fetch(`${API_BASE_URL}/entregas/${entregaId}?${params}`, { method: 'DELETE' });
+}
+
+/**
  * Paso 2: confirma lo que el bodeguero ingreso por producto. Para una
  * entrega "nueva" manda cantidad_pendiente (valor absoluto); para una
  * "actualizable" manda entregado_hoy (delta, lo suma/resta el backend).

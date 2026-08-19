@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 import {
   buscarEntrega,
+  cancelarEntrega,
   confirmarItems,
   fetchSedes,
   procesarEntrega,
@@ -300,6 +301,27 @@ function PantallaCaptura({
     setItems([]);
     setEvidenciaActual(null);
     setIndicativoBusqueda('');
+  };
+
+  // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
+  // insertó la entrega si situacion es 'nueva' -- sin esto, cancelar dejaba
+  // esa fila en la base como si se hubiera enviado igual. Solo hace falta
+  // avisarle al backend para 'nueva': para 'actualizable' (re-escaneo o
+  // consulta) el paso 1 no escribe nada, no hay nada que deshacer.
+  const cancelarConfirmacion = async () => {
+    if (situacion === 'nueva' && entregaId) {
+      setCargando(true);
+      try {
+        await cancelarEntrega(entregaId, empleado.id, sedeSeleccionada?.id ?? '');
+      } catch {
+        // Best-effort: si falla la red no bloqueamos al bodeguero por esto --
+        // en el peor caso queda una entrega "nueva" sin confirmar, que no
+        // rompe nada (un proximo escaneo/consulta la trata como actualizable).
+      } finally {
+        setCargando(false);
+      }
+    }
+    reiniciar();
   };
 
   // Items que hay que mandar al confirmar. Para 'nueva' son TODOS -- el
@@ -628,8 +650,9 @@ function PantallaCaptura({
                 </Pressable>
               )}
               <Pressable
+                disabled={cargando}
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-                onPress={reiniciar}
+                onPress={cancelarConfirmacion}
               >
                 <Text style={styles.botonTexto}>{documentoCompleto ? 'Volver' : 'Cancelar'}</Text>
               </Pressable>

@@ -18,3 +18,7 @@ class EventoLog(StrEnum):
     # Confirmacion del bodeguero (paso 2) tras un POST /entregas/procesar que
     # devolvio situacion "nueva" o "actualizable" -- ver app/services/duplicates.py.
     ENTREGA_ACTUALIZADA = "entrega_actualizada"
+    # El bodeguero cancelo antes de confirmar cantidades (paso 2) -- solo
+    # aplica a una entrega recien insertada (situacion "nueva") que todavia
+    # nadie confirmo. Ver cancelar_entrega_no_confirmada en duplicates.py.
+    ENTREGA_CANCELADA = "entrega_cancelada"

@@ -294,3 +294,50 @@ async def aplicar_actualizacion_items(
         },
     )
     return items_actualizados
+
+
+async def cancelar_entrega_no_confirmada(
+    entrega_id: str, *, operador_id: str, sede_id: str
+) -> bool:
+    """El bodeguero le saca una foto a un documento, ve la pantalla de
+    confirmacion (paso 2) y decide cancelar sin confirmar nada. El paso 1
+    (procesar_extraccion) ya inserto la entrega -- es la barrera atomica
+    contra la carrera entre sedes, no se puede evitar eso -- asi que
+    "cancelar" en la practica significa deshacer ese insert.
+
+    Solo borra si TODAVIA nadie confirmo nada: cada item sigue con
+    cantidad_pendiente == cantidad_entregada, que es exactamente como queda
+    un item recien insertado por procesar_extraccion, antes de que
+    aplicar_actualizacion_items lo toque. Esto evita dos cosas: borrar una
+    entrega real que ya tenia historial (nunca deberia pasar, pero mejor
+    prevenir por las dudas), y una carrera rara donde otra sede ya la
+    actualizo mientras este bodeguero decidia cancelar.
+
+    Idempotente: si el id no existe o ya se confirmo algo, no hace nada y
+    devuelve False -- cancelar nunca deberia ser un error para el movil.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        resultado = await conn.execute(
+            """
+            delete from entregas
+            where id = $1::uuid
+              and not exists (
+                  select 1 from entrega_items
+                  where entrega_id = $1::uuid and cantidad_pendiente <> cantidad_entregada
+              )
+            """,
+            entrega_id,
+        )
+
+    borrado = resultado == "DELETE 1"
+    if borrado:
+        await registrar_evento(
+            EventoLog.ENTREGA_CANCELADA,
+            entidad_tipo="entrega",
+            entidad_id=entrega_id,
+            actor_id=operador_id,
+            sede_id=sede_id,
+            resultado="ok",
+        )
+    return borrado
