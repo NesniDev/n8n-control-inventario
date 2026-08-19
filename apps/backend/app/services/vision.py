@@ -7,7 +7,7 @@ import base64
 import json
 
 import httpx
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAIError
 
 from app.config import get_settings
 
@@ -87,33 +87,49 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
     si el proveedor de IA rehusa la solicitud o falla la extraccion.
     """
     settings = get_settings()
-    image_bytes, media_type = await _descargar_imagen(evidencia_url)
+    try:
+        image_bytes, media_type = await _descargar_imagen(evidencia_url)
+    except httpx.HTTPError as exc:
+        # Storage no respondio o la URL no sirve (ej. reemplazo de red
+        # intermitente en la sede, o la evidencia todavia no replico) -- sin
+        # este catch la excepcion cruda de httpx tira un 500 sin JSON, que del
+        # lado del movil se ve como "error o pantalla en blanco".
+        raise ExtraccionFallida(f"No se pudo descargar la evidencia: {exc}") from exc
+
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
-    response = await client.chat.completions.create(
-        model=settings.vision_model,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
-                    },
-                    {"type": "text", "text": _EXTRACTION_PROMPT},
-                ],
-            }
-        ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "extraccion_guia",
-                "strict": True,
-                "schema": _EXTRACTION_SCHEMA,
+    try:
+        response = await client.chat.completions.create(
+            model=settings.vision_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
+                        },
+                        {"type": "text", "text": _EXTRACTION_PROMPT},
+                    ],
+                }
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "extraccion_guia",
+                    "strict": True,
+                    "schema": _EXTRACTION_SCHEMA,
+                },
             },
-        },
-    )
+        )
+    except OpenAIError as exc:
+        # Cualquier error del proveedor no cubierto por los reintentos propios
+        # del SDK (rate limit agotado, imagen rechazada por tamano/formato,
+        # timeout, etc.) -- OpenAIError es la base de TODAS las excepciones de
+        # este SDK. Sin este catch, cualquiera de estas tiraba un 500 crudo
+        # (no JSON) en vez del 502 con detail que espera el cliente.
+        raise ExtraccionFallida(f"Fallo la extraccion con IA: {exc}") from exc
 
     mensaje = response.choices[0].message
     if getattr(mensaje, "refusal", None):
@@ -121,4 +137,7 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
     if not mensaje.content:
         raise ExtraccionFallida("Respuesta sin contenido estructurado.")
 
-    return json.loads(mensaje.content)
+    try:
+        return json.loads(mensaje.content)
+    except json.JSONDecodeError as exc:
+        raise ExtraccionFallida(f"Respuesta de IA invalida: {exc}") from exc
