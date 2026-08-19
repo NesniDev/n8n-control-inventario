@@ -112,10 +112,23 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
     .upload(path, decode(base64), { contentType: 'image/jpeg', upsert: false });
 
   if (error) {
-    // "Duplicate" en Storage == misma evidencia ya subida antes. No es un
-    // error real para el flujo: seguimos con la URL existente y dejamos que
-    // el backend decida (chequeo de duplicados real vive en /entregas/procesar).
-    if (!error.message?.toLowerCase().includes('duplicate')) {
+    // Conflicto (409, "ya existe") en Storage == misma evidencia ya subida
+    // antes (mismo hash -> mismo path). No es un error real para el flujo:
+    // seguimos con la URL existente y dejamos que el backend decida (el
+    // chequeo de duplicados real vive en /entregas/procesar). El SDK de
+    // Storage no es consistente con el texto exacto -- vimos tanto
+    // "Duplicate" como "The resource already exists" -- asi que chequeamos
+    // el status HTTP (409) ademas del mensaje para no depender de una sola
+    // palabra clave que puede no estar presente.
+    const statusCode = (error as { statusCode?: string; status?: number }).statusCode;
+    const status = (error as { status?: number }).status;
+    const mensaje = error.message?.toLowerCase() ?? '';
+    const esConflicto =
+      statusCode === '409' ||
+      status === 409 ||
+      mensaje.includes('duplicate') ||
+      mensaje.includes('already exist');
+    if (!esConflicto) {
       throw new Error(`No se pudo subir la evidencia: ${error.message}`);
     }
   }
