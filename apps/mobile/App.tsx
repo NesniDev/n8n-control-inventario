@@ -240,21 +240,20 @@ function PantallaCaptura({
     }
   };
 
-  // Paso 2: confirma lo que cargo el bodeguero por producto. Los items
-  // bloqueados (ver esBloqueado) no se mandan -- no traen ningun cambio.
+  // Paso 2: confirma lo que cargo el bodeguero por producto (ver
+  // itemsAEnviar: para 'nueva' van todos, para 'actualizable' solo los que
+  // de verdad traen un cambio).
   const confirmar = async () => {
     if (!entregaId || !situacion) return;
     setCargando(true);
     setMensaje('Guardando...');
 
     try {
-      const payload = items
-        .filter((item) => !esBloqueado(item, situacion))
-        .map((item) =>
-          situacion === 'nueva'
-            ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()) }
-            : { id: item.id, entregado_hoy: Number(item.valor.trim()) }
-        );
+      const payload = itemsAEnviar.map((item) =>
+        situacion === 'nueva'
+          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()) }
+          : { id: item.id, entregado_hoy: Number(item.valor.trim()) }
+      );
       await confirmarItems(
         entregaId,
         payload,
@@ -303,18 +302,25 @@ function PantallaCaptura({
     setIndicativoBusqueda('');
   };
 
-  // Items editables = los que no estan bloqueados (ver esBloqueado). Un
-  // documento consultado por codigo puede venir 100% entregado (todos
-  // bloqueados) -- ahi no hay nada para confirmar.
-  const itemsEditables = situacion ? items.filter((item) => !esBloqueado(item, situacion)) : items;
+  // Items que hay que mandar al confirmar. Para 'nueva' son TODOS -- el
+  // pendiente inicial de cada item (incluido el que quedo en 0 via el check
+  // "todo entregado") todavia no se guardo en ningun lado, asi que aunque
+  // esBloqueado() lo marque como "bloqueado" para no dejarlo seguir
+  // editando, igual hay que mandarlo. Para 'actualizable' un item ya
+  // bloqueado significa que la DB ya dice pendiente=0 -- ese no trae ningun
+  // cambio real y no hace falta mandarlo (y un documento consultado por
+  // codigo puede venir 100% asi, sin nada para confirmar).
+  const itemsAEnviar =
+    situacion === 'actualizable' ? items.filter((item) => !esBloqueado(item, situacion)) : items;
   const itemsValidos =
-    itemsEditables.length > 0 &&
+    itemsAEnviar.length > 0 &&
     situacion !== null &&
-    itemsEditables.every((item) => valorValido(item, situacion));
+    itemsAEnviar.every((item) => valorValido(item, situacion));
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
   const puedeBuscar = !!indicativoBusqueda.trim() && !cargando;
   const puedeConfirmar = itemsValidos && !cargando;
-  const documentoCompleto = fase === 'confirmando' && items.length > 0 && itemsEditables.length === 0;
+  const documentoCompleto =
+    fase === 'confirmando' && situacion === 'actualizable' && items.length > 0 && itemsAEnviar.length === 0;
   const infoEstadoFinal = fase === 'resultado' && estadoFinal ? ESTADO_INFO[estadoFinal] : null;
 
   return (
