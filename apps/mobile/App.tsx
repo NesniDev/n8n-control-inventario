@@ -565,6 +565,14 @@ function PantallaCaptura({
                   />
                   {bloqueado ? (
                     <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
+                  ) : marcadoTodoEntregado ? (
+                    // El input debajo sigue mostrando "cuanto entregaste hoy" (lo
+                    // que realmente se manda al backend), no el pendiente final --
+                    // sin esto no queda claro que tildar el check deja el
+                    // pendiente en 0 al guardar (se ve el numero de hoy, que
+                    // encima suele coincidir con el total si nunca se entrego
+                    // nada de este producto).
+                    <Text style={styles.previewSubtexto}>✅ Vas a entregar los {tope} pendientes — quedará en 0.</Text>
                   ) : excedeTope ? (
                     <Text style={styles.textoErrorInline}>
                       {situacion === 'nueva'
