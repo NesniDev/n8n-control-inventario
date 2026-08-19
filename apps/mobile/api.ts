@@ -162,6 +162,19 @@ export async function procesarEntrega(payload: {
 }
 
 /**
+ * Consulta directa por codigo de factura (tipo + indicativo_numero), sin
+ * pasar por una foto -- para ver que le queda pendiente a un documento ya
+ * registrado. El backend siempre devuelve situacion "actualizable" (el
+ * documento ya existe por definicion), asi que reusa la misma pantalla de
+ * confirmacion de items que el flujo de re-escaneo.
+ */
+export async function buscarEntrega(tipo: string, indicativoNumero: string): Promise<ResultadoEnvio> {
+  const params = new URLSearchParams({ tipo, indicativo_numero: indicativoNumero });
+  const res = await fetch(`${API_BASE_URL}/entregas/buscar?${params}`);
+  return parsearRespuesta<ResultadoEnvio>(res);
+}
+
+/**
  * Paso 2: confirma lo que el bodeguero ingreso por producto. Para una
  * entrega "nueva" manda cantidad_pendiente (valor absoluto); para una
  * "actualizable" manda entregado_hoy (delta, lo suma/resta el backend).

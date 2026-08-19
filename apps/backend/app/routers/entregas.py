@@ -25,6 +25,7 @@ from app.models.entrega import (
     EntregaRevision,
     EstadoEntrega,
     SituacionEntrega,
+    TipoDocumento,
 )
 from app.models.log import EventoLog
 from app.services.duplicates import (
@@ -204,6 +205,31 @@ async def listar_entregas(sede_id: str | None = None, limit: int = 50) -> list[d
         item = dict(row)
         item["id"] = str(item["id"])
         resultado.append(item)
+    return resultado
+
+
+@router.get("/buscar")
+async def buscar_entrega(tipo: TipoDocumento, indicativo_numero: str) -> dict:
+    """Consulta directa por codigo de factura (sin pasar por una foto) -- el
+    bodeguero busca `(tipo, indicativo_numero)` y ve que productos quedan
+    pendientes. Usa el mismo indice unico que ya bloquea duplicados (ver
+    app.db._SCHEMA), asi que la busqueda es siempre por, a lo sumo, un
+    documento."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        _SELECT_ENTREGAS_BASE + " where e.tipo = $1 and e.indicativo_numero = $2 group by e.id, s.nombre",
+        tipo.value,
+        indicativo_numero,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="No se encontro ningun documento con ese tipo/numero")
+
+    resultado = dict(row)
+    resultado["id"] = str(resultado["id"])
+    # Fijo a "actualizable": reutiliza el mismo shape que POST /procesar para
+    # que el movil pueda reusar tal cual la pantalla de confirmacion de items
+    # que ya existe para el flujo de re-escaneo.
+    resultado["situacion"] = "actualizable"
     return resultado
 
 

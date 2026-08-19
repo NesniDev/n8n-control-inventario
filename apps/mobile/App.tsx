@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 
 import {
+  buscarEntrega,
   confirmarItems,
   fetchSedes,
   procesarEntrega,
@@ -27,10 +28,15 @@ import {
 import PantallaLogin from './PantallaLogin';
 
 // captura: tomar/elegir foto y mandarla (paso 1, identifica el documento).
-// confirmando: el bodeguero ve los productos y carga cantidades (paso 2).
+// buscar: consultar una factura ya registrada por su codigo, sin foto.
+// confirmando: el bodeguero ve los productos y carga cantidades (paso 2) --
+// llega aca tanto desde 'captura' (documento nuevo o re-escaneado) como
+// desde 'buscar' (consulta directa, siempre situacion 'actualizable').
 // resultado: pantalla final (procesada / pendiente de revision / error).
-type Fase = 'captura' | 'confirmando' | 'resultado';
+type Fase = 'captura' | 'buscar' | 'confirmando' | 'resultado';
 type EstadoFinal = 'procesada' | 'pendiente_revision' | 'error';
+
+const TIPOS_DOCUMENTO = ['FEI', 'TB', 'RM3', 'RM2'] as const;
 
 const ESTADO_INFO: Record<EstadoFinal, { icono: string; texto: string; color: string; fondo: string }> = {
   procesada: { icono: '✅', texto: 'Procesada', color: '#34d399', fondo: 'rgba(52,211,153,0.12)' },
@@ -40,6 +46,15 @@ const ESTADO_INFO: Record<EstadoFinal, { icono: string; texto: string; color: st
 
 interface ItemFormulario extends ItemEntrega {
   valor: string;
+}
+
+// Para 'nueva' bloquea segun lo que se esta tipeando (el bodeguero declara
+// cuanto quedo pendiente, y se bloquea en vivo si pone 0). Para
+// 'actualizable' -- venga de re-escanear una foto o de buscar por codigo --
+// bloquea segun el dato real de la DB: si ya no queda nada pendiente de ese
+// item, no hay nada para editar, sin importar que se haya tipeado.
+function esBloqueado(item: ItemFormulario, situacion: 'nueva' | 'actualizable'): boolean {
+  return situacion === 'nueva' ? item.valor.trim() === '0' : item.cantidad_pendiente === 0;
 }
 
 export default function App() {
@@ -73,6 +88,10 @@ function PantallaCaptura({
   const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
   const [items, setItems] = useState<ItemFormulario[]>([]);
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
+
+  // Consulta por codigo de factura (fase 'buscar'), sin pasar por una foto.
+  const [tipoBusqueda, setTipoBusqueda] = useState<(typeof TIPOS_DOCUMENTO)[number]>('FEI');
+  const [indicativoBusqueda, setIndicativoBusqueda] = useState('');
 
   useEffect(() => {
     fetchSedes()
@@ -172,25 +191,57 @@ function PantallaCaptura({
     }
   };
 
-  // Paso 2: confirma lo que cargo el bodeguero por producto.
+  // Consulta directa por codigo de factura, sin foto -- el documento ya
+  // existe por definicion, asi que reusa la misma pantalla de confirmacion
+  // de items que el flujo de re-escaneo (fase 'confirmando').
+  const buscarFactura = async () => {
+    const indicativo = indicativoBusqueda.trim();
+    if (!indicativo) return;
+    setCargando(true);
+    setMensaje('Buscando...');
+
+    try {
+      const resultado = await buscarEntrega(tipoBusqueda, indicativo);
+      setEntregaId(resultado.id);
+      setSituacion(resultado.situacion);
+      setEstadoFinal(resultado.estado);
+      setItems(resultado.items.map((item) => ({ ...item, valor: '' })));
+      setEvidenciaActual(null);
+      setFase('confirmando');
+      setMensaje('');
+    } catch (err: any) {
+      // No es un resultado terminal -- se queda en 'buscar' para reintentar
+      // (codigo mal tipeado, documento que todavia no se registro, etc.).
+      setMensaje(err?.detail ?? err?.message ?? 'No se encontro ese documento.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  // Paso 2: confirma lo que cargo el bodeguero por producto. Los items
+  // bloqueados (ver esBloqueado) no se mandan -- no traen ningun cambio.
   const confirmar = async () => {
-    if (!entregaId || !situacion || !evidenciaActual) return;
+    if (!entregaId || !situacion) return;
     setCargando(true);
     setMensaje('Guardando...');
 
     try {
-      const payload = items.map((item) =>
-        situacion === 'nueva'
-          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()) }
-          : { id: item.id, entregado_hoy: Number(item.valor.trim()) }
-      );
+      const payload = items
+        .filter((item) => !esBloqueado(item, situacion))
+        .map((item) =>
+          situacion === 'nueva'
+            ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()) }
+            : { id: item.id, entregado_hoy: Number(item.valor.trim()) }
+        );
       await confirmarItems(
         entregaId,
         payload,
         empleado.id,
         sedeSeleccionada?.id ?? '',
-        evidenciaActual.url,
-        evidenciaActual.hash
+        // Si se llego por 'buscar' no hay foto nueva -- el backend trata un
+        // string vacio como "no actualizar evidencia" (ver aplicar_actualizacion_items).
+        evidenciaActual?.url ?? '',
+        evidenciaActual?.hash ?? ''
       );
       setFase('resultado');
       setMensaje(
@@ -218,12 +269,19 @@ function PantallaCaptura({
     setEstadoFinal(null);
     setItems([]);
     setEvidenciaActual(null);
+    setIndicativoBusqueda('');
   };
 
+  // Items editables = los que no estan bloqueados (ver esBloqueado). Un
+  // documento consultado por codigo puede venir 100% entregado (todos
+  // bloqueados) -- ahi no hay nada para confirmar.
+  const itemsEditables = situacion ? items.filter((item) => !esBloqueado(item, situacion)) : items;
   const itemsValidos =
-    items.length > 0 && items.every((item) => /^\d+$/.test(item.valor.trim()));
+    itemsEditables.length > 0 && itemsEditables.every((item) => /^\d+$/.test(item.valor.trim()));
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
+  const puedeBuscar = !!indicativoBusqueda.trim() && !cargando;
   const puedeConfirmar = itemsValidos && !cargando;
+  const documentoCompleto = fase === 'confirmando' && items.length > 0 && itemsEditables.length === 0;
   const infoEstadoFinal = fase === 'resultado' && estadoFinal ? ESTADO_INFO[estadoFinal] : null;
 
   return (
@@ -330,6 +388,77 @@ function PantallaCaptura({
                   <Text style={styles.botonTexto}>{cargando ? 'Procesando...' : '✅ Enviar y procesar'}</Text>
                 </Pressable>
               ) : null}
+
+              <Pressable
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+                onPress={() => {
+                  setMensaje('');
+                  setFase('buscar');
+                }}
+              >
+                <Text style={styles.botonTexto}>🔍 Consultar factura</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
+
+        {fase === 'buscar' ? (
+          <>
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Tipo de documento</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.selectorSedesContenido}
+              >
+                {TIPOS_DOCUMENTO.map((t) => {
+                  const activo = tipoBusqueda === t;
+                  return (
+                    <Pressable
+                      key={t}
+                      onPress={() => setTipoBusqueda(t)}
+                      style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                    >
+                      <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>{t}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Indicativo / número</Text>
+              <TextInput
+                value={indicativoBusqueda}
+                onChangeText={setIndicativoBusqueda}
+                placeholder="Ej: 10254"
+                placeholderTextColor="#6b7688"
+                keyboardType="number-pad"
+                style={styles.inputCantidad}
+              />
+            </View>
+
+            {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
+
+            <View style={styles.acciones}>
+              <Pressable
+                disabled={!puedeBuscar}
+                style={({ pressed }) => [
+                  styles.boton,
+                  styles.botonPrimario,
+                  !puedeBuscar && styles.botonDeshabilitado,
+                  pressed && puedeBuscar && styles.botonPresionado,
+                ]}
+                onPress={buscarFactura}
+              >
+                <Text style={styles.botonTexto}>{cargando ? 'Buscando...' : '🔍 Buscar'}</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+                onPress={reiniciar}
+              >
+                <Text style={styles.botonTexto}>⬅ Volver</Text>
+              </Pressable>
             </View>
           </>
         ) : null}
@@ -343,12 +472,14 @@ function PantallaCaptura({
               <Text style={styles.previewSubtexto}>
                 {situacion === 'nueva'
                   ? 'Cargá cuánto quedó pendiente de cada producto.'
-                  : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
+                  : documentoCompleto
+                    ? 'Ya se entregó todo lo de este documento.'
+                    : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
               </Text>
             </View>
 
             {items.map((item) => {
-              const bloqueado = situacion === 'nueva' && item.valor.trim() === '0';
+              const bloqueado = situacion ? esBloqueado(item, situacion) : false;
               return (
                 <View key={item.id} style={styles.tarjeta}>
                   <Text style={styles.itemDescripcion}>{item.descripcion || 'Producto sin descripción'}</Text>
@@ -370,7 +501,7 @@ function PantallaCaptura({
                     style={[styles.inputCantidad, bloqueado && styles.inputCantidadBloqueado]}
                   />
                   {bloqueado ? (
-                    <Text style={styles.previewSubtexto}>En 0 — sin nada pendiente de este producto.</Text>
+                    <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
                   ) : null}
                 </View>
               );
@@ -384,26 +515,40 @@ function PantallaCaptura({
               </View>
             ) : null}
 
+            {documentoCompleto ? (
+              <View style={[styles.badgeEstado, { backgroundColor: 'rgba(52,211,153,0.12)' }]}>
+                <Text style={styles.badgeEstadoIcono}>✅</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.badgeEstadoTitulo, { color: '#34d399' }]}>Documento completo</Text>
+                  <Text style={styles.badgeEstadoMensaje}>
+                    No queda nada pendiente de entregar en este documento.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
 
             <View style={styles.acciones}>
-              <Pressable
-                disabled={!puedeConfirmar}
-                style={({ pressed }) => [
-                  styles.boton,
-                  styles.botonPrimario,
-                  !puedeConfirmar && styles.botonDeshabilitado,
-                  pressed && puedeConfirmar && styles.botonPresionado,
-                ]}
-                onPress={confirmar}
-              >
-                <Text style={styles.botonTexto}>{cargando ? 'Guardando...' : '✅ Confirmar cantidades'}</Text>
-              </Pressable>
+              {documentoCompleto ? null : (
+                <Pressable
+                  disabled={!puedeConfirmar}
+                  style={({ pressed }) => [
+                    styles.boton,
+                    styles.botonPrimario,
+                    !puedeConfirmar && styles.botonDeshabilitado,
+                    pressed && puedeConfirmar && styles.botonPresionado,
+                  ]}
+                  onPress={confirmar}
+                >
+                  <Text style={styles.botonTexto}>{cargando ? 'Guardando...' : '✅ Confirmar cantidades'}</Text>
+                </Pressable>
+              )}
               <Pressable
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
                 onPress={reiniciar}
               >
-                <Text style={styles.botonTexto}>Cancelar</Text>
+                <Text style={styles.botonTexto}>{documentoCompleto ? 'Volver' : 'Cancelar'}</Text>
               </Pressable>
             </View>
           </>
