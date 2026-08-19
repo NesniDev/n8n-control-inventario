@@ -45,6 +45,26 @@ export interface Sede {
   codigo: string;
 }
 
+/**
+ * Parsea la respuesta de un endpoint que puede devolver un error de negocio
+ * ({ detail }) o, ante un bug del backend, un 500 crudo que no es JSON --
+ * en ese caso res.json() tira, y sin este catch la excepcion de parseo se
+ * propaga con una forma impredecible (la pantalla queda en blanco en vez de
+ * mostrar un mensaje).
+ */
+async function parsearRespuesta<T>(res: Response): Promise<T> {
+  let body: any;
+  try {
+    body = await res.json();
+  } catch {
+    throw { status: res.status, detail: 'Error del servidor, probá de nuevo.' } as ErrorEnvio;
+  }
+  if (!res.ok) {
+    throw { status: res.status, detail: body?.detail ?? 'Error desconocido' } as ErrorEnvio;
+  }
+  return body as T;
+}
+
 export async function fetchSedes(): Promise<Sede[]> {
   const res = await fetch(`${API_BASE_URL}/sedes`);
   if (!res.ok) {
@@ -123,15 +143,9 @@ export async function procesarEntrega(payload: {
     body: JSON.stringify(payload),
   });
 
-  const body = await res.json();
-
-  if (!res.ok) {
-    // 409 = ya estaba todo entregado, nada que actualizar (ver Figura 1);
-    // cualquier otro error de negocio llega tambien como { detail } gracias a FastAPI.
-    throw { status: res.status, detail: body.detail ?? 'Error desconocido' } as ErrorEnvio;
-  }
-
-  return body as ResultadoEnvio;
+  // 409 = ya estaba todo entregado, nada que actualizar (ver Figura 1);
+  // cualquier otro error de negocio llega tambien como { detail } gracias a FastAPI.
+  return parsearRespuesta<ResultadoEnvio>(res);
 }
 
 /**
@@ -159,9 +173,5 @@ export async function confirmarItems(
     }),
   });
 
-  const body = await res.json();
-  if (!res.ok) {
-    throw { status: res.status, detail: body.detail ?? 'Error desconocido' } as ErrorEnvio;
-  }
-  return body as { id: string; items: ItemEntrega[] };
+  return parsearRespuesta<{ id: string; items: ItemEntrega[] }>(res);
 }

@@ -134,12 +134,26 @@ async def procesar_extraccion(
                             cantidad_pendiente=cantidad,
                         )
                     )
-        except asyncpg.UniqueViolationError:
-            fila = await conn.fetchrow(
-                "select id from entregas where tipo = $1 and indicativo_numero = $2",
-                tipo,
-                indicativo_numero,
-            )
+        except asyncpg.UniqueViolationError as exc:
+            # "entregas" tiene DOS unique: (tipo, indicativo_numero) -- la
+            # barrera real -- y hash_evidencia -- evita reprocesar la misma
+            # foto. Hay que fijarse cual de los dos choco antes de buscar la
+            # fila existente, si no la busqueda puede no encontrar nada
+            # (ej. mismo hash_evidencia pero tipo/indicativo distintos, como
+            # al reusar una foto de la galeria para otro documento) y
+            # explotar con un TypeError en vez de responder algo coherente.
+            if exc.constraint_name == "entregas_hash_evidencia_key":
+                fila = await conn.fetchrow(
+                    "select id from entregas where hash_evidencia = $1", hash_evidencia
+                )
+            else:
+                fila = await conn.fetchrow(
+                    "select id from entregas where tipo = $1 and indicativo_numero = $2",
+                    tipo,
+                    indicativo_numero,
+                )
+            if fila is None:
+                raise
             items = await _items_de_entrega(conn, fila["id"])
             if all(item.cantidad_pendiente == 0 for item in items):
                 await registrar_evento(
