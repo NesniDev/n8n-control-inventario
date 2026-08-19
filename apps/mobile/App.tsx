@@ -57,6 +57,21 @@ function esBloqueado(item: ItemFormulario, situacion: 'nueva' | 'actualizable'):
   return situacion === 'nueva' ? item.valor.trim() === '0' : item.cantidad_pendiente === 0;
 }
 
+// Tope de lo que se puede tipear en cada item: para 'actualizable' no se
+// puede entregar mas de lo que queda pendiente (el backend tambien lo
+// valida -- ver aplicar_actualizacion_items -- esto es para avisar en el
+// momento, sin esperar el error del servidor). Para 'nueva' no puede quedar
+// pendiente mas de lo que la IA leyo en total.
+function topeValor(item: ItemFormulario, situacion: 'nueva' | 'actualizable'): number {
+  return situacion === 'actualizable' ? item.cantidad_pendiente : item.cantidad_entregada;
+}
+
+function valorValido(item: ItemFormulario, situacion: 'nueva' | 'actualizable'): boolean {
+  const valor = item.valor.trim();
+  if (!/^\d+$/.test(valor)) return false;
+  return Number(valor) <= topeValor(item, situacion);
+}
+
 export default function App() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
 
@@ -277,7 +292,9 @@ function PantallaCaptura({
   // bloqueados) -- ahi no hay nada para confirmar.
   const itemsEditables = situacion ? items.filter((item) => !esBloqueado(item, situacion)) : items;
   const itemsValidos =
-    itemsEditables.length > 0 && itemsEditables.every((item) => /^\d+$/.test(item.valor.trim()));
+    itemsEditables.length > 0 &&
+    situacion !== null &&
+    itemsEditables.every((item) => valorValido(item, situacion));
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
   const puedeBuscar = !!indicativoBusqueda.trim() && !cargando;
   const puedeConfirmar = itemsValidos && !cargando;
@@ -480,6 +497,12 @@ function PantallaCaptura({
 
             {items.map((item) => {
               const bloqueado = situacion ? esBloqueado(item, situacion) : false;
+              const tope = situacion ? topeValor(item, situacion) : 0;
+              const valorTexto = item.valor.trim();
+              // Se avisa en el momento, sin esperar el error del servidor --
+              // el backend igual lo vuelve a validar (ver PATCH /items).
+              const excedeTope =
+                !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
               return (
                 <View key={item.id} style={styles.tarjeta}>
                   <Text style={styles.itemDescripcion}>{item.descripcion || 'Producto sin descripción'}</Text>
@@ -498,10 +521,20 @@ function PantallaCaptura({
                     placeholder="0"
                     placeholderTextColor="#6b7688"
                     editable={!bloqueado}
-                    style={[styles.inputCantidad, bloqueado && styles.inputCantidadBloqueado]}
+                    style={[
+                      styles.inputCantidad,
+                      bloqueado && styles.inputCantidadBloqueado,
+                      excedeTope && styles.inputCantidadError,
+                    ]}
                   />
                   {bloqueado ? (
                     <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
+                  ) : excedeTope ? (
+                    <Text style={styles.textoErrorInline}>
+                      {situacion === 'nueva'
+                        ? `No puede quedar pendiente más de ${tope} (lo que leyó la IA).`
+                        : `No podés entregar más de ${tope} — es lo único que queda pendiente.`}
+                    </Text>
                   ) : null}
                 </View>
               );
@@ -631,6 +664,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   inputCantidadBloqueado: { opacity: 0.5 },
+  inputCantidadError: { borderColor: '#f87171' },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,

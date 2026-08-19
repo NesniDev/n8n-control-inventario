@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class EstadoEntrega(StrEnum):
@@ -71,9 +71,15 @@ class ItemActualizacion(BaseModel):
 
     id: str
     descripcion: str | None = None
-    cantidad_entregada: int | None = None
-    cantidad_pendiente: int | None = None
-    entregado_hoy: int | None = None
+    cantidad_entregada: int | None = Field(default=None, ge=0)
+    cantidad_pendiente: int | None = Field(default=None, ge=0)
+    # ge=0 evita un delta negativo -- sin esto, un entregado_hoy negativo
+    # terminaba SUMANDO pendiente en vez de restarlo (ver
+    # aplicar_actualizacion_items). El limite superior (no se puede entregar
+    # mas de lo que queda pendiente) se valida ahi mismo, contra el dato
+    # real de la fila -- aca no se puede, este modelo no conoce el pendiente
+    # actual.
+    entregado_hoy: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _validar(self) -> "ItemActualizacion":

@@ -29,6 +29,7 @@ from app.models.entrega import (
 )
 from app.models.log import EventoLog
 from app.services.duplicates import (
+    CantidadInvalida,
     EntregaDuplicada,
     aplicar_actualizacion_items,
     procesar_extraccion,
@@ -155,14 +156,21 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
     if existente is None:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    items = await aplicar_actualizacion_items(
-        entrega_id,
-        payload.items,
-        operador_id=payload.operador_id,
-        sede_id=payload.sede_id,
-        evidencia_url=payload.evidencia_url,
-        hash_evidencia=payload.hash_evidencia,
-    )
+    try:
+        items = await aplicar_actualizacion_items(
+            entrega_id,
+            payload.items,
+            operador_id=payload.operador_id,
+            sede_id=payload.sede_id,
+            evidencia_url=payload.evidencia_url,
+            hash_evidencia=payload.hash_evidencia,
+        )
+    except CantidadInvalida as exc:
+        # 422 y no 502/503/504: el proxy de EasyPanel (Traefik) intercepta esos
+        # tres codigos y los reemplaza por su propia pagina, tapando el detail
+        # real (ver la misma nota en ExtraccionFallida, entregas.py).
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     return {"id": entrega_id, "items": [item.model_dump() for item in items]}
 
 

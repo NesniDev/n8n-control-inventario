@@ -32,6 +32,11 @@ class EntregaDuplicada(Exception):
         super().__init__(mensaje or f"El documento {identificador} ya fue procesado por completo.")
 
 
+class CantidadInvalida(Exception):
+    """entregado_hoy pide mas de lo que queda pendiente, o el item no existe
+    en esta entrega -- ver aplicar_actualizacion_items."""
+
+
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
     # Las cantidades quedan afuera del gate: siempre las confirma el
     # bodeguero a mano en el paso 2 (ver procesar_extraccion), sin importar
@@ -199,21 +204,42 @@ async def aplicar_actualizacion_items(
                 if item.entregado_hoy is not None:
                     # Delta atomico en SQL -- no se lee-modifica-escribe desde
                     # Python, asi dos confirmaciones casi simultaneas al mismo
-                    # item no se pisan entre si.
-                    await conn.execute(
+                    # item no se pisan entre si. El "and cantidad_pendiente >=
+                    # $2" es la validacion real (no se puede entregar mas de
+                    # lo que queda pendiente): si no hay fila que cumpla la
+                    # condicion, el update no afecta ninguna fila y sabemos
+                    # que hay que rechazar -- antes esto se "resolvia" con
+                    # greatest(0, ...), que dejaba pendiente en 0 pero sumaba
+                    # el delta completo a cantidad_entregada igual, rompiendo
+                    # la cuenta (entregada + pendiente ya no daba el total).
+                    fila = await conn.fetchrow(
                         """
                         update entrega_items
                         set descripcion = coalesce($4, descripcion),
                             cantidad_entregada = cantidad_entregada + $2,
-                            cantidad_pendiente = greatest(0, cantidad_pendiente - $2),
+                            cantidad_pendiente = cantidad_pendiente - $2,
                             actualizado_at = now()
-                        where id = $1::uuid and entrega_id = $3::uuid
+                        where id = $1::uuid and entrega_id = $3::uuid and cantidad_pendiente >= $2
+                        returning id
                         """,
                         item.id,
                         item.entregado_hoy,
                         entrega_id,
                         item.descripcion,
                     )
+                    if fila is None:
+                        actual = await conn.fetchrow(
+                            "select descripcion, cantidad_pendiente from entrega_items"
+                            " where id = $1::uuid and entrega_id = $2::uuid",
+                            item.id,
+                            entrega_id,
+                        )
+                        if actual is None:
+                            raise CantidadInvalida(f"El item {item.id} no existe en esta entrega.")
+                        raise CantidadInvalida(
+                            f"'{actual['descripcion']}' tiene {actual['cantidad_pendiente']} pendiente, "
+                            f"no se puede entregar {item.entregado_hoy}."
+                        )
                 else:
                     # Valores absolutos -- confirmar una entrega nueva desde
                     # el movil (solo cantidad_pendiente), o correccion manual
