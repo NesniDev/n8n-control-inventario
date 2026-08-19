@@ -24,32 +24,31 @@ _EXTRACTION_SCHEMA = {
     "properties": {
         "tipo": {"type": "string", "enum": list(_TIPOS_DOCUMENTO)},
         "indicativo_numero": {"type": "string"},
-        "cantidad_entregada": {"type": "integer"},
-        "cantidad_pendiente": {"type": "integer"},
-        # Solo referencia -- no participa del gate de confianza ni de la
-        # logica de duplicados (ver duplicates.marcar_estado_por_confianza).
-        "detalle": {"type": "string"},
+        "items": {
+            "type": "array",
+            "description": "Productos listados en el documento (columnas DETALLE/CANT.), uno por linea.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "descripcion": {"type": "string"},
+                    "cantidad": {"type": "integer"},
+                },
+                "required": ["descripcion", "cantidad"],
+                "additionalProperties": False,
+            },
+        },
         "confianza": {
             "type": "object",
             "description": "Score 0-1 de confianza por cada campo obligatorio extraido.",
             "properties": {
                 "tipo": {"type": "number"},
                 "indicativo_numero": {"type": "number"},
-                "cantidad_entregada": {"type": "number"},
-                "cantidad_pendiente": {"type": "number"},
             },
-            "required": ["tipo", "indicativo_numero", "cantidad_entregada", "cantidad_pendiente"],
+            "required": ["tipo", "indicativo_numero"],
             "additionalProperties": False,
         },
     },
-    "required": [
-        "tipo",
-        "indicativo_numero",
-        "cantidad_entregada",
-        "cantidad_pendiente",
-        "detalle",
-        "confianza",
-    ],
+    "required": ["tipo", "indicativo_numero", "items", "confianza"],
     "additionalProperties": False,
 }
 
@@ -58,17 +57,14 @@ _EXTRACTION_PROMPT = (
     "(tipo FEI), un traslado entre bodegas (tipo TB) o una remision (tipo "
     "RM3 o RM2, segun lo que diga el documento). Identifica el tipo de "
     "documento, su indicativo/numero (el consecutivo impreso, por ejemplo si "
-    "el documento dice 'FEI 10254' el indicativo_numero es '10254'), la "
-    "cantidad total entregada (columna CANT.) y la cantidad total pendiente. "
-    "Si el documento no distingue entre entregado y pendiente, usa la "
-    "cantidad total como entregada y 0 como pendiente. Ademas escribi un "
-    "detalle breve de lo despachado (columna DETALLE del documento, ej. que "
-    "productos o items aparecen listados) -- es solo dato de referencia, no "
-    "hace falta que sea exhaustivo. Para cada campo obligatorio (excepto "
-    "detalle) asigna un score de confianza entre 0 y 1 segun que tan "
-    "legible/clara estaba esa parte de la imagen. Si un campo no es legible, "
-    "usa cadena vacia (o 0 para las cantidades) y confianza baja en vez de "
-    "inventar un valor."
+    "el documento dice 'FEI 10254' el indicativo_numero es '10254'), y la "
+    "lista de productos con su cantidad (columnas DETALLE y CANT. del "
+    "documento) -- puede haber uno o varios productos, listalos todos, uno "
+    "por item. Si el documento no distingue productos individuales, usa un "
+    "solo item con una descripcion general y la cantidad total. Para tipo e "
+    "indicativo_numero asigna un score de confianza entre 0 y 1 segun que "
+    "tan legible/clara estaba esa parte de la imagen -- si no es legible, "
+    "usa cadena vacia y confianza baja en vez de inventar un valor."
 )
 
 

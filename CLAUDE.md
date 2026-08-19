@@ -82,26 +82,35 @@ The whole system exists to move one flow reliably (Figure 1 in `docs/architectur
    as the storage path and as `hash_evidencia`.
 2. **Trigger** — either the mobile app calls the backend directly, or n8n's `Webhook: foto subida` node
    forwards to it (see `n8n/workflows/README.md`). Either way it lands on `POST /entregas/procesar`
-   (`apps/backend/app/routers/entregas.py`), which is the reference implementation of the entire pipeline.
+   (`apps/backend/app/routers/entregas.py`) — **step 1** of a two-step flow (a document can carry several
+   products, and a delivery can span more than one visit, so quantities are always confirmed separately).
 3. **Vision extraction** (`app/services/vision.py`) — calls OpenAI (`VISION_MODEL`, default `gpt-4o`) with
-   `response_format: json_schema` in strict mode, returning structured fields + a per-field confidence
-   score. No free-text parsing.
-4. **Confidence gate** — `marcar_estado_por_confianza()` compares per-field confidence against
-   `settings.min_confidence` (default 0.75); low confidence → `pendiente_revision` instead of `procesada`.
-5. **Duplicate check** — `app/services/duplicates.py` does an atomic `INSERT` against Postgres; the real
-   barrier is the DB-level `unique (tipo, indicativo_numero)` constraint on `entregas` (e.g. two "FEI 10254"
-   can't coexist; plus a separate unique `hash_evidencia`), not application logic. A caught
-   `asyncpg.UniqueViolationError` becomes `EntregaDuplicada` → HTTP 409. This is what makes the cross-site
-   race condition safe.
-6. **Persistence + audit** — every step above writes an immutable event to `logs` via
+   `response_format: json_schema` in strict mode, returning `tipo`/`indicativo_numero` + a list of
+   `items` (descripcion + cantidad), each with a per-field confidence score. No free-text parsing.
+4. **Confidence gate** — `marcar_estado_por_confianza()` compares `tipo`/`indicativo_numero` confidence
+   against `settings.min_confidence` (default 0.75); low confidence → `pendiente_revision` instead of
+   `procesada`. Item quantities aren't gated here — the operator always confirms them in step 2 regardless.
+5. **Duplicate check / situation** — `app/services/duplicates.py`'s `procesar_extraccion()` does an atomic
+   `INSERT` against Postgres for a never-seen `(tipo, indicativo_numero)`; the real barrier is that DB-level
+   `unique` constraint on `entregas` (e.g. two "FEI 10254" can't coexist), not application logic. If the
+   document already exists: any item still has `cantidad_pendiente > 0` → returned as `situacion:
+   "actualizable"` (open for step 2 to update, from **any** sede); all items at 0 → `EntregaDuplicada` →
+   HTTP 409. A caught `asyncpg.UniqueViolationError` on the insert (race between sedes) falls back to the
+   same existing-document check. This is what makes the cross-site race condition safe.
+6. **Step 2 confirmation** — `PATCH /entregas/{id}/items` (`aplicar_actualizacion_items()`) is how the
+   operator commits quantities: `cantidad_pendiente` sets an item's pending count absolutely (new document,
+   or a dashboard correction); `entregado_hoy` is a delta the backend adds/subtracts **atomically in SQL**
+   (`cantidad_entregada = cantidad_entregada + $delta`), so two near-simultaneous updates from different
+   sedes don't clobber each other.
+7. **Persistence + audit** — every step above writes an immutable event to `logs` via
    `app/services/logging_service.py` (`registrar_evento`, event kinds in `app/models/log.py`'s
    `EventoLog`). `logs` is append-only by convention — never update/delete rows in it.
-7. **Realtime propagation** — `ensure_schema()` adds `entregas`/`logs` to the `supabase_realtime`
-   publication (Postgres logical replication). The dashboard subscribes directly via
+8. **Realtime propagation** — `ensure_schema()` adds `entregas`/`entrega_items`/`logs` to the
+   `supabase_realtime` publication (Postgres logical replication). The dashboard subscribes directly via
    `apps/dashboard/src/lib/supabase.ts` — there is no relay service. SWR polling (5s) stays on as a
    fallback if the realtime socket drops, so treat both paths as needing to stay in sync when touching
    fetch logic in `apps/dashboard/src/lib/api.ts`.
-8. **Shift analytics** (separate, cron-driven pipeline, Figure 2) — `scripts/generar_turnos.py` aggregates
+9. **Shift analytics** (separate, cron-driven pipeline, Figure 2) — `scripts/generar_turnos.py` aggregates
    `entregas` history into percentile-based shift suggestions, written to `shift_recommendations`
    (`unique (sede_id, semana_iso)`). Triggered by n8n's `Cron: semanal` node, not by the FastAPI app.
 
@@ -109,9 +118,10 @@ The whole system exists to move one flow reliably (Figure 1 in `docs/architectur
 
 - `app/routers/*.py` — one file per resource (`entregas`, `sedes`, `logs`, `shifts`, `empleados`, `auth`);
   routers talk to `asyncpg` directly (raw SQL via `get_pool()`), no ORM.
-  `entregas.py` also serves `GET /entregas/export.csv` for manual Excel/Sheets workflows.
-  `PATCH /entregas/{id}/revisar` is how the dashboard's manual-review button corrects low-confidence
-  fields and flips `pendiente_revision` → `procesada`.
+  `entregas.py` also serves `GET /entregas/export.csv` for manual Excel/Sheets workflows (one row per
+  item). `PATCH /entregas/{id}/revisar` is how the dashboard's manual-review button corrects
+  `tipo`/`indicativo_numero` and flips `pendiente_revision` → `procesada`; item quantities are corrected
+  separately via `PATCH /entregas/{id}/items` (same endpoint the mobile app uses for step 2).
 - `app/services/*.py` — the actual business logic (vision extraction, duplicate handling, PIN auth,
   logging). Keep new business logic here, not in routers.
 - `app/models/*.py` — Pydantic request/response models; `entrega.py` holds `EstadoEntrega`

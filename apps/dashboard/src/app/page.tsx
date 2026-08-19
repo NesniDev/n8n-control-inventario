@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import {
   EXPORT_CSV_URL,
+  actualizarItems,
   fetchEntregas,
   fetchLogs,
   revisarEntrega,
   type Entrega,
+  type ItemEntrega,
   type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -30,6 +32,10 @@ const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "TB", "RM3", "RM2"];
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function sumar(items: ItemEntrega[], campo: "cantidad_entregada" | "cantidad_pendiente") {
+  return items.reduce((total, item) => total + item[campo], 0);
+}
+
 function FilaRevision({
   entrega,
   onGuardado,
@@ -39,8 +45,7 @@ function FilaRevision({
 }) {
   const [tipo, setTipo] = useState<TipoDocumento>(entrega.tipo);
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
-  const [cantidadEntregada, setCantidadEntregada] = useState(entrega.cantidad_entregada);
-  const [cantidadPendiente, setCantidadPendiente] = useState(entrega.cantidad_pendiente);
+  const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,21 +53,32 @@ function FilaRevision({
     .filter(([, valor]) => valor < 0.75)
     .map(([campo]) => campo);
 
-  // Si no queda nada pendiente, no tiene sentido seguir tocando tipo/
-  // indicativo/cantidad entregada — se bloquean. Pendiente en si queda
-  // siempre editable, para poder deshacer un 0 puesto por error.
-  const sinPendiente = cantidadPendiente === 0;
+  // Si no queda nada pendiente en ningun producto, no tiene sentido seguir
+  // tocando tipo/indicativo — se bloquean. La cantidad pendiente de cada
+  // item queda siempre editable, para poder deshacer un 0 puesto por error.
+  const sinPendiente = items.length > 0 && items.every((item) => item.cantidad_pendiente === 0);
+
+  const actualizarItem = (id: string, cambios: Partial<ItemEntrega>) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...cambios } : item)));
+  };
 
   const guardar = async () => {
     setGuardando(true);
     setError(null);
     try {
-      await revisarEntrega(entrega.id, {
-        tipo,
-        indicativo_numero: indicativoNumero,
-        cantidad_entregada: cantidadEntregada,
-        cantidad_pendiente: cantidadPendiente,
-      });
+      await revisarEntrega(entrega.id, { tipo, indicativo_numero: indicativoNumero });
+      if (items.length > 0) {
+        await actualizarItems(
+          entrega.id,
+          items.map((item) => ({
+            id: item.id,
+            descripcion: item.descripcion,
+            cantidad_entregada: item.cantidad_entregada,
+            cantidad_pendiente: item.cantidad_pendiente,
+          })),
+          "supervisor"
+        );
+      }
       onGuardado();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar");
@@ -91,12 +107,7 @@ function FilaRevision({
               Ver foto original ↗
             </a>
           </div>
-          {entrega.detalle ? (
-            <p className="text-xs text-neutral-500">
-              Detalle (referencia de la IA, no editable): <span className="text-neutral-300">{entrega.detalle}</span>
-            </p>
-          ) : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Tipo
               <select
@@ -121,30 +132,61 @@ function FilaRevision({
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Cantidad (CANT)
-              <input
-                type="number"
-                value={cantidadEntregada}
-                onChange={(e) => setCantidadEntregada(Number(e.target.value))}
-                disabled={sinPendiente}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Cantidad pendiente
-              <input
-                type="number"
-                value={cantidadPendiente}
-                onChange={(e) => setCantidadPendiente(Number(e.target.value))}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
-              />
-            </label>
           </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+              Productos
+            </span>
+            {items.length === 0 ? (
+              <p className="text-xs text-neutral-600">Sin productos registrados.</p>
+            ) : (
+              items.map((item) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-1 gap-2 rounded-md border border-neutral-800 p-2 sm:grid-cols-[1fr_140px_140px]"
+                >
+                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                    Descripción
+                    <input
+                      value={item.descripcion}
+                      onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
+                      disabled={sinPendiente}
+                      className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                    Cantidad (CANT)
+                    <input
+                      type="number"
+                      value={item.cantidad_entregada}
+                      onChange={(e) =>
+                        actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
+                      }
+                      disabled={sinPendiente}
+                      className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                    Pendiente
+                    <input
+                      type="number"
+                      value={item.cantidad_pendiente}
+                      onChange={(e) =>
+                        actualizarItem(item.id, { cantidad_pendiente: Number(e.target.value) })
+                      }
+                      className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                    />
+                  </label>
+                </div>
+              ))
+            )}
+          </div>
+
           {sinPendiente ? (
             <p className="text-xs text-neutral-600">
-              Sin pendiente — tipo, indicativo/número y cantidad quedan bloqueados. Cambiá &quot;Cantidad
-              pendiente&quot; si fue un error.
+              Sin pendiente en ningún producto — tipo e indicativo/número quedan bloqueados. Cambiá
+              la pendiente de algún producto si fue un error.
             </p>
           ) : null}
           {error ? <p className="text-xs text-red-400">{error}</p> : null}
@@ -185,7 +227,9 @@ export default function DashboardPage() {
 
   // Realtime de Supabase: cuando entra/cambia una fila, revalidamos al
   // instante en vez de esperar el proximo tick de polling (que sigue
-  // activo como red de seguridad si el socket se corta).
+  // activo como red de seguridad si el socket se corta). entrega_items
+  // cambia aparte de entregas (ver PATCH /entregas/{id}/items), asi que
+  // tambien hay que escucharla.
   useEffect(() => {
     const cliente = supabase;
     if (!cliente) return;
@@ -193,6 +237,9 @@ export default function DashboardPage() {
     const canal = cliente
       .channel("dashboard-entregas-logs")
       .on("postgres_changes", { event: "*", schema: "public", table: "entregas" }, () => {
+        recargarEntregas();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "entrega_items" }, () => {
         recargarEntregas();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "logs" }, () => {
@@ -211,7 +258,7 @@ export default function DashboardPage() {
   const entregasFiltradas = !termino
     ? entregas
     : entregas?.filter((e) =>
-        [e.tipo, e.indicativo_numero, e.sede_origen_nombre, e.operador_id]
+        [e.tipo, e.indicativo_numero, e.sede_origen_nombre, e.operador_id, ...e.items.map((i) => i.descripcion)]
           .filter(Boolean)
           .some((campo) => campo!.toLowerCase().includes(termino))
       );
@@ -261,17 +308,17 @@ export default function DashboardPage() {
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar por tipo, indicativo/número, sede u operador..."
+          placeholder="Buscar por tipo, indicativo/número, sede, operador o producto..."
           className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
         />
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="bg-neutral-900 text-neutral-500">
               <tr>
                 <th className="px-4 py-2 font-medium">Tipo</th>
                 <th className="px-4 py-2 font-medium">Indicativo/número</th>
                 <th className="px-4 py-2 font-medium">Sede origen</th>
-                <th className="px-4 py-2 font-medium">Detalle</th>
+                <th className="px-4 py-2 font-medium">Productos</th>
                 <th className="px-4 py-2 font-medium">Cantidad (CANT)</th>
                 <th className="px-4 py-2 font-medium">Pendiente</th>
                 <th className="px-4 py-2 font-medium">Estado</th>
@@ -294,64 +341,69 @@ export default function DashboardPage() {
                   </td>
                 </tr>
               ) : null}
-              {entregasFiltradas?.map((e) => (
-                <>
-                  <tr
-                    key={e.id}
-                    className={e.estado === "pendiente_revision" ? "cursor-pointer" : undefined}
-                    onClick={() =>
-                      e.estado === "pendiente_revision"
-                        ? setEnRevision(enRevision === e.id ? null : e.id)
-                        : undefined
-                    }
-                  >
-                    <td className="px-4 py-2 font-mono text-neutral-300">{e.tipo || "—"}</td>
-                    <td className="px-4 py-2 font-mono text-neutral-300">
-                      {e.indicativo_numero || "—"}
-                    </td>
-                    <td className="px-4 py-2 text-neutral-300">
-                      {e.sede_origen_nombre ?? e.sede_origen_id}
-                    </td>
-                    <td className="max-w-[220px] truncate px-4 py-2 text-neutral-400" title={e.detalle}>
-                      {e.detalle || "—"}
-                    </td>
-                    <td className="px-4 py-2 text-neutral-300">{e.cantidad_entregada}</td>
-                    <td className="px-4 py-2 text-neutral-300">{e.cantidad_pendiente}</td>
-                    <td className="px-4 py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
+              {entregasFiltradas?.map((e) => {
+                const puedeActualizar = e.items.some((item) => item.cantidad_pendiente > 0);
+                const puedeAbrir = e.estado === "pendiente_revision" || puedeActualizar;
+                return (
+                  <>
+                    <tr
+                      key={e.id}
+                      className={puedeAbrir ? "cursor-pointer" : undefined}
+                      onClick={() => (puedeAbrir ? setEnRevision(enRevision === e.id ? null : e.id) : undefined)}
+                    >
+                      <td className="px-4 py-2 font-mono text-neutral-300">{e.tipo || "—"}</td>
+                      <td className="px-4 py-2 font-mono text-neutral-300">
+                        {e.indicativo_numero || "—"}
+                      </td>
+                      <td className="px-4 py-2 text-neutral-300">
+                        {e.sede_origen_nombre ?? e.sede_origen_id}
+                      </td>
+                      <td
+                        className="max-w-[220px] truncate px-4 py-2 text-neutral-400"
+                        title={e.items.map((i) => i.descripcion).join(", ")}
                       >
-                        {ESTADO_LABEL[e.estado]}
-                        {e.estado === "pendiente_revision" ? " · revisar ↕" : ""}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-neutral-500">
-                      {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
-                    </td>
-                    <td className="px-4 py-2">
-                      <a
-                        href={e.evidencia_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(ev) => ev.stopPropagation()}
-                        className="text-orange-400 hover:underline"
-                      >
-                        Ver foto ↗
-                      </a>
-                    </td>
-                  </tr>
-                  {enRevision === e.id ? (
-                    <FilaRevision
-                      key={`${e.id}-revision`}
-                      entrega={e}
-                      onGuardado={() => {
-                        setEnRevision(null);
-                        recargarEntregas();
-                      }}
-                    />
-                  ) : null}
-                </>
-              ))}
+                        {e.items.length === 0
+                          ? "—"
+                          : `${e.items.length} producto${e.items.length === 1 ? "" : "s"}`}
+                      </td>
+                      <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_entregada")}</td>
+                      <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_pendiente")}</td>
+                      <td className="px-4 py-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
+                        >
+                          {ESTADO_LABEL[e.estado]}
+                          {puedeAbrir ? " · revisar ↕" : ""}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-neutral-500">
+                        {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-4 py-2">
+                        <a
+                          href={e.evidencia_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(ev) => ev.stopPropagation()}
+                          className="text-orange-400 hover:underline"
+                        >
+                          Ver foto ↗
+                        </a>
+                      </td>
+                    </tr>
+                    {enRevision === e.id ? (
+                      <FilaRevision
+                        key={`${e.id}-revision`}
+                        entrega={e}
+                        onGuardado={() => {
+                          setEnRevision(null);
+                          recargarEntregas();
+                        }}
+                      />
+                    ) : null}
+                  </>
+                );
+              })}
             </tbody>
           </table>
         </div>

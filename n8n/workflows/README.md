@@ -22,11 +22,18 @@ operador sube una foto desde la app móvil.
 | # | Nodo | Tipo | Qué hace |
 |---|---|---|---|
 | 1 | `Webhook: foto subida` | Webhook Trigger | Recibe `{ evidencia_url, hash_evidencia, sede_origen_id, operador_id, capturado_at }` una vez que la app móvil confirma la subida a Storage. |
-| 2 | `HTTP: procesar entrega` | HTTP Request | `POST` al backend: `{{$env.API_BASE_URL}}/entregas/procesar` con el body del webhook. El backend ya ejecuta extracción por IA, chequeo de duplicados, inserción y logging (ver `apps/backend/app/routers/entregas.py`). |
-| 3 | `IF: estado` | IF | Rama según la respuesta: `procesada` → continuar; `pendiente_revision` → notificar supervisor; `409` (duplicado) → notificar alerta de duplicado. |
+| 2 | `HTTP: procesar entrega` | HTTP Request | `POST` al backend: `{{$env.API_BASE_URL}}/entregas/procesar` con el body del webhook — **paso 1** del flujo de dos pasos (ver abajo). El backend ejecuta extracción por IA, identifica el documento y responde `{ id, situacion, estado, items }` sin pedir cantidades todavía. |
+| 3 | `IF: estado` | IF | Rama según la respuesta: `$json.detail` existe → hubo error (409 nada pendiente / 502 falló la IA); si no, `$json.estado === 'pendiente_revision'` → notificar supervisor; si no, seguir. |
 | 4a | `Notificar: revisión manual` | Slack / Email / WhatsApp Business | Aviso al supervisor de la sede con el link a la entrega en el dashboard. |
-| 4b | `Notificar: duplicado bloqueado` | Slack / Email | Aviso a ambas sedes involucradas (origen del intento + sede que ya la había registrado) citando el evento de `logs`. |
-| 5 | `Respond to Webhook` | Respond to Webhook | Devuelve el resultado a la app móvil (código 201 / 409 / 502 según corresponda). |
+| 4b | `Notificar: duplicado o error` | Slack / Email | Aviso si `/procesar` devolvió error — ej. el documento ya estaba entregado por completo (nada pendiente que actualizar). |
+| 5 | `Respond to Webhook` | Respond to Webhook | Devuelve el resultado (id/situacion/estado/items) a quien haya llamado al webhook. |
+
+**Ojo — este workflow solo cubre el paso 1.** El **paso 2** (confirmar
+cantidades por producto: `PATCH /entregas/{id}/items`, ver
+`apps/backend/app/routers/entregas.py`) lo llama la app móvil directo contra
+el backend, no a través de n8n — no hay notificación ni nodo para eso acá.
+Si en el futuro se quiere que n8n también medie el paso 2, hace falta un
+segundo webhook + nodo HTTP apuntando a `/entregas/{id}/items`.
 
 **Reintentos:**
 - `HTTP: procesar entrega` tiene `retryOnFail` (3 intentos, 2s entre cada uno)

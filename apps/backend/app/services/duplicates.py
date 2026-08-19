@@ -1,90 +1,256 @@
-"""Chequeo de duplicados entre sedes: la barrera real es el `unique
-(tipo, indicativo_numero)` de la tabla `entregas` (ver app.db._SCHEMA) — por
-ejemplo, no puede haber dos entregas 'FEI 10254'. Este modulo solo traduce la
-violacion de esa restriccion en una respuesta de negocio + logging. Ver
-Figura 1 del diagrama.
+"""Chequeo de duplicados entre sedes + flujo de items por entrega (ver plan en
+docs/architecture.md): la barrera real sigue siendo el `unique (tipo,
+indicativo_numero)` de la tabla `entregas` (ver app.db._SCHEMA) -- ej. no
+puede haber dos "FEI 10254". Un documento puede traer varios productos
+(`entrega_items`), y si al fotografiarlo de nuevo todavia le queda algo
+pendiente en cualquier item, se devuelve para actualizar en vez de bloquear.
 """
+
+from datetime import datetime
 
 import asyncpg
 
 from app.db import get_pool
-from app.models.entrega import EstadoEntrega
+from app.models.entrega import (
+    EstadoEntrega,
+    ItemActualizacion,
+    ItemEntrega,
+    SituacionEntrega,
+)
 from app.models.log import EventoLog
 from app.services.logging_service import registrar_evento
 
 
-def _identificador(entrega: dict) -> str:
-    """Ej: 'FEI 10254' — como lo nombran en el documento fisico."""
-    return f"{entrega.get('tipo', '?')} {entrega.get('indicativo_numero') or 'sin numero'}"
+def _identificador(tipo: str, indicativo_numero: str) -> str:
+    """Ej: 'FEI 10254' -- como lo nombran en el documento fisico."""
+    return f"{tipo or '?'} {indicativo_numero or 'sin numero'}"
 
 
 class EntregaDuplicada(Exception):
     def __init__(self, identificador: str, mensaje: str | None = None):
         self.identificador = identificador
-        super().__init__(mensaje or f"El documento {identificador} ya fue procesado por otra sede.")
-
-
-async def insertar_si_no_duplicada(entrega: dict, *, actor_id: str, sede_id: str) -> str:
-    """Intenta insertar la entrega. Si la restriccion unique de la DB la
-    rechaza (mismo tipo+indicativo_numero, o mismo hash de evidencia),
-    registra el intento de duplicado (quien, cuando, desde donde) y relanza
-    como EntregaDuplicada para que el router responda 409.
-
-    Retorna el id insertado en el caso exitoso.
-    """
-    pool = await get_pool()
-    identificador = _identificador(entrega)
-
-    try:
-        entrega_id = await pool.fetchval(
-            """
-            insert into entregas (
-                tipo, indicativo_numero, hash_evidencia, sede_origen_id,
-                cantidad_entregada, cantidad_pendiente, detalle, estado, confianza_ia,
-                evidencia_url, operador_id, capturado_at, procesado_at
-            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
-            returning id
-            """,
-            entrega["tipo"],
-            entrega["indicativo_numero"],
-            entrega["hash_evidencia"],
-            entrega["sede_origen_id"],
-            entrega["cantidad_entregada"],
-            entrega["cantidad_pendiente"],
-            entrega["detalle"],
-            entrega["estado"],
-            entrega["confianza_ia"],
-            entrega["evidencia_url"],
-            entrega["operador_id"],
-            entrega["capturado_at"],
-        )
-    except asyncpg.UniqueViolationError:
-        await registrar_evento(
-            EventoLog.DUPLICADO_BLOQUEADO,
-            entidad_tipo="entrega",
-            entidad_id=identificador,
-            actor_id=actor_id,
-            sede_id=sede_id,
-            resultado="bloqueado",
-            detalle={"tipo": entrega.get("tipo"), "indicativo_numero": entrega.get("indicativo_numero")},
-        )
-        raise EntregaDuplicada(identificador)
-
-    await registrar_evento(
-        EventoLog.ENTREGA_INSERTADA,
-        entidad_tipo="entrega",
-        entidad_id=str(entrega_id),
-        actor_id=actor_id,
-        sede_id=sede_id,
-        resultado="ok",
-    )
-    return str(entrega_id)
+        super().__init__(mensaje or f"El documento {identificador} ya fue procesado por completo.")
 
 
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
-    # cantidad_pendiente queda afuera: la ingresa el bodeguero a mano (ver
-    # app/routers/entregas.py), no hay confianza de IA que evaluar ahi.
-    campos_criticos = ("tipo", "indicativo_numero", "cantidad_entregada")
+    # Las cantidades quedan afuera del gate: siempre las confirma el
+    # bodeguero a mano en el paso 2 (ver procesar_extraccion), sin importar
+    # que tan segura estuvo la IA al leerlas.
+    campos_criticos = ("tipo", "indicativo_numero")
     if any(confianza.get(campo, 0.0) < min_confidence for campo in campos_criticos):
         return EstadoEntrega.PENDIENTE_REVISION
     return EstadoEntrega.PROCESADA
+
+
+async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEntrega]:
+    rows = await conn.fetch(
+        """
+        select id, descripcion, cantidad_entregada, cantidad_pendiente
+        from entrega_items where entrega_id = $1::uuid
+        order by creado_at
+        """,
+        entrega_id,
+    )
+    return [
+        ItemEntrega(
+            id=str(r["id"]),
+            descripcion=r["descripcion"],
+            cantidad_entregada=r["cantidad_entregada"],
+            cantidad_pendiente=r["cantidad_pendiente"],
+        )
+        for r in rows
+    ]
+
+
+async def procesar_extraccion(
+    extraido: dict,
+    *,
+    hash_evidencia: str,
+    sede_origen_id: str,
+    operador_id: str,
+    capturado_at: datetime,
+    evidencia_url: str,
+    min_confidence: float,
+) -> tuple[SituacionEntrega, str, list[ItemEntrega], EstadoEntrega]:
+    """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
+
+    - No existia -> intenta insertarla (items = lo que leyo la IA, con
+      cantidad_pendiente = cantidad_entregada hasta que el bodeguero confirme
+      en el paso 2). El `unique(tipo, indicativo_numero)` de la tabla es la
+      barrera real contra la carrera entre sedes -- se inserta primero y se
+      atrapa la excepcion, no se pre-chequea con un select (mismo patron que
+      ya usaba este modulo).
+    - Ya existia y le queda algo pendiente en cualquier item -> "actualizable",
+      no se escribe nada todavia, se devuelven los items tal cual estan.
+    - Ya existia y todo esta en pendiente=0 -> EntregaDuplicada (409).
+    """
+    pool = await get_pool()
+    tipo = (extraido.get("tipo") or "FEI").strip()
+    indicativo_numero = (extraido.get("indicativo_numero") or "").strip()
+    identificador = _identificador(tipo, indicativo_numero)
+    estado = marcar_estado_por_confianza(extraido.get("confianza", {}), min_confidence)
+    items_extraidos = extraido.get("items") or []
+
+    async with pool.acquire() as conn:
+        try:
+            async with conn.transaction():
+                entrega_id = await conn.fetchval(
+                    """
+                    insert into entregas (
+                        tipo, indicativo_numero, hash_evidencia, sede_origen_id,
+                        estado, confianza_ia, evidencia_url, operador_id, capturado_at, procesado_at
+                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+                    returning id
+                    """,
+                    tipo,
+                    indicativo_numero,
+                    hash_evidencia,
+                    sede_origen_id,
+                    estado.value,
+                    extraido.get("confianza", {}),
+                    evidencia_url,
+                    operador_id,
+                    capturado_at,
+                )
+                items: list[ItemEntrega] = []
+                for it in items_extraidos:
+                    cantidad = max(0, int(it.get("cantidad") or 0))
+                    descripcion = str(it.get("descripcion") or "")
+                    item_id = await conn.fetchval(
+                        """
+                        insert into entrega_items (entrega_id, descripcion, cantidad_entregada, cantidad_pendiente)
+                        values ($1, $2, $3, $3)
+                        returning id
+                        """,
+                        entrega_id,
+                        descripcion,
+                        cantidad,
+                    )
+                    items.append(
+                        ItemEntrega(
+                            id=str(item_id),
+                            descripcion=descripcion,
+                            cantidad_entregada=cantidad,
+                            cantidad_pendiente=cantidad,
+                        )
+                    )
+        except asyncpg.UniqueViolationError:
+            fila = await conn.fetchrow(
+                "select id from entregas where tipo = $1 and indicativo_numero = $2",
+                tipo,
+                indicativo_numero,
+            )
+            items = await _items_de_entrega(conn, fila["id"])
+            if all(item.cantidad_pendiente == 0 for item in items):
+                await registrar_evento(
+                    EventoLog.DUPLICADO_BLOQUEADO,
+                    entidad_tipo="entrega",
+                    entidad_id=identificador,
+                    actor_id=operador_id,
+                    sede_id=sede_origen_id,
+                    resultado="bloqueado",
+                    detalle={"tipo": tipo, "indicativo_numero": indicativo_numero},
+                )
+                raise EntregaDuplicada(identificador)
+            return SituacionEntrega.ACTUALIZABLE, str(fila["id"]), items, estado
+        else:
+            await registrar_evento(
+                EventoLog.ENTREGA_INSERTADA,
+                entidad_tipo="entrega",
+                entidad_id=str(entrega_id),
+                actor_id=operador_id,
+                sede_id=sede_origen_id,
+                resultado="ok",
+            )
+            return SituacionEntrega.NUEVA, str(entrega_id), items, estado
+
+
+async def aplicar_actualizacion_items(
+    entrega_id: str,
+    items: list[ItemActualizacion],
+    *,
+    operador_id: str,
+    sede_id: str,
+    evidencia_url: str | None = None,
+    hash_evidencia: str | None = None,
+) -> list[ItemEntrega]:
+    """Paso 2: confirma una entrega nueva (cantidad_pendiente absoluta) o
+    aplica una actualizacion incremental (entregado_hoy, sumado/restado
+    atomicamente en SQL -- asi dos visitas casi simultaneas al mismo item no
+    se pisan). Cualquier sede puede llamar esto, no solo la que la creo."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for item in items:
+                if item.entregado_hoy is not None:
+                    # Delta atomico en SQL -- no se lee-modifica-escribe desde
+                    # Python, asi dos confirmaciones casi simultaneas al mismo
+                    # item no se pisan entre si.
+                    await conn.execute(
+                        """
+                        update entrega_items
+                        set descripcion = coalesce($4, descripcion),
+                            cantidad_entregada = cantidad_entregada + $2,
+                            cantidad_pendiente = greatest(0, cantidad_pendiente - $2),
+                            actualizado_at = now()
+                        where id = $1::uuid and entrega_id = $3::uuid
+                        """,
+                        item.id,
+                        item.entregado_hoy,
+                        entrega_id,
+                        item.descripcion,
+                    )
+                else:
+                    # Valores absolutos -- confirmar una entrega nueva desde
+                    # el movil (solo cantidad_pendiente), o correccion manual
+                    # desde el dashboard (cualquier combinacion de campos).
+                    await conn.execute(
+                        """
+                        update entrega_items
+                        set descripcion = coalesce($2, descripcion),
+                            cantidad_entregada = coalesce($3, cantidad_entregada),
+                            cantidad_pendiente = coalesce($4, cantidad_pendiente),
+                            actualizado_at = now()
+                        where id = $1::uuid and entrega_id = $5::uuid
+                        """,
+                        item.id,
+                        item.descripcion,
+                        item.cantidad_entregada,
+                        item.cantidad_pendiente,
+                        entrega_id,
+                    )
+
+            if evidencia_url and hash_evidencia:
+                await conn.execute(
+                    """
+                    update entregas
+                    set evidencia_url = $2, hash_evidencia = $3, actualizado_at = now()
+                    where id = $1::uuid
+                    """,
+                    entrega_id,
+                    evidencia_url,
+                    hash_evidencia,
+                )
+
+            items_actualizados = await _items_de_entrega(conn, entrega_id)
+
+    await registrar_evento(
+        EventoLog.ENTREGA_ACTUALIZADA,
+        entidad_tipo="entrega",
+        entidad_id=entrega_id,
+        actor_id=operador_id,
+        sede_id=sede_id,
+        resultado="ok",
+        detalle={
+            "items": [
+                {
+                    "id": i.id,
+                    "cantidad_entregada": i.cantidad_entregada,
+                    "cantidad_pendiente": i.cantidad_pendiente,
+                }
+                for i in items_actualizados
+            ],
+            "evidencia_url": evidencia_url,
+        },
+    )
+    return items_actualizados

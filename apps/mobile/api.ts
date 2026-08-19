@@ -17,9 +17,21 @@ import { EVIDENCIA_BUCKET, supabase } from './supabase';
 // simulator/dispositivo físico en la misma red, localhost/IP de LAN andan bien.
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
+export interface ItemEntrega {
+  id: string;
+  descripcion: string;
+  cantidad_entregada: number;
+  cantidad_pendiente: number;
+}
+
 export interface ResultadoEnvio {
   id: string;
+  // nueva: no existia, se creo -- el bodeguero confirma cuanto quedo
+  // pendiente por producto. actualizable: ya existia y le quedaba algo
+  // pendiente -- el bodeguero dice cuanto entrego hoy por producto.
+  situacion: 'nueva' | 'actualizable';
   estado: 'procesada' | 'pendiente_revision';
+  items: ItemEntrega[];
 }
 
 export interface ErrorEnvio {
@@ -92,15 +104,18 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
   return { url: data.publicUrl, hash };
 }
 
+/**
+ * Paso 1: identifica el documento (IA de vision) y devuelve sus productos --
+ * creandolo si no existia. No hace falta mandar cantidades aca, eso se
+ * confirma en el paso 2 (confirmarItems) una vez que el bodeguero ve la
+ * lista de productos en pantalla.
+ */
 export async function procesarEntrega(payload: {
   evidencia_url: string;
   hash_evidencia: string;
   sede_origen_id: string;
   operador_id: string;
   capturado_at: string;
-  // La ingresa el bodeguero a mano al tomar la foto — manda sobre lo que la
-  // IA de vision llegue a leer para ese campo (ver EntregaCreate en el backend).
-  cantidad_pendiente: number;
 }): Promise<ResultadoEnvio> {
   const res = await fetch(`${API_BASE_URL}/entregas/procesar`, {
     method: 'POST',
@@ -111,10 +126,42 @@ export async function procesarEntrega(payload: {
   const body = await res.json();
 
   if (!res.ok) {
-    // 409 = duplicado bloqueado (ver Figura 1); cualquier otro error de negocio
-    // llega tambien como { detail: string } gracias a FastAPI.
+    // 409 = ya estaba todo entregado, nada que actualizar (ver Figura 1);
+    // cualquier otro error de negocio llega tambien como { detail } gracias a FastAPI.
     throw { status: res.status, detail: body.detail ?? 'Error desconocido' } as ErrorEnvio;
   }
 
   return body as ResultadoEnvio;
+}
+
+/**
+ * Paso 2: confirma lo que el bodeguero ingreso por producto. Para una
+ * entrega "nueva" manda cantidad_pendiente (valor absoluto); para una
+ * "actualizable" manda entregado_hoy (delta, lo suma/resta el backend).
+ */
+export async function confirmarItems(
+  entregaId: string,
+  items: ({ id: string } & ({ cantidad_pendiente: number } | { entregado_hoy: number }))[],
+  operadorId: string,
+  sedeId: string,
+  evidenciaUrl: string,
+  hashEvidencia: string
+): Promise<{ id: string; items: ItemEntrega[] }> {
+  const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items,
+      operador_id: operadorId,
+      sede_id: sedeId,
+      evidencia_url: evidenciaUrl,
+      hash_evidencia: hashEvidencia,
+    }),
+  });
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw { status: res.status, detail: body.detail ?? 'Error desconocido' } as ErrorEnvio;
+  }
+  return body as { id: string; items: ItemEntrega[] };
 }

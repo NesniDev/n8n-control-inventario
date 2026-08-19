@@ -15,3 +15,6 @@ class EventoLog(StrEnum):
     # monitoreo-salud.json), no el backend -- por diseno: si el backend esta
     # caido no puede reportar su propia caida. Ver n8n/workflows/README.md.
     HEALTH_CHECK_FALLIDO = "health_check_fallido"
+    # Confirmacion del bodeguero (paso 2) tras un POST /entregas/procesar que
+    # devolvio situacion "nueva" o "actualizable" -- ver app/services/duplicates.py.
+    ENTREGA_ACTUALIZADA = "entrega_actualizada"

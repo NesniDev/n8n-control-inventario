@@ -15,16 +15,32 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 
-import { fetchSedes, procesarEntrega, subirEvidencia, type Empleado, type Sede } from './api';
+import {
+  confirmarItems,
+  fetchSedes,
+  procesarEntrega,
+  subirEvidencia,
+  type Empleado,
+  type ItemEntrega,
+  type Sede,
+} from './api';
 import PantallaLogin from './PantallaLogin';
 
-type Estado = 'idle' | 'subiendo' | 'procesada' | 'pendiente_revision' | 'error';
+// captura: tomar/elegir foto y mandarla (paso 1, identifica el documento).
+// confirmando: el bodeguero ve los productos y carga cantidades (paso 2).
+// resultado: pantalla final (procesada / pendiente de revision / error).
+type Fase = 'captura' | 'confirmando' | 'resultado';
+type EstadoFinal = 'procesada' | 'pendiente_revision' | 'error';
 
-const ESTADO_INFO: Record<Exclude<Estado, 'idle' | 'subiendo'>, { icono: string; texto: string; color: string; fondo: string }> = {
+const ESTADO_INFO: Record<EstadoFinal, { icono: string; texto: string; color: string; fondo: string }> = {
   procesada: { icono: '✅', texto: 'Procesada', color: '#34d399', fondo: 'rgba(52,211,153,0.12)' },
   pendiente_revision: { icono: '🕵️', texto: 'Pendiente de revisión', color: '#fbbf24', fondo: 'rgba(251,191,36,0.12)' },
   error: { icono: '⚠️', texto: 'Error', color: '#f87171', fondo: 'rgba(248,113,113,0.12)' },
 };
+
+interface ItemFormulario extends ItemEntrega {
+  valor: string;
+}
 
 export default function App() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
@@ -44,14 +60,19 @@ function PantallaCaptura({
   onCerrarSesion: () => void;
 }) {
   const [foto, setFoto] = useState<string | null>(null);
-  const [estado, setEstado] = useState<Estado>('idle');
+  const [fase, setFase] = useState<Fase>('captura');
   const [mensaje, setMensaje] = useState('');
+  const [cargando, setCargando] = useState(false);
   const [sedes, setSedes] = useState<Sede[]>([]);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<Sede | null>(null);
   const [errorSedes, setErrorSedes] = useState<string | null>(null);
-  // La cuenta el bodeguero a mano al tomar la foto — manda sobre lo que la
-  // IA de vision llegue a leer para este campo (ver api.ts/procesarEntrega).
-  const [cantidadPendiente, setCantidadPendiente] = useState('');
+
+  // Datos de la evidencia ya subida, necesarios para el paso 2.
+  const [entregaId, setEntregaId] = useState<string | null>(null);
+  const [situacion, setSituacion] = useState<'nueva' | 'actualizable' | null>(null);
+  const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
+  const [items, setItems] = useState<ItemFormulario[]>([]);
+  const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
 
   useEffect(() => {
     fetchSedes()
@@ -69,9 +90,8 @@ function PantallaCaptura({
   const usarResultado = (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
       setFoto(resultado.assets[0].uri);
-      setEstado('idle');
+      setFase('captura');
       setMensaje('');
-      setCantidadPendiente('');
     }
   };
 
@@ -107,18 +127,15 @@ function PantallaCaptura({
     usarResultado(resultado);
   };
 
-  const cantidadPendienteValida = /^\d+$/.test(cantidadPendiente.trim());
-  // Una vez en 0 (sin nada pendiente), el campo se bloquea a si mismo -- para
-  // corregirlo hay que repetir la foto (que resetea cantidadPendiente a '').
-  const cantidadPendienteBloqueada = cantidadPendiente.trim() === '0';
-
+  // Paso 1: sube la foto y le pide al backend que identifique el documento.
   const enviar = async () => {
-    if (!foto || !sedeSeleccionada || !cantidadPendienteValida) return;
-    setEstado('subiendo');
+    if (!foto || !sedeSeleccionada) return;
+    setCargando(true);
     setMensaje('Subiendo evidencia...');
 
     try {
       const { url, hash } = await subirEvidencia(foto);
+      setEvidenciaActual({ url, hash });
       setMensaje('Extrayendo datos con IA...');
 
       const resultado = await procesarEntrega({
@@ -127,42 +144,87 @@ function PantallaCaptura({
         sede_origen_id: sedeSeleccionada.id,
         operador_id: empleado.id,
         capturado_at: new Date().toISOString(),
-        cantidad_pendiente: Number(cantidadPendiente.trim()),
       });
 
-      setEstado(resultado.estado);
-      setMensaje(
-        resultado.estado === 'procesada'
-          ? 'Entrega registrada correctamente.'
-          : 'Registrada, pero necesita revisión manual (baja confianza de la IA).'
-      );
+      setEntregaId(resultado.id);
+      setSituacion(resultado.situacion);
+      setEstadoFinal(resultado.estado);
+      setItems(resultado.items.map((item) => ({ ...item, valor: '' })));
+      setFase('confirmando');
+      setMensaje('');
     } catch (err: any) {
-      setEstado('error');
+      setFase('resultado');
+      setEstadoFinal('error');
       const mensajeError: string =
         err?.status === 409
-          ? (err?.detail ?? 'Esta entrega ya fue procesada — acción bloqueada.')
+          ? (err?.detail ?? 'Este documento ya fue entregado por completo — acción bloqueada.')
           : (err?.detail ?? err?.message ?? 'Error al procesar la entrega.');
       setMensaje(mensajeError);
 
       if (err?.status === 409) {
-        // Duplicado: es la alerta mas importante del flujo (evita doble
-        // despacho entre sedes) — un popup nativo no se puede pasar por
-        // alto como el texto en pantalla.
-        Alert.alert('⚠️ Entrega duplicada', mensajeError, [{ text: 'Entendido' }]);
+        // Ya no queda nada pendiente: es la alerta mas importante del flujo
+        // (evita doble despacho entre sedes) — un popup nativo no se puede
+        // pasar por alto como el texto en pantalla.
+        Alert.alert('⚠️ Nada pendiente', mensajeError, [{ text: 'Entendido' }]);
       }
+    } finally {
+      setCargando(false);
     }
+  };
+
+  // Paso 2: confirma lo que cargo el bodeguero por producto.
+  const confirmar = async () => {
+    if (!entregaId || !situacion || !evidenciaActual) return;
+    setCargando(true);
+    setMensaje('Guardando...');
+
+    try {
+      const payload = items.map((item) =>
+        situacion === 'nueva'
+          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()) }
+          : { id: item.id, entregado_hoy: Number(item.valor.trim()) }
+      );
+      await confirmarItems(
+        entregaId,
+        payload,
+        empleado.id,
+        sedeSeleccionada?.id ?? '',
+        evidenciaActual.url,
+        evidenciaActual.hash
+      );
+      setFase('resultado');
+      setMensaje(
+        estadoFinal === 'procesada'
+          ? 'Entrega registrada correctamente.'
+          : 'Registrada, pero necesita revisión manual (baja confianza de la IA).'
+      );
+    } catch (err: any) {
+      setMensaje(err?.detail ?? err?.message ?? 'Error al guardar las cantidades.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const actualizarValorItem = (id: string, valor: string) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, valor } : item)));
   };
 
   const reiniciar = () => {
     setFoto(null);
-    setEstado('idle');
+    setFase('captura');
     setMensaje('');
-    setCantidadPendiente('');
+    setEntregaId(null);
+    setSituacion(null);
+    setEstadoFinal(null);
+    setItems([]);
+    setEvidenciaActual(null);
   };
 
-  const puedeEnviar =
-    !!foto && !!sedeSeleccionada && cantidadPendienteValida && estado !== 'subiendo';
-  const infoEstado = estado !== 'idle' && estado !== 'subiendo' ? ESTADO_INFO[estado] : null;
+  const itemsValidos =
+    items.length > 0 && items.every((item) => /^\d+$/.test(item.valor.trim()));
+  const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
+  const puedeConfirmar = itemsValidos && !cargando;
+  const infoEstadoFinal = fase === 'resultado' && estadoFinal ? ESTADO_INFO[estadoFinal] : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -184,130 +246,192 @@ function PantallaCaptura({
           </View>
         </View>
 
-        <View style={styles.tarjeta}>
-          <Text style={styles.etiquetaSeccion}>Sede</Text>
-          {errorSedes ? (
-            <Text style={styles.textoErrorInline}>{errorSedes}</Text>
-          ) : sedes.length === 0 ? (
-            <ActivityIndicator style={{ alignSelf: 'flex-start', marginTop: 4 }} color="#c8631f" />
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.selectorSedesContenido}
-            >
-              {sedes.map((s) => {
-                const activa = sedeSeleccionada?.id === s.id;
-                return (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => setSedeSeleccionada(s)}
-                    style={[styles.chipSede, activa && styles.chipSedeActiva]}
-                  >
-                    <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
-                      {activa ? '📍 ' : ''}
-                      {s.nombre}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-        </View>
+        {fase === 'captura' ? (
+          <>
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Sede</Text>
+              {errorSedes ? (
+                <Text style={styles.textoErrorInline}>{errorSedes}</Text>
+              ) : sedes.length === 0 ? (
+                <ActivityIndicator style={{ alignSelf: 'flex-start', marginTop: 4 }} color="#c8631f" />
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.selectorSedesContenido}
+                >
+                  {sedes.map((s) => {
+                    const activa = sedeSeleccionada?.id === s.id;
+                    return (
+                      <Pressable
+                        key={s.id}
+                        onPress={() => setSedeSeleccionada(s)}
+                        style={[styles.chipSede, activa && styles.chipSedeActiva]}
+                      >
+                        <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
+                          {activa ? '📍 ' : ''}
+                          {s.nombre}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
 
-        <View style={styles.tarjeta}>
-          <Text style={styles.etiquetaSeccion}>Evidencia</Text>
-          {foto ? (
-            <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
-          ) : (
-            <View style={[styles.preview, styles.previewVacio]}>
-              <Text style={styles.previewIcono}>📷</Text>
-              <Text style={styles.previewTexto}>Sin foto capturada</Text>
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Evidencia</Text>
+              {foto ? (
+                <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
+              ) : (
+                <View style={[styles.preview, styles.previewVacio]}>
+                  <Text style={styles.previewIcono}>📷</Text>
+                  <Text style={styles.previewTexto}>Sin foto capturada</Text>
+                  <Text style={styles.previewSubtexto}>
+                    Encuadrá el documento completo, con buena luz
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {cargando ? (
+              <View style={[styles.tarjeta, styles.estadoBox]}>
+                <ActivityIndicator color="#c8631f" />
+                <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.acciones}>
+              <Pressable
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+                onPress={tomarFoto}
+              >
+                <Text style={styles.botonTexto}>{foto ? '🔁 Repetir foto' : '📷 Tomar foto'}</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+                onPress={elegirDeGaleria}
+              >
+                <Text style={styles.botonTexto}>{foto ? '🖼️ Cambiar de galería' : '🖼️ Elegir de galería'}</Text>
+              </Pressable>
+
+              {foto ? (
+                <Pressable
+                  disabled={!puedeEnviar}
+                  style={({ pressed }) => [
+                    styles.boton,
+                    styles.botonPrimario,
+                    !puedeEnviar && styles.botonDeshabilitado,
+                    pressed && puedeEnviar && styles.botonPresionado,
+                  ]}
+                  onPress={enviar}
+                >
+                  <Text style={styles.botonTexto}>{cargando ? 'Procesando...' : '✅ Enviar y procesar'}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </>
+        ) : null}
+
+        {fase === 'confirmando' ? (
+          <>
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>
+                {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
+              </Text>
               <Text style={styles.previewSubtexto}>
-                Encuadrá el documento completo, con buena luz
+                {situacion === 'nueva'
+                  ? 'Cargá cuánto quedó pendiente de cada producto.'
+                  : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
               </Text>
             </View>
-          )}
-        </View>
 
-        {foto ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Cantidad pendiente</Text>
-            <TextInput
-              value={cantidadPendiente}
-              onChangeText={setCantidadPendiente}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor="#6b7688"
-              editable={!cantidadPendienteBloqueada}
-              style={[styles.inputCantidad, cantidadPendienteBloqueada && styles.inputCantidadBloqueado]}
-            />
-            <Text style={styles.previewSubtexto}>
-              {cantidadPendienteBloqueada
-                ? 'En 0 — sin nada pendiente. Repetí la foto si fue un error.'
-                : 'Cuántas unidades quedaron pendientes de este despacho'}
-            </Text>
-          </View>
-        ) : null}
+            {items.map((item) => {
+              const bloqueado = situacion === 'nueva' && item.valor.trim() === '0';
+              return (
+                <View key={item.id} style={styles.tarjeta}>
+                  <Text style={styles.itemDescripcion}>{item.descripcion || 'Producto sin descripción'}</Text>
+                  <Text style={styles.previewSubtexto}>
+                    {situacion === 'nueva'
+                      ? `Cantidad leída: ${item.cantidad_entregada}`
+                      : `Pendiente actual: ${item.cantidad_pendiente}`}
+                  </Text>
+                  <Text style={styles.etiquetaSeccion}>
+                    {situacion === 'nueva' ? 'Cantidad pendiente' : 'Entregado hoy'}
+                  </Text>
+                  <TextInput
+                    value={item.valor}
+                    onChangeText={(valor) => actualizarValorItem(item.id, valor)}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#6b7688"
+                    editable={!bloqueado}
+                    style={[styles.inputCantidad, bloqueado && styles.inputCantidadBloqueado]}
+                  />
+                  {bloqueado ? (
+                    <Text style={styles.previewSubtexto}>En 0 — sin nada pendiente de este producto.</Text>
+                  ) : null}
+                </View>
+              );
+            })}
 
-        {estado === 'subiendo' ? (
-          <View style={[styles.tarjeta, styles.estadoBox]}>
-            <ActivityIndicator color="#c8631f" />
-            <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
-          </View>
-        ) : infoEstado ? (
-          <View style={[styles.badgeEstado, { backgroundColor: infoEstado.fondo }]}>
-            <Text style={styles.badgeEstadoIcono}>{infoEstado.icono}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.badgeEstadoTitulo, { color: infoEstado.color }]}>
-                {infoEstado.texto}
-              </Text>
-              <Text style={styles.badgeEstadoMensaje}>{mensaje}</Text>
+            {items.length === 0 ? (
+              <View style={styles.tarjeta}>
+                <Text style={styles.previewSubtexto}>
+                  La IA no encontró productos en la foto — repetí la captura con mejor luz/encuadre.
+                </Text>
+              </View>
+            ) : null}
+
+            {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
+
+            <View style={styles.acciones}>
+              <Pressable
+                disabled={!puedeConfirmar}
+                style={({ pressed }) => [
+                  styles.boton,
+                  styles.botonPrimario,
+                  !puedeConfirmar && styles.botonDeshabilitado,
+                  pressed && puedeConfirmar && styles.botonPresionado,
+                ]}
+                onPress={confirmar}
+              >
+                <Text style={styles.botonTexto}>{cargando ? 'Guardando...' : '✅ Confirmar cantidades'}</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+                onPress={reiniciar}
+              >
+                <Text style={styles.botonTexto}>Cancelar</Text>
+              </Pressable>
             </View>
-          </View>
+          </>
         ) : null}
 
-        <View style={styles.acciones}>
-          <Pressable
-            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-            onPress={tomarFoto}
-          >
-            <Text style={styles.botonTexto}>{foto ? '🔁 Repetir foto' : '📷 Tomar foto'}</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-            onPress={elegirDeGaleria}
-          >
-            <Text style={styles.botonTexto}>{foto ? '🖼️ Cambiar de galería' : '🖼️ Elegir de galería'}</Text>
-          </Pressable>
-
-          {foto && estado !== 'procesada' && estado !== 'pendiente_revision' && (
-            <Pressable
-              disabled={!puedeEnviar}
-              style={({ pressed }) => [
-                styles.boton,
-                styles.botonPrimario,
-                !puedeEnviar && styles.botonDeshabilitado,
-                pressed && puedeEnviar && styles.botonPresionado,
-              ]}
-              onPress={enviar}
-            >
-              <Text style={styles.botonTexto}>
-                {estado === 'subiendo' ? 'Procesando...' : '✅ Enviar y procesar'}
-              </Text>
-            </Pressable>
-          )}
-
-          {(estado === 'procesada' || estado === 'pendiente_revision') && (
-            <Pressable
-              style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
-              onPress={reiniciar}
-            >
-              <Text style={styles.botonTexto}>➕ Nueva captura</Text>
-            </Pressable>
-          )}
-        </View>
+        {fase === 'resultado' ? (
+          <>
+            {infoEstadoFinal ? (
+              <View style={[styles.badgeEstado, { backgroundColor: infoEstadoFinal.fondo }]}>
+                <Text style={styles.badgeEstadoIcono}>{infoEstadoFinal.icono}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.badgeEstadoTitulo, { color: infoEstadoFinal.color }]}>
+                    {infoEstadoFinal.texto}
+                  </Text>
+                  <Text style={styles.badgeEstadoMensaje}>{mensaje}</Text>
+                </View>
+              </View>
+            ) : null}
+            <View style={styles.acciones}>
+              <Pressable
+                style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+                onPress={reiniciar}
+              >
+                <Text style={styles.botonTexto}>➕ Nueva captura</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -348,6 +472,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  itemDescripcion: { color: '#fff', fontSize: 15, fontWeight: '700' },
   textoErrorInline: { color: '#f87171', fontSize: 13 },
   inputCantidad: {
     borderWidth: 1,

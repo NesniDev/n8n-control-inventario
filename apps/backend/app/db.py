@@ -55,9 +55,6 @@ create table if not exists entregas (
     indicativo_numero text not null default '',
     hash_evidencia text not null unique,
     sede_origen_id text not null,
-    cantidad_entregada integer not null default 0,
-    cantidad_pendiente integer not null default 0,
-    detalle text not null default '',
     estado text not null default 'pendiente_revision'
         check (estado in ('procesada', 'pendiente_revision', 'duplicado_bloqueado')),
     confianza_ia jsonb not null default '{}',
@@ -71,18 +68,33 @@ create table if not exists entregas (
 create index if not exists idx_entregas_sede_capturado
     on entregas (sede_origen_id, capturado_at desc);
 
+-- Un documento puede traer varios productos, cada uno con su propia cantidad
+-- (ver app/services/duplicates.py). Reemplaza los campos unicos
+-- cantidad_entregada/cantidad_pendiente/detalle que tenia "entregas" antes.
+create table if not exists entrega_items (
+    id uuid primary key default gen_random_uuid(),
+    entrega_id uuid not null references entregas(id) on delete cascade,
+    descripcion text not null default '',
+    cantidad_entregada integer not null default 0,
+    cantidad_pendiente integer not null default 0,
+    creado_at timestamptz not null default now(),
+    actualizado_at timestamptz not null default now()
+);
+
+create index if not exists idx_entrega_items_entrega on entrega_items (entrega_id);
+
 -- Migracion desde el modelo anterior (numero_guia/remitente/destinatario/items,
 -- duplicado por numero_guia+remitente) al modelo de documentos (tipo +
 -- indicativo/numero, cantidad entregada/pendiente). Idempotente: corre igual
 -- de bien contra una DB nueva que contra una que ya tenia el esquema viejo.
 alter table entregas add column if not exists tipo text not null default 'FEI';
 alter table entregas add column if not exists indicativo_numero text not null default '';
-alter table entregas add column if not exists cantidad_entregada integer not null default 0;
-alter table entregas add column if not exists cantidad_pendiente integer not null default 0;
--- Detalle de lo despachado, extraido por la IA junto con lo demas (ver
--- app/services/vision.py) -- solo referencia, no participa del gate de
--- confianza ni de la logica de duplicados.
-alter table entregas add column if not exists detalle text not null default '';
+-- Migracion a items por entrega (un documento puede traer varios productos):
+-- cantidad_entregada/cantidad_pendiente/detalle (si existian de una version
+-- anterior) se mudan a entrega_items.
+alter table entregas drop column if exists cantidad_entregada;
+alter table entregas drop column if exists cantidad_pendiente;
+alter table entregas drop column if exists detalle;
 alter table entregas drop column if exists numero_guia;
 alter table entregas drop column if exists remitente;
 alter table entregas drop column if exists destinatario;
@@ -168,6 +180,10 @@ begin
     if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
         begin
             alter publication supabase_realtime add table entregas;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table entrega_items;
         exception when duplicate_object then null;
         end;
         begin

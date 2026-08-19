@@ -45,14 +45,20 @@ Parámetros de diseño:
 
 ## 2. Flujo de automatización (paso a paso)
 
+Un documento puede traer varios productos, y un mismo documento puede pasar por más de una
+visita (se entrega una parte, después el resto) — por eso el flujo es de **dos pasos**:
+
 1. **Captura**: operador en Sede A fotografía la guía; la app adjunta `sede_id`, `operador_id`, timestamp.
 2. **Subida**: imagen a object storage; se genera hash SHA-256.
-3. **Trigger**: evento "imagen subida" dispara webhook a n8n.
-4. **Extracción IA**: se llama al LLM de visión con la imagen + schema JSON; se recibe el tipo de documento (FEI/TB/RM3/RM2), indicativo/número, cantidad entregada y cantidad pendiente, + confianza por campo.
-5. **Validación automática**: confianza alta y campos completos → continúa; confianza baja → `pendiente_revision` + notificación.
-6. **Chequeo de duplicados**: índice único (tipo + indicativo/número) antes de insertar. Si ya existe → se bloquea, se registra en `logs`, se notifica a ambas sedes.
-7. **Persistencia**: si no hay duplicado, se inserta en `entregas` con estado `procesada`.
-8. **Propagación en tiempo real**: Change Stream/listener actualiza dashboards/apps.
+3. **Trigger**: evento "imagen subida" dispara webhook a n8n (o la app móvil llama directo al backend).
+4. **Extracción IA**: se llama al LLM de visión con la imagen + schema JSON; se recibe el tipo de documento (FEI/TB/RM3/RM2), indicativo/número, y la lista de productos (descripción + cantidad), + confianza por campo.
+5. **Identificación (paso 1, `POST /entregas/procesar`)**: se busca el documento por tipo+indicativo/número.
+   - No existía → se inserta atómicamente con sus productos (nada pendiente confirmado todavía).
+   - Existía y algún producto tiene pendiente > 0 → se devuelve para actualizar (situación `actualizable`), sin escribir nada nuevo.
+   - Existía y todo está en pendiente = 0 → bloqueado (409), se registra en `logs`, se notifica.
+6. **Confirmación (paso 2, `PATCH /entregas/{id}/items`)**: el bodeguero ve los productos en la app y confirma cuánto quedó pendiente (documento nuevo) o cuánto entregó hoy (actualización — se suma/resta atómicamente en SQL para no perder una actualización si dos sedes confirman casi al mismo tiempo). Cualquier sede puede confirmar una actualización, no solo la que registró el documento originalmente.
+7. **Validación automática**: confianza alta en tipo/indicativo → `procesada`; confianza baja → `pendiente_revision` + notificación (independiente de si es un documento nuevo o una actualización).
+8. **Propagación en tiempo real**: Supabase Realtime en `entregas`/`entrega_items` actualiza dashboards/apps.
 9. **Logging**: cada paso anterior escribe un evento inmutable en `logs`.
 10. **Job de turnos**: semanalmente, `apps/backend/scripts/generar_turnos.py` corre la analítica predictiva y genera `shift_recommendations`.
 
@@ -64,12 +70,16 @@ Ver el diagrama enlazado arriba para el flujo visual completo, incluyendo las ra
 sedes            (id uuid pk, nombre, codigo unique, direccion, timezone, activa, created_at)
 empleados        (id uuid pk, nombre, sede_id, rol, estado, created_at)
 entregas         (id uuid pk, tipo, indicativo_numero, hash_evidencia unique, sede_origen_id,
-                   cantidad_entregada, cantidad_pendiente, detalle, estado, confianza_ia jsonb,
-                   evidencia_url, operador_id, capturado_at, procesado_at, actualizado_at)
-                  -- detalle: texto de referencia de lo despachado, lo extrae la IA, no se usa
-                  -- para calcular cantidades ni se corrige desde el dashboard
+                   estado, confianza_ia jsonb, evidencia_url, operador_id, capturado_at,
+                   procesado_at, actualizado_at)
+                  -- identidad del documento -- un producto puede traer varios items, ver abajo
+                  -- evidencia_url/hash_evidencia son los de la visita mas reciente
                   -- tipo in ('FEI', 'TB', 'RM3', 'RM2'): factura, traslado o remision
                   -- unique (tipo, indicativo_numero)  ← barrera anti-duplicado real (ej. "FEI 10254")
+entrega_items    (id uuid pk, entrega_id fk -> entregas, descripcion,
+                   cantidad_entregada, cantidad_pendiente, creado_at, actualizado_at)
+                  -- un documento puede traer varios productos; cada visita que confirma
+                  -- cantidades actualiza estos items (PATCH /entregas/{id}/items)
 turnos                (id uuid pk, empleado_id, sede_id, fecha, hora_inicio, hora_fin, origen)
 shift_recommendations (id uuid pk, sede_id, semana_iso, bloques_sugeridos jsonb, generado_at, modelo_usado)
                        -- unique (sede_id, semana_iso)
