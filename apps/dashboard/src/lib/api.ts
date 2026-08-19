@@ -15,6 +15,9 @@ export interface Entrega {
   sede_origen_nombre: string | null;
   cantidad_entregada: number;
   cantidad_pendiente: number;
+  // Solo referencia (que se despacho) -- lo extrae la IA junto con lo demas,
+  // no se corrige desde el dashboard.
+  detalle: string;
   estado: "procesada" | "pendiente_revision" | "duplicado_bloqueado";
   operador_id: string;
   confianza_ia: Record<string, number>;

@@ -57,6 +57,7 @@ create table if not exists entregas (
     sede_origen_id text not null,
     cantidad_entregada integer not null default 0,
     cantidad_pendiente integer not null default 0,
+    detalle text not null default '',
     estado text not null default 'pendiente_revision'
         check (estado in ('procesada', 'pendiente_revision', 'duplicado_bloqueado')),
     confianza_ia jsonb not null default '{}',
@@ -78,6 +79,10 @@ alter table entregas add column if not exists tipo text not null default 'FEI';
 alter table entregas add column if not exists indicativo_numero text not null default '';
 alter table entregas add column if not exists cantidad_entregada integer not null default 0;
 alter table entregas add column if not exists cantidad_pendiente integer not null default 0;
+-- Detalle de lo despachado, extraido por la IA junto con lo demas (ver
+-- app/services/vision.py) -- solo referencia, no participa del gate de
+-- confianza ni de la logica de duplicados.
+alter table entregas add column if not exists detalle text not null default '';
 alter table entregas drop column if exists numero_guia;
 alter table entregas drop column if exists remitente;
 alter table entregas drop column if exists destinatario;

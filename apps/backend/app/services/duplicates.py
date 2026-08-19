@@ -40,9 +40,9 @@ async def insertar_si_no_duplicada(entrega: dict, *, actor_id: str, sede_id: str
             """
             insert into entregas (
                 tipo, indicativo_numero, hash_evidencia, sede_origen_id,
-                cantidad_entregada, cantidad_pendiente, estado, confianza_ia,
+                cantidad_entregada, cantidad_pendiente, detalle, estado, confianza_ia,
                 evidencia_url, operador_id, capturado_at, procesado_at
-            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
             returning id
             """,
             entrega["tipo"],
@@ -51,6 +51,7 @@ async def insertar_si_no_duplicada(entrega: dict, *, actor_id: str, sede_id: str
             entrega["sede_origen_id"],
             entrega["cantidad_entregada"],
             entrega["cantidad_pendiente"],
+            entrega["detalle"],
             entrega["estado"],
             entrega["confianza_ia"],
             entrega["evidencia_url"],

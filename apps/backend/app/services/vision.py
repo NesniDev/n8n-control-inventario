@@ -26,6 +26,9 @@ _EXTRACTION_SCHEMA = {
         "indicativo_numero": {"type": "string"},
         "cantidad_entregada": {"type": "integer"},
         "cantidad_pendiente": {"type": "integer"},
+        # Solo referencia -- no participa del gate de confianza ni de la
+        # logica de duplicados (ver duplicates.marcar_estado_por_confianza).
+        "detalle": {"type": "string"},
         "confianza": {
             "type": "object",
             "description": "Score 0-1 de confianza por cada campo obligatorio extraido.",
@@ -39,7 +42,14 @@ _EXTRACTION_SCHEMA = {
             "additionalProperties": False,
         },
     },
-    "required": ["tipo", "indicativo_numero", "cantidad_entregada", "cantidad_pendiente", "confianza"],
+    "required": [
+        "tipo",
+        "indicativo_numero",
+        "cantidad_entregada",
+        "cantidad_pendiente",
+        "detalle",
+        "confianza",
+    ],
     "additionalProperties": False,
 }
 
@@ -49,12 +59,16 @@ _EXTRACTION_PROMPT = (
     "RM3 o RM2, segun lo que diga el documento). Identifica el tipo de "
     "documento, su indicativo/numero (el consecutivo impreso, por ejemplo si "
     "el documento dice 'FEI 10254' el indicativo_numero es '10254'), la "
-    "cantidad total entregada y la cantidad total pendiente. Si el documento "
-    "no distingue entre entregado y pendiente, usa la cantidad total como "
-    "entregada y 0 como pendiente. Para cada campo obligatorio asigna un "
-    "score de confianza entre 0 y 1 segun que tan legible/clara estaba esa "
-    "parte de la imagen. Si un campo no es legible, usa cadena vacia (o 0 "
-    "para las cantidades) y confianza baja en vez de inventar un valor."
+    "cantidad total entregada (columna CANT.) y la cantidad total pendiente. "
+    "Si el documento no distingue entre entregado y pendiente, usa la "
+    "cantidad total como entregada y 0 como pendiente. Ademas escribi un "
+    "detalle breve de lo despachado (columna DETALLE del documento, ej. que "
+    "productos o items aparecen listados) -- es solo dato de referencia, no "
+    "hace falta que sea exhaustivo. Para cada campo obligatorio (excepto "
+    "detalle) asigna un score de confianza entre 0 y 1 segun que tan "
+    "legible/clara estaba esa parte de la imagen. Si un campo no es legible, "
+    "usa cadena vacia (o 0 para las cantidades) y confianza baja en vez de "
+    "inventar un valor."
 )
 
 

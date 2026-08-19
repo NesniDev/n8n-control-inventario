@@ -48,6 +48,11 @@ function FilaRevision({
     .filter(([, valor]) => valor < 0.75)
     .map(([campo]) => campo);
 
+  // Si no queda nada pendiente, no tiene sentido seguir tocando tipo/
+  // indicativo/cantidad entregada — se bloquean. Pendiente en si queda
+  // siempre editable, para poder deshacer un 0 puesto por error.
+  const sinPendiente = cantidadPendiente === 0;
+
   const guardar = async () => {
     setGuardando(true);
     setError(null);
@@ -68,7 +73,7 @@ function FilaRevision({
 
   return (
     <tr className="bg-amber-500/5">
-      <td colSpan={8} className="px-4 py-3">
+      <td colSpan={9} className="px-4 py-3">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
             <span>Revisar antes de aprobar — campos con baja confianza de la IA:</span>
@@ -86,13 +91,19 @@ function FilaRevision({
               Ver foto original ↗
             </a>
           </div>
+          {entrega.detalle ? (
+            <p className="text-xs text-neutral-500">
+              Detalle (referencia de la IA, no editable): <span className="text-neutral-300">{entrega.detalle}</span>
+            </p>
+          ) : null}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Tipo
               <select
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value as TipoDocumento)}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                disabled={sinPendiente}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
               >
                 {TIPOS_DOCUMENTO.map((t) => (
                   <option key={t} value={t}>
@@ -106,16 +117,18 @@ function FilaRevision({
               <input
                 value={indicativoNumero}
                 onChange={(e) => setIndicativoNumero(e.target.value)}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                disabled={sinPendiente}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Cantidad entregada
+              Cantidad (CANT)
               <input
                 type="number"
                 value={cantidadEntregada}
                 onChange={(e) => setCantidadEntregada(Number(e.target.value))}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                disabled={sinPendiente}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -128,6 +141,12 @@ function FilaRevision({
               />
             </label>
           </div>
+          {sinPendiente ? (
+            <p className="text-xs text-neutral-600">
+              Sin pendiente — tipo, indicativo/número y cantidad quedan bloqueados. Cambiá &quot;Cantidad
+              pendiente&quot; si fue un error.
+            </p>
+          ) : null}
           {error ? <p className="text-xs text-red-400">{error}</p> : null}
           <div>
             <button
@@ -252,7 +271,8 @@ export default function DashboardPage() {
                 <th className="px-4 py-2 font-medium">Tipo</th>
                 <th className="px-4 py-2 font-medium">Indicativo/número</th>
                 <th className="px-4 py-2 font-medium">Sede origen</th>
-                <th className="px-4 py-2 font-medium">Entregada</th>
+                <th className="px-4 py-2 font-medium">Detalle</th>
+                <th className="px-4 py-2 font-medium">Cantidad (CANT)</th>
                 <th className="px-4 py-2 font-medium">Pendiente</th>
                 <th className="px-4 py-2 font-medium">Estado</th>
                 <th className="px-4 py-2 font-medium">Capturado</th>
@@ -262,14 +282,14 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-neutral-800">
               {!entregasCargando && entregas?.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={9} className="px-4 py-6 text-center text-neutral-500">
                     Sin entregas todavía.
                   </td>
                 </tr>
               ) : null}
               {!entregasCargando && termino && entregasFiltradas?.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={9} className="px-4 py-6 text-center text-neutral-500">
                     Sin resultados para &quot;{busqueda}&quot;.
                   </td>
                 </tr>
@@ -291,6 +311,9 @@ export default function DashboardPage() {
                     </td>
                     <td className="px-4 py-2 text-neutral-300">
                       {e.sede_origen_nombre ?? e.sede_origen_id}
+                    </td>
+                    <td className="max-w-[220px] truncate px-4 py-2 text-neutral-400" title={e.detalle}>
+                      {e.detalle || "—"}
                     </td>
                     <td className="px-4 py-2 text-neutral-300">{e.cantidad_entregada}</td>
                     <td className="px-4 py-2 text-neutral-300">{e.cantidad_pendiente}</td>

@@ -108,6 +108,9 @@ function PantallaCaptura({
   };
 
   const cantidadPendienteValida = /^\d+$/.test(cantidadPendiente.trim());
+  // Una vez en 0 (sin nada pendiente), el campo se bloquea a si mismo -- para
+  // corregirlo hay que repetir la foto (que resetea cantidadPendiente a '').
+  const cantidadPendienteBloqueada = cantidadPendiente.trim() === '0';
 
   const enviar = async () => {
     if (!foto || !sedeSeleccionada || !cantidadPendienteValida) return;
@@ -236,10 +239,13 @@ function PantallaCaptura({
               keyboardType="number-pad"
               placeholder="0"
               placeholderTextColor="#6b7688"
-              style={styles.inputCantidad}
+              editable={!cantidadPendienteBloqueada}
+              style={[styles.inputCantidad, cantidadPendienteBloqueada && styles.inputCantidadBloqueado]}
             />
             <Text style={styles.previewSubtexto}>
-              Cuántas unidades quedaron pendientes de este despacho
+              {cantidadPendienteBloqueada
+                ? 'En 0 — sin nada pendiente. Repetí la foto si fue un error.'
+                : 'Cuántas unidades quedaron pendientes de este despacho'}
             </Text>
           </View>
         ) : null}
@@ -354,6 +360,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  inputCantidadBloqueado: { opacity: 0.5 },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,

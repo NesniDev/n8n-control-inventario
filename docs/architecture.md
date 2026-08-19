@@ -64,8 +64,10 @@ Ver el diagrama enlazado arriba para el flujo visual completo, incluyendo las ra
 sedes            (id uuid pk, nombre, codigo unique, direccion, timezone, activa, created_at)
 empleados        (id uuid pk, nombre, sede_id, rol, estado, created_at)
 entregas         (id uuid pk, tipo, indicativo_numero, hash_evidencia unique, sede_origen_id,
-                   cantidad_entregada, cantidad_pendiente, estado, confianza_ia jsonb,
+                   cantidad_entregada, cantidad_pendiente, detalle, estado, confianza_ia jsonb,
                    evidencia_url, operador_id, capturado_at, procesado_at, actualizado_at)
+                  -- detalle: texto de referencia de lo despachado, lo extrae la IA, no se usa
+                  -- para calcular cantidades ni se corrige desde el dashboard
                   -- tipo in ('FEI', 'TB', 'RM3', 'RM2'): factura, traslado o remision
                   -- unique (tipo, indicativo_numero)  ← barrera anti-duplicado real (ej. "FEI 10254")
 turnos                (id uuid pk, empleado_id, sede_id, fecha, hora_inicio, hora_fin, origen)

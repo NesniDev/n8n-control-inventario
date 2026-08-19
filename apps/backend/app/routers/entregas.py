@@ -87,6 +87,7 @@ async def procesar_entrega(payload: EntregaCreate) -> dict:
         # La del bodeguero manda sobre lo que haya leido la IA (ver
         # EntregaCreate.cantidad_pendiente y el log EXTRACCION_IA de arriba).
         "cantidad_pendiente": payload.cantidad_pendiente,
+        "detalle": extraido.get("detalle", ""),
         "estado": estado.value,
         "confianza_ia": extraido.get("confianza", {}),
         "evidencia_url": payload.evidencia_url,
@@ -161,6 +162,7 @@ _EXPORT_COLUMNAS = [
     "sede_origen_id",
     "cantidad_entregada",
     "cantidad_pendiente",
+    "detalle",
     "estado",
     "operador_id",
     "hash_evidencia",
