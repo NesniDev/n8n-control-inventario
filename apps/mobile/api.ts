@@ -31,6 +31,9 @@ export interface ResultadoEnvio {
   // pendiente -- el bodeguero dice cuanto entrego hoy por producto.
   situacion: 'nueva' | 'actualizable';
   estado: 'procesada' | 'pendiente_revision';
+  // FEI (factura) / TB (traslado) / RM3 / RM2 (remision). Un TB no puede
+  // quedar con nada pendiente -- se entrega siempre completo (ver App.tsx).
+  tipo: string;
   items: ItemEntrega[];
 }
 

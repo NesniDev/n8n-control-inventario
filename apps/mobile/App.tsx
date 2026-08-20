@@ -111,6 +111,9 @@ function PantallaCaptura({
   const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
   const [items, setItems] = useState<ItemFormulario[]>([]);
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
+  // TB (traslado entre bodegas): nunca puede quedar pendiente, se entrega
+  // siempre completo en una sola visita (el backend tambien lo valida).
+  const [tipoEntrega, setTipoEntrega] = useState<string | null>(null);
 
   // Consulta por codigo de factura (fase 'buscar'), sin pasar por una foto.
   const [tipoBusqueda, setTipoBusqueda] = useState<(typeof TIPOS_DOCUMENTO)[number]>('FEI');
@@ -191,7 +194,11 @@ function PantallaCaptura({
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
-      setItems(resultado.items.map((item) => ({ ...item, valor: '' })));
+      setTipoEntrega(resultado.tipo);
+      // Un traslado (TB) se entrega siempre completo -- se precarga en 0
+      // pendiente y el campo queda bloqueado (ver esBloqueado), sin dejarle
+      // al bodeguero la opcion de declarar algo pendiente.
+      setItems(resultado.items.map((item) => ({ ...item, valor: resultado.tipo === 'TB' ? '0' : '' })));
       setFase('confirmando');
       setMensaje('');
     } catch (err: any) {
@@ -228,7 +235,8 @@ function PantallaCaptura({
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
-      setItems(resultado.items.map((item) => ({ ...item, valor: '' })));
+      setTipoEntrega(resultado.tipo);
+      setItems(resultado.items.map((item) => ({ ...item, valor: resultado.tipo === 'TB' ? '0' : '' })));
       setEvidenciaActual(null);
       setFase('confirmando');
       setMensaje('');
@@ -301,6 +309,7 @@ function PantallaCaptura({
     setItems([]);
     setEvidenciaActual(null);
     setIndicativoBusqueda('');
+    setTipoEntrega(null);
   };
 
   // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
@@ -332,6 +341,7 @@ function PantallaCaptura({
   // bloqueado significa que la DB ya dice pendiente=0 -- ese no trae ningun
   // cambio real y no hace falta mandarlo (y un documento consultado por
   // codigo puede venir 100% asi, sin nada para confirmar).
+  const esTraslado = tipoEntrega === 'TB';
   const itemsAEnviar =
     situacion === 'actualizable' ? items.filter((item) => !esBloqueado(item, situacion)) : items;
   const itemsValidos =
@@ -531,11 +541,13 @@ function PantallaCaptura({
                 {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
               </Text>
               <Text style={styles.previewSubtexto}>
-                {situacion === 'nueva'
-                  ? 'Cargá cuánto quedó pendiente de cada producto.'
-                  : documentoCompleto
-                    ? 'Ya se entregó todo lo de este documento.'
-                    : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
+                {esTraslado
+                  ? 'Es un traslado (TB) — se entrega completo, no se puede dejar nada pendiente.'
+                  : situacion === 'nueva'
+                    ? 'Cargá cuánto quedó pendiente de cada producto.'
+                    : documentoCompleto
+                      ? 'Ya se entregó todo lo de este documento.'
+                      : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
               </Text>
             </View>
 
@@ -592,7 +604,11 @@ function PantallaCaptura({
                     ]}
                   />
                   {bloqueado ? (
-                    <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
+                    <Text style={styles.previewSubtexto}>
+                      {esTraslado
+                        ? 'Es un traslado (TB) — se entrega completo, no puede quedar nada pendiente.'
+                        : 'Ya entregado — sin nada pendiente de este producto.'}
+                    </Text>
                   ) : marcadoTodoEntregado ? (
                     // El input debajo sigue mostrando "cuanto entregaste hoy" (lo
                     // que realmente se manda al backend), no el pendiente final --

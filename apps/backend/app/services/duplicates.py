@@ -16,6 +16,7 @@ from app.models.entrega import (
     ItemActualizacion,
     ItemEntrega,
     SituacionEntrega,
+    TipoDocumento,
 )
 from app.models.log import EventoLog
 from app.services.logging_service import registrar_evento
@@ -76,7 +77,7 @@ async def procesar_extraccion(
     capturado_at: datetime,
     evidencia_url: str,
     min_confidence: float,
-) -> tuple[SituacionEntrega, str, list[ItemEntrega], EstadoEntrega]:
+) -> tuple[SituacionEntrega, str, list[ItemEntrega], EstadoEntrega, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
     - No existia -> intenta insertarla (items = lo que leyo la IA, con
@@ -149,11 +150,11 @@ async def procesar_extraccion(
             # explotar con un TypeError en vez de responder algo coherente.
             if exc.constraint_name == "entregas_hash_evidencia_key":
                 fila = await conn.fetchrow(
-                    "select id from entregas where hash_evidencia = $1", hash_evidencia
+                    "select id, tipo from entregas where hash_evidencia = $1", hash_evidencia
                 )
             else:
                 fila = await conn.fetchrow(
-                    "select id from entregas where tipo = $1 and indicativo_numero = $2",
+                    "select id, tipo from entregas where tipo = $1 and indicativo_numero = $2",
                     tipo,
                     indicativo_numero,
                 )
@@ -171,7 +172,7 @@ async def procesar_extraccion(
                     detalle={"tipo": tipo, "indicativo_numero": indicativo_numero},
                 )
                 raise EntregaDuplicada(identificador)
-            return SituacionEntrega.ACTUALIZABLE, str(fila["id"]), items, estado
+            return SituacionEntrega.ACTUALIZABLE, str(fila["id"]), items, estado, fila["tipo"]
         else:
             await registrar_evento(
                 EventoLog.ENTREGA_INSERTADA,
@@ -181,7 +182,7 @@ async def procesar_extraccion(
                 sede_id=sede_origen_id,
                 resultado="ok",
             )
-            return SituacionEntrega.NUEVA, str(entrega_id), items, estado
+            return SituacionEntrega.NUEVA, str(entrega_id), items, estado, tipo
 
 
 async def aplicar_actualizacion_items(
@@ -200,6 +201,16 @@ async def aplicar_actualizacion_items(
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Un traslado (TB) no puede quedar con nada pendiente -- se
+            # entrega siempre completo, en una sola visita. Se valida aca
+            # (no en el modelo Pydantic) porque hace falta saber el tipo de
+            # la entrega, que no viaja en el payload de este endpoint.
+            es_traslado = await conn.fetchval(
+                "select tipo = $2 from entregas where id = $1::uuid",
+                entrega_id,
+                TipoDocumento.TB.value,
+            )
+
             for item in items:
                 if item.entregado_hoy is not None:
                     # Delta atomico en SQL -- no se lee-modifica-escribe desde
@@ -212,14 +223,18 @@ async def aplicar_actualizacion_items(
                     # greatest(0, ...), que dejaba pendiente en 0 pero sumaba
                     # el delta completo a cantidad_entregada igual, rompiendo
                     # la cuenta (entregada + pendiente ya no daba el total).
+                    # Para un traslado, "entregado hoy" tiene que cubrir TODO
+                    # el pendiente (no se permite un delta parcial) -- por eso
+                    # la condicion pasa de ">=" a "=" cuando es_traslado.
+                    condicion_pendiente = "cantidad_pendiente = $2" if es_traslado else "cantidad_pendiente >= $2"
                     fila = await conn.fetchrow(
-                        """
+                        f"""
                         update entrega_items
                         set descripcion = coalesce($4, descripcion),
                             cantidad_entregada = cantidad_entregada + $2,
                             cantidad_pendiente = cantidad_pendiente - $2,
                             actualizado_at = now()
-                        where id = $1::uuid and entrega_id = $3::uuid and cantidad_pendiente >= $2
+                        where id = $1::uuid and entrega_id = $3::uuid and {condicion_pendiente}
                         returning id
                         """,
                         item.id,
@@ -236,11 +251,33 @@ async def aplicar_actualizacion_items(
                         )
                         if actual is None:
                             raise CantidadInvalida(f"El item {item.id} no existe en esta entrega.")
+                        if es_traslado:
+                            raise CantidadInvalida(
+                                f"'{actual['descripcion']}' es un traslado (TB): se tiene que entregar "
+                                f"todo el pendiente ({actual['cantidad_pendiente']}) de una vez, no se "
+                                f"puede dejar nada para despues."
+                            )
                         raise CantidadInvalida(
                             f"'{actual['descripcion']}' tiene {actual['cantidad_pendiente']} pendiente, "
                             f"no se puede entregar {item.entregado_hoy}."
                         )
                 else:
+                    # Un traslado tampoco puede quedar pendiente al confirmar
+                    # una entrega nueva (o via correccion manual del
+                    # dashboard) -- siempre se declara todo entregado.
+                    if es_traslado and item.cantidad_pendiente not in (None, 0):
+                        # El payload del movil no manda descripcion (solo id +
+                        # cantidad_pendiente) -- se busca en la DB para que el
+                        # mensaje diga el nombre del producto, no el uuid.
+                        descripcion = item.descripcion
+                        if not descripcion:
+                            descripcion = await conn.fetchval(
+                                "select descripcion from entrega_items where id = $1::uuid", item.id
+                            )
+                        raise CantidadInvalida(
+                            f"'{descripcion or item.id}' es un traslado (TB): no puede quedar "
+                            f"pendiente, se debe entregar todo."
+                        )
                     # Valores absolutos -- confirmar una entrega nueva desde
                     # el movil (solo cantidad_pendiente), o correccion manual
                     # desde el dashboard (cualquier combinacion de campos).
