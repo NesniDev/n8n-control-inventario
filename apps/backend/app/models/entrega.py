@@ -37,6 +37,9 @@ class ItemEntrega(BaseModel):
     descripcion: str
     cantidad_entregada: int
     cantidad_pendiente: int
+    # Nota manual del bodeguero (una sola, se sobreescribe) -- no la pone la
+    # IA, es informacion adicional libre sobre ese producto puntual.
+    nota: str | None = None
 
 
 class EntregaCreate(BaseModel):
@@ -80,6 +83,9 @@ class ItemActualizacion(BaseModel):
     # real de la fila -- aca no se puede, este modelo no conoce el pendiente
     # actual.
     entregado_hoy: int | None = Field(default=None, ge=0)
+    # Nota manual por producto -- se puede mandar sola (sin tocar cantidades),
+    # ej. para anotar algo de un item que ya esta bloqueado (nada pendiente).
+    nota: str | None = None
 
     @model_validator(mode="after")
     def _validar(self) -> "ItemActualizacion":
@@ -87,7 +93,7 @@ class ItemActualizacion(BaseModel):
             raise ValueError("cantidad_pendiente y entregado_hoy son excluyentes")
         if all(
             v is None
-            for v in (self.descripcion, self.cantidad_entregada, self.cantidad_pendiente, self.entregado_hoy)
+            for v in (self.descripcion, self.cantidad_entregada, self.cantidad_pendiente, self.entregado_hoy, self.nota)
         ):
             raise ValueError("el item no trae ningun cambio")
         return self

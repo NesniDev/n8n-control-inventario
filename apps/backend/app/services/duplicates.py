@@ -50,7 +50,7 @@ def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: flo
 async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEntrega]:
     rows = await conn.fetch(
         """
-        select id, descripcion, cantidad_entregada, cantidad_pendiente
+        select id, descripcion, cantidad_entregada, cantidad_pendiente, nota
         from entrega_items where entrega_id = $1::uuid
         order by creado_at
         """,
@@ -62,6 +62,7 @@ async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEn
             descripcion=r["descripcion"],
             cantidad_entregada=r["cantidad_entregada"],
             cantidad_pendiente=r["cantidad_pendiente"],
+            nota=r["nota"],
         )
         for r in rows
     ]
@@ -216,6 +217,7 @@ async def aplicar_actualizacion_items(
                         """
                         update entrega_items
                         set descripcion = coalesce($4, descripcion),
+                            nota = coalesce($5, nota),
                             cantidad_entregada = cantidad_entregada + $2,
                             cantidad_pendiente = cantidad_pendiente - $2,
                             actualizado_at = now()
@@ -226,6 +228,7 @@ async def aplicar_actualizacion_items(
                         item.entregado_hoy,
                         entrega_id,
                         item.descripcion,
+                        item.nota,
                     )
                     if fila is None:
                         actual = await conn.fetchrow(
@@ -250,6 +253,7 @@ async def aplicar_actualizacion_items(
                         set descripcion = coalesce($2, descripcion),
                             cantidad_entregada = coalesce($3, cantidad_entregada),
                             cantidad_pendiente = coalesce($4, cantidad_pendiente),
+                            nota = coalesce($6, nota),
                             actualizado_at = now()
                         where id = $1::uuid and entrega_id = $5::uuid
                         """,
@@ -258,6 +262,7 @@ async def aplicar_actualizacion_items(
                         item.cantidad_entregada,
                         item.cantidad_pendiente,
                         entrega_id,
+                        item.nota,
                     )
 
             if evidencia_url and hash_evidencia:

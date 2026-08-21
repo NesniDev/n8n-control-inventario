@@ -47,6 +47,9 @@ const ESTADO_INFO: Record<EstadoFinal, { icono: string; texto: string; color: st
 
 interface ItemFormulario extends ItemEntrega {
   valor: string;
+  // Texto editable de la nota -- siempre string (nunca null), se inicializa
+  // desde item.nota ?? '' al cargar (ver enviar()/buscarFactura()).
+  nota: string;
 }
 
 // Para 'nueva' bloquea segun lo que se esta tipeando (el bodeguero declara
@@ -111,6 +114,8 @@ function PantallaCaptura({
   const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
   const [items, setItems] = useState<ItemFormulario[]>([]);
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
+  // Ids de items con el editor de nota abierto (ver alternarNota).
+  const [notasAbiertas, setNotasAbiertas] = useState<Set<string>>(new Set());
 
   // Consulta por codigo de factura (fase 'buscar'), sin pasar por una foto.
   const [tipoBusqueda, setTipoBusqueda] = useState<(typeof TIPOS_DOCUMENTO)[number]>('FEI');
@@ -191,7 +196,7 @@ function PantallaCaptura({
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
-      setItems(resultado.items.map((item) => ({ ...item, valor: '' })));
+      setItems(resultado.items.map((item) => ({ ...item, valor: '', nota: item.nota ?? '' })));
       setFase('confirmando');
       setMensaje('');
     } catch (err: any) {
@@ -228,7 +233,7 @@ function PantallaCaptura({
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
-      setItems(resultado.items.map((item) => ({ ...item, valor: '' })));
+      setItems(resultado.items.map((item) => ({ ...item, valor: '', nota: item.nota ?? '' })));
       setEvidenciaActual(null);
       setFase('confirmando');
       setMensaje('');
@@ -250,11 +255,19 @@ function PantallaCaptura({
     setMensaje('Guardando...');
 
     try {
-      const payload = itemsAEnviar.map((item) =>
-        situacion === 'nueva'
-          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()) }
-          : { id: item.id, entregado_hoy: Number(item.valor.trim()) }
-      );
+      const payload = itemsAEnviar.map((item) => {
+        const nota = item.nota.trim() || undefined;
+        // Un item bloqueado (ver esBloqueado) solo puede estar en
+        // itemsAEnviar por tener una nota nueva (ver mas abajo) -- no hay
+        // cantidad que mandar, y mandar entregado_hoy/cantidad_pendiente
+        // igual no rompe nada, pero es mas claro mandar solo la nota.
+        if (situacion === 'actualizable' && esBloqueado(item, situacion)) {
+          return { id: item.id, nota };
+        }
+        return situacion === 'nueva'
+          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()), nota }
+          : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota };
+      });
       await confirmarItems(
         entregaId,
         payload,
@@ -282,6 +295,24 @@ function PantallaCaptura({
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, valor } : item)));
   };
 
+  const actualizarNotaItem = (id: string, nota: string) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, nota } : item)));
+  };
+
+  // Que items tienen el editor de nota abierto -- separado del texto en si,
+  // asi se puede abrir el editor sin que eso cuente como "tiene nota".
+  const alternarNota = (id: string) => {
+    setNotasAbiertas((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(id)) {
+        siguiente.delete(id);
+      } else {
+        siguiente.add(id);
+      }
+      return siguiente;
+    });
+  };
+
   // Check "todo entregado" -- evita tener que tipear el numero a mano.
   // Tocarlo de nuevo lo destilda y deja el campo vacio para tipear otra cosa.
   const alternarTodoEntregado = (item: ItemFormulario) => {
@@ -301,6 +332,7 @@ function PantallaCaptura({
     setItems([]);
     setEvidenciaActual(null);
     setIndicativoBusqueda('');
+    setNotasAbiertas(new Set());
   };
 
   // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
@@ -324,25 +356,35 @@ function PantallaCaptura({
     reiniciar();
   };
 
-  // Items que hay que mandar al confirmar. Para 'nueva' son TODOS -- el
-  // pendiente inicial de cada item (incluido el que quedo en 0 via el check
-  // "todo entregado") todavia no se guardo en ningun lado, asi que aunque
-  // esBloqueado() lo marque como "bloqueado" para no dejarlo seguir
-  // editando, igual hay que mandarlo. Para 'actualizable' un item ya
-  // bloqueado significa que la DB ya dice pendiente=0 -- ese no trae ningun
-  // cambio real y no hace falta mandarlo (y un documento consultado por
-  // codigo puede venir 100% asi, sin nada para confirmar).
-  const itemsAEnviar =
+  // Items que requieren una cantidad valida para poder confirmar. Para
+  // 'nueva' son TODOS -- el pendiente inicial de cada item (incluido el que
+  // quedo en 0 via el check "todo entregado") todavia no se guardo en
+  // ningun lado, asi que aunque esBloqueado() lo marque como "bloqueado"
+  // para no dejarlo seguir editando, igual hay que mandarlo. Para
+  // 'actualizable' un item ya bloqueado significa que la DB ya dice
+  // pendiente=0 -- no hay cantidad que confirmarle.
+  const itemsConCambioCantidad =
     situacion === 'actualizable' ? items.filter((item) => !esBloqueado(item, situacion)) : items;
-  const itemsValidos =
-    itemsAEnviar.length > 0 &&
-    situacion !== null &&
-    itemsAEnviar.every((item) => valorValido(item, situacion));
+  // Items que de verdad hay que mandar al guardar: los de arriba, mas
+  // cualquier item bloqueado al que se le haya agregado una nota (eso
+  // tambien es un cambio real, aunque no toque cantidades).
+  const itemsAEnviar =
+    situacion === 'actualizable'
+      ? items.filter((item) => !esBloqueado(item, situacion) || item.nota.trim() !== '')
+      : items;
+  const cantidadesValidas =
+    situacion !== null && itemsConCambioCantidad.every((item) => valorValido(item, situacion));
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
   const puedeBuscar = !!indicativoBusqueda.trim() && !cargando;
-  const puedeConfirmar = itemsValidos && !cargando;
+  const puedeConfirmar = itemsAEnviar.length > 0 && cantidadesValidas && !cargando;
+  // Puramente sobre cantidades -- no se ve afectado por si se esta cargando
+  // una nota, asi el aviso de "nada pendiente" sigue siendo cierto aunque
+  // itemsAEnviar (lo que hay que mandar) ya no este vacio por una nota nueva.
   const documentoCompleto =
-    fase === 'confirmando' && situacion === 'actualizable' && items.length > 0 && itemsAEnviar.length === 0;
+    fase === 'confirmando' &&
+    situacion === 'actualizable' &&
+    items.length > 0 &&
+    itemsConCambioCantidad.length === 0;
   const infoEstadoFinal = fase === 'resultado' && estadoFinal ? ESTADO_INFO[estadoFinal] : null;
 
   return (
@@ -549,9 +591,33 @@ function PantallaCaptura({
               // el backend igual lo vuelve a validar (ver PATCH /items).
               const excedeTope =
                 !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
+              const notaAbierta = notasAbiertas.has(item.id);
               return (
                 <View key={item.id} style={styles.tarjeta}>
-                  <Text style={styles.itemDescripcion}>{item.descripcion || 'Producto sin descripción'}</Text>
+                  <View style={styles.filaTitulo}>
+                    <Text style={[styles.itemDescripcion, { flex: 1 }]}>
+                      {item.descripcion || 'Producto sin descripción'}
+                    </Text>
+                    <Pressable onPress={() => alternarNota(item.id)} hitSlop={8}>
+                      <Text style={styles.notaIcono}>{item.nota.trim() ? '📝' : '➕📝'}</Text>
+                    </Pressable>
+                  </View>
+
+                  {notaAbierta ? (
+                    <TextInput
+                      value={item.nota}
+                      onChangeText={(texto) => actualizarNotaItem(item.id, texto)}
+                      placeholder="Información adicional de este producto (opcional)"
+                      placeholderTextColor="#6b7688"
+                      style={styles.inputNota}
+                      multiline
+                    />
+                  ) : item.nota.trim() ? (
+                    <Pressable onPress={() => alternarNota(item.id)}>
+                      <Text style={styles.notaPreview}>📝 {item.nota}</Text>
+                    </Pressable>
+                  ) : null}
+
                   <Text style={styles.previewSubtexto}>
                     {situacion === 'nueva'
                       ? `Cantidad leída: ${item.cantidad_entregada}`
@@ -635,7 +701,7 @@ function PantallaCaptura({
             {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
 
             <View style={styles.acciones}>
-              {documentoCompleto ? null : (
+              {itemsAEnviar.length === 0 ? null : (
                 <Pressable
                   disabled={!puedeConfirmar}
                   style={({ pressed }) => [
@@ -646,7 +712,13 @@ function PantallaCaptura({
                   ]}
                   onPress={confirmar}
                 >
-                  <Text style={styles.botonTexto}>{cargando ? 'Guardando...' : '✅ Confirmar cantidades'}</Text>
+                  <Text style={styles.botonTexto}>
+                    {cargando
+                      ? 'Guardando...'
+                      : itemsConCambioCantidad.length === 0
+                        ? '📝 Guardar nota'
+                        : '✅ Confirmar cantidades'}
+                  </Text>
                 </Pressable>
               )}
               <Pressable
@@ -654,7 +726,7 @@ function PantallaCaptura({
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
                 onPress={cancelarConfirmacion}
               >
-                <Text style={styles.botonTexto}>{documentoCompleto ? 'Volver' : 'Cancelar'}</Text>
+                <Text style={styles.botonTexto}>{itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}</Text>
               </Pressable>
             </View>
           </>
@@ -752,6 +824,21 @@ const styles = StyleSheet.create({
   checkboxCajaMarcada: { backgroundColor: ACENTO, borderColor: ACENTO },
   checkboxCheck: { color: '#fff', fontSize: 14, fontWeight: '800' },
   checkboxTexto: { color: '#d3d9e6', fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  notaIcono: { fontSize: 18 },
+  inputNota: {
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#fff',
+    fontSize: 13,
+    minHeight: 44,
+    textAlignVertical: 'top',
+  },
+  notaPreview: { color: NEUTRAL_400, fontSize: 13, fontStyle: 'italic' },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,

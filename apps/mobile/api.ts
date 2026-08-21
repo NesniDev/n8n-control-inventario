@@ -22,6 +22,9 @@ export interface ItemEntrega {
   descripcion: string;
   cantidad_entregada: number;
   cantidad_pendiente: number;
+  // Nota manual del bodeguero (una sola, se sobreescribe) -- no la pone la
+  // IA, es informacion adicional libre sobre ese producto puntual.
+  nota: string | null;
 }
 
 export interface ResultadoEnvio {
@@ -31,8 +34,7 @@ export interface ResultadoEnvio {
   // pendiente -- el bodeguero dice cuanto entrego hoy por producto.
   situacion: 'nueva' | 'actualizable';
   estado: 'procesada' | 'pendiente_revision';
-  // FEI (factura) / TB (traslado) / RM3 / RM2 (remision). Un TB no puede
-  // quedar con nada pendiente -- se entrega siempre completo (ver App.tsx).
+  // FEI (factura) / TB (traslado) / RM3 / RM2 (remision).
   tipo: string;
   items: ItemEntrega[];
 }
@@ -192,11 +194,17 @@ export async function cancelarEntrega(entregaId: string, operadorId: string, sed
 /**
  * Paso 2: confirma lo que el bodeguero ingreso por producto. Para una
  * entrega "nueva" manda cantidad_pendiente (valor absoluto); para una
- * "actualizable" manda entregado_hoy (delta, lo suma/resta el backend).
+ * "actualizable" manda entregado_hoy (delta, lo suma/resta el backend). La
+ * nota es independiente de la cantidad -- se puede mandar sola (ej. un item
+ * ya bloqueado, sin nada pendiente, pero al que igual se le quiere anotar algo).
  */
 export async function confirmarItems(
   entregaId: string,
-  items: ({ id: string } & ({ cantidad_pendiente: number } | { entregado_hoy: number }))[],
+  items: ({ id: string; nota?: string } & (
+    | { cantidad_pendiente: number }
+    | { entregado_hoy: number }
+    | {}
+  ))[],
   operadorId: string,
   sedeId: string,
   evidenciaUrl: string,

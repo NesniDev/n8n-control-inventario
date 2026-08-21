@@ -195,7 +195,8 @@ _SELECT_ENTREGAS_BASE = """
                 json_build_object(
                     'id', i.id, 'descripcion', i.descripcion,
                     'cantidad_entregada', i.cantidad_entregada,
-                    'cantidad_pendiente', i.cantidad_pendiente
+                    'cantidad_pendiente', i.cantidad_pendiente,
+                    'nota', i.nota
                 ) order by i.creado_at
             ) filter (where i.id is not null),
             '[]'
@@ -263,6 +264,7 @@ _EXPORT_COLUMNAS = [
     "descripcion",
     "cantidad_entregada",
     "cantidad_pendiente",
+    "nota",
     "estado",
     "operador_id",
     "hash_evidencia",
@@ -329,7 +331,7 @@ async def exportar_entregas_csv(sede_id: str | None = None) -> StreamingResponse
     query = """
         select e.capturado_at, e.tipo, e.indicativo_numero, e.sede_origen_id, e.estado,
                e.operador_id, e.hash_evidencia, e.evidencia_url,
-               i.descripcion, i.cantidad_entregada, i.cantidad_pendiente
+               i.descripcion, i.cantidad_entregada, i.cantidad_pendiente, i.nota
         from entregas e
         left join entrega_items i on i.entrega_id = e.id
     """

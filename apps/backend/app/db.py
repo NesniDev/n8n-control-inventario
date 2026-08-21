@@ -83,6 +83,10 @@ create table if not exists entrega_items (
 
 create index if not exists idx_entrega_items_entrega on entrega_items (entrega_id);
 
+-- Nota manual por producto (una sola, se sobreescribe) -- info adicional que
+-- carga el bodeguero (ej. "llego danado", "faltan 2 cajas"), no viene de la IA.
+alter table entrega_items add column if not exists nota text;
+
 -- Migracion desde el modelo anterior (numero_guia/remitente/destinatario/items,
 -- duplicado por numero_guia+remitente) al modelo de documentos (tipo +
 -- indicativo/numero, cantidad entregada/pendiente). Idempotente: corre igual
