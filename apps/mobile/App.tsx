@@ -19,12 +19,14 @@ import {
   buscarEntrega,
   cancelarEntrega,
   confirmarItems,
+  fetchHistorialEntrega,
   fetchSedes,
   procesarEntrega,
   registrarDevolucion,
   subirEvidencia,
   type Empleado,
   type ItemEntrega,
+  type LogEntry,
   type MotivoDevolucion,
   type ResolucionDevolucion,
   type Sede,
@@ -103,6 +105,40 @@ function valorValido(item: ItemFormulario, situacion: 'nueva' | 'actualizable'):
   return Number(valor) <= topeValor(item, situacion);
 }
 
+interface EventoHistorial {
+  fecha: string;
+  texto: string;
+}
+
+// Arma el historial de fechas de UN producto puntual a partir del historial
+// completo de la entrega (logs con detalle.items trae la foto de TODOS los
+// productos en cada evento -- aca se filtra solo el que corresponde). Asi se
+// ve cada vez que cambio ese pendiente, aunque haya sido 5 veces.
+function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial[] {
+  const ordenado = [...historial].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const eventos: EventoHistorial[] = [];
+  for (const log of ordenado) {
+    if (log.evento === 'entrega_actualizada') {
+      const encontrado = (log.detalle?.items as any[] | undefined)?.find((i) => i.id === itemId);
+      if (encontrado) {
+        eventos.push({
+          fecha: log.timestamp,
+          texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}`,
+        });
+      }
+    } else if (log.evento === 'devolucion_registrada' && log.detalle?.item_id === itemId) {
+      const resolucion = log.detalle.resolucion === 'reposicion' ? 'repuesto' : 'reembolsado';
+      eventos.push({
+        fecha: log.timestamp,
+        texto: `↩️ Devolución de ${log.detalle.cantidad} (${log.detalle.motivo}) -- ${resolucion}`,
+      });
+    }
+  }
+  return eventos;
+}
+
 export default function App() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
 
@@ -141,6 +177,11 @@ function PantallaCaptura({
   // cerrar o al registrar con exito (ver alternarDevolucion).
   const [devolucionesAbiertas, setDevolucionesAbiertas] = useState<Set<string>>(new Set());
   const [devolucionDrafts, setDevolucionDrafts] = useState<Record<string, DevolucionDraft>>({});
+  // Historial de logs de la entrega actual -- se pide una sola vez (todos
+  // los productos comparten el mismo fetch) al abrir el primer historial.
+  const [historial, setHistorial] = useState<LogEntry[] | null>(null);
+  const [historialesAbiertos, setHistorialesAbiertos] = useState<Set<string>>(new Set());
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
   // Consulta por codigo de factura (fase 'buscar'), sin pasar por una foto.
   const [tipoBusqueda, setTipoBusqueda] = useState<(typeof TIPOS_DOCUMENTO)[number]>('FEI');
@@ -350,6 +391,32 @@ function PantallaCaptura({
     });
   };
 
+  // Se pide el historial una sola vez por entrega (todos los productos
+  // comparten el mismo fetch a /logs); si ya esta cargado, solo alterna la
+  // visibilidad de este item puntual.
+  const alternarHistorial = async (id: string) => {
+    setHistorialesAbiertos((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(id)) {
+        siguiente.delete(id);
+      } else {
+        siguiente.add(id);
+      }
+      return siguiente;
+    });
+
+    if (historial !== null || !entregaId || historialesAbiertos.has(id)) return;
+    setCargandoHistorial(true);
+    try {
+      setHistorial(await fetchHistorialEntrega(entregaId));
+    } catch {
+      // Sin historial no se rompe nada mas -- se ve la lista vacia y listo.
+      setHistorial([]);
+    } finally {
+      setCargandoHistorial(false);
+    }
+  };
+
   const actualizarDraftDevolucion = (id: string, cambios: Partial<DevolucionDraft>) => {
     setDevolucionDrafts((prev) => ({
       ...prev,
@@ -390,6 +457,7 @@ function PantallaCaptura({
         return resto;
       });
       alternarDevolucion(item.id);
+      setHistorial(null); // se acaba de sumar un evento nuevo -- refresca al reabrir
       setMensaje('Devolución registrada.');
     } catch (err: any) {
       setMensaje(err?.detail ?? err?.message ?? 'Error al registrar la devolución.');
@@ -420,6 +488,8 @@ function PantallaCaptura({
     setNotasAbiertas(new Set());
     setDevolucionesAbiertas(new Set());
     setDevolucionDrafts({});
+    setHistorial(null);
+    setHistorialesAbiertos(new Set());
   };
 
   // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
@@ -691,12 +761,23 @@ function PantallaCaptura({
                 Number(draft.cantidad.trim()) <= item.cantidad_entregada;
               const puedeRegistrarDevolucion =
                 cantidadDevolucionValida && !!draft.motivo && !!draft.resolucion && !cargando;
+              // El historial de fechas solo tiene sentido para algo que ya
+              // existia antes -- un documento recien escaneado sin confirmar
+              // todavia no tiene nada que mostrar.
+              const puedeVerHistorial = situacion === 'actualizable';
+              const historialAbierto = historialesAbiertos.has(item.id);
+              const eventosHistorial = historial ? historialDeItem(historial, item.id) : [];
               return (
                 <View key={item.id} style={styles.tarjeta}>
                   <View style={styles.filaTitulo}>
                     <Text style={[styles.itemDescripcion, { flex: 1 }]}>
                       {item.descripcion || 'Producto sin descripción'}
                     </Text>
+                    {puedeVerHistorial ? (
+                      <Pressable onPress={() => alternarHistorial(item.id)} hitSlop={8}>
+                        <Text style={styles.notaIcono}>🕒</Text>
+                      </Pressable>
+                    ) : null}
                     {puedeDevolver ? (
                       <Pressable onPress={() => alternarDevolucion(item.id)} hitSlop={8}>
                         <Text style={styles.notaIcono}>↩️</Text>
@@ -706,6 +787,30 @@ function PantallaCaptura({
                       <Text style={styles.notaIcono}>{item.nota.trim() ? '📝' : '➕📝'}</Text>
                     </Pressable>
                   </View>
+
+                  {historialAbierto ? (
+                    <View style={styles.historialCaja}>
+                      {cargandoHistorial ? (
+                        <ActivityIndicator color="#c8631f" />
+                      ) : eventosHistorial.length === 0 ? (
+                        <Text style={styles.previewSubtexto}>Sin cambios registrados todavía.</Text>
+                      ) : (
+                        eventosHistorial.map((evento, i) => (
+                          <View key={i} style={styles.historialFila}>
+                            <Text style={styles.historialFecha}>
+                              {new Date(evento.fecha).toLocaleString('es-CO', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </Text>
+                            <Text style={styles.historialTexto}>{evento.texto}</Text>
+                          </View>
+                        ))
+                      )}
+                    </View>
+                  ) : null}
 
                   {notaAbierta ? (
                     <TextInput
@@ -1027,6 +1132,17 @@ const styles = StyleSheet.create({
     backgroundColor: NEUTRAL_800,
   },
   chipsEnvoltorio: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  historialCaja: {
+    gap: 6,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+  },
+  historialFila: { flexDirection: 'row', gap: 8, alignItems: 'baseline' },
+  historialFecha: { color: NEUTRAL_500, fontSize: 11, fontVariant: ['tabular-nums'] },
+  historialTexto: { color: '#d3d9e6', fontSize: 12, flexShrink: 1 },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,

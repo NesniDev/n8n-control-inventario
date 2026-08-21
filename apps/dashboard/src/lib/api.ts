@@ -38,6 +38,12 @@ export interface LogEvent {
   actor_id: string;
   sede_id: string;
   resultado: string;
+  // Varia segun `evento` -- ver app/services/logging_service.py. Para
+  // 'entrega_actualizada' trae los items con su cantidad_entregada/
+  // cantidad_pendiente EN ESE MOMENTO (asi se arma el historial de fechas
+  // de un producto puntual, ver historialDeItem en page.tsx); para
+  // 'devolucion_registrada' trae item_id/cantidad/motivo/resolucion.
+  detalle: Record<string, unknown>;
   timestamp: string;
 }
 
@@ -51,6 +57,11 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const fetchEntregas = () => getJson<Entrega[]>("/entregas?limit=50");
 export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=30");
+
+// Historial completo de una entrega (todos sus productos) -- el filtrado
+// por producto se hace del lado del cliente, ver historialDeItem en page.tsx.
+export const fetchHistorialEntrega = (entregaId: string) =>
+  getJson<LogEvent[]>(`/logs?entidad_id=${encodeURIComponent(entregaId)}&limit=200`);
 
 export async function revisarEntrega(
   id: string,

@@ -258,3 +258,30 @@ export async function registrarDevolucion(
 
   return parsearRespuesta<{ item: ItemEntrega }>(res);
 }
+
+/**
+ * Un evento de la tabla `logs` (append-only) -- ver app/services/logging_service.py.
+ * `detalle` varia segun `evento`: para 'entrega_actualizada' trae los items
+ * con su cantidad_entregada/cantidad_pendiente EN ESE MOMENTO (asi se puede
+ * armar el historial de fechas de un producto puntual, aunque haya
+ * cambiado varias veces); para 'devolucion_registrada' trae item_id,
+ * cantidad, motivo y resolucion.
+ */
+export interface LogEntry {
+  id: string;
+  evento: string;
+  entidad_id: string;
+  actor_id: string;
+  sede_id: string;
+  resultado: string;
+  detalle: Record<string, any>;
+  timestamp: string;
+}
+
+/** Historial completo de una entrega (todos sus productos) -- el filtrado
+ * por producto se hace del lado del cliente, ver historialDeItem en App.tsx. */
+export async function fetchHistorialEntrega(entregaId: string): Promise<LogEntry[]> {
+  const params = new URLSearchParams({ entidad_id: entregaId, limit: '200' });
+  const res = await fetch(`${API_BASE_URL}/logs?${params}`);
+  return parsearRespuesta<LogEntry[]>(res);
+}

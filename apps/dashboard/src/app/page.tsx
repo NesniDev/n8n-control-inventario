@@ -6,10 +6,12 @@ import {
   EXPORT_CSV_URL,
   actualizarItems,
   fetchEntregas,
+  fetchHistorialEntrega,
   fetchLogs,
   revisarEntrega,
   type Entrega,
   type ItemEntrega,
+  type LogEvent,
   type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -36,6 +38,44 @@ function sumar(items: ItemEntrega[], campo: "cantidad_entregada" | "cantidad_pen
   return items.reduce((total, item) => total + item[campo], 0);
 }
 
+interface EventoHistorial {
+  fecha: string;
+  texto: string;
+}
+
+// Arma el historial de fechas de UN producto puntual a partir del historial
+// completo de la entrega (logs con detalle.items trae la foto de TODOS los
+// productos en cada evento -- aca se filtra solo el que corresponde). Asi se
+// ve cada vez que cambio ese pendiente, aunque haya sido varias veces.
+function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial[] {
+  const ordenado = [...historial].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const eventos: EventoHistorial[] = [];
+  for (const log of ordenado) {
+    if (log.evento === "entrega_actualizada") {
+      const items = log.detalle?.items as
+        | { id: string; cantidad_entregada: number; cantidad_pendiente: number }[]
+        | undefined;
+      const encontrado = items?.find((i) => i.id === itemId);
+      if (encontrado) {
+        eventos.push({
+          fecha: log.timestamp,
+          texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}`,
+        });
+      }
+    } else if (log.evento === "devolucion_registrada" && (log.detalle as { item_id?: string })?.item_id === itemId) {
+      const detalle = log.detalle as { cantidad: number; motivo: string; resolucion: string };
+      const resolucion = detalle.resolucion === "reposicion" ? "repuesto" : "reembolsado";
+      eventos.push({
+        fecha: log.timestamp,
+        texto: `↩️ Devolución de ${detalle.cantidad} (${detalle.motivo}) — ${resolucion}`,
+      });
+    }
+  }
+  return eventos;
+}
+
 function FilaRevision({
   entrega,
   onGuardado,
@@ -48,6 +88,25 @@ function FilaRevision({
   const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Historial de logs de esta entrega -- un solo fetch, compartido por todos
+  // sus productos (ver historialDeItem para el filtrado por producto).
+  const [historial, setHistorial] = useState<LogEvent[] | null>(null);
+  const [historialAbierto, setHistorialAbierto] = useState<string | null>(null);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+
+  const alternarHistorial = async (itemId: string) => {
+    const yaAbierto = historialAbierto === itemId;
+    setHistorialAbierto(yaAbierto ? null : itemId);
+    if (yaAbierto || historial !== null) return;
+    setCargandoHistorial(true);
+    try {
+      setHistorial(await fetchHistorialEntrega(entrega.id));
+    } catch {
+      setHistorial([]);
+    } finally {
+      setCargandoHistorial(false);
+    }
+  };
 
   const camposBajaConfianza = Object.entries(entrega.confianza_ia ?? {})
     .filter(([, valor]) => valor < 0.75)
@@ -141,45 +200,73 @@ function FilaRevision({
             {items.length === 0 ? (
               <p className="text-xs text-neutral-600">Sin productos registrados.</p>
             ) : (
-              items.map((item) => (
-                <div
-                  key={item.id}
-                  className="grid grid-cols-1 gap-2 rounded-md border border-neutral-800 p-2 sm:grid-cols-[1fr_140px_140px]"
-                >
-                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                    Descripción
-                    <input
-                      value={item.descripcion}
-                      onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
-                      disabled={sinPendiente}
-                      className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                    Cantidad (CANT)
-                    <input
-                      type="number"
-                      value={item.cantidad_entregada}
-                      onChange={(e) =>
-                        actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
-                      }
-                      disabled={sinPendiente}
-                      className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                    Pendiente
-                    <input
-                      type="number"
-                      value={item.cantidad_pendiente}
-                      onChange={(e) =>
-                        actualizarItem(item.id, { cantidad_pendiente: Number(e.target.value) })
-                      }
-                      className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
-                    />
-                  </label>
-                </div>
-              ))
+              items.map((item) => {
+                const eventosHistorial = historial ? historialDeItem(historial, item.id) : [];
+                return (
+                  <div key={item.id} className="rounded-md border border-neutral-800 p-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_140px]">
+                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                        Descripción
+                        <input
+                          value={item.descripcion}
+                          onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
+                          disabled={sinPendiente}
+                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                        Cantidad (CANT)
+                        <input
+                          type="number"
+                          value={item.cantidad_entregada}
+                          onChange={(e) =>
+                            actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
+                          }
+                          disabled={sinPendiente}
+                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                        Pendiente
+                        <input
+                          type="number"
+                          value={item.cantidad_pendiente}
+                          onChange={(e) =>
+                            actualizarItem(item.id, { cantidad_pendiente: Number(e.target.value) })
+                          }
+                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                        />
+                      </label>
+                    </div>
+
+                    <button
+                      onClick={() => alternarHistorial(item.id)}
+                      className="mt-2 text-xs text-orange-400 hover:underline"
+                    >
+                      🕒 {historialAbierto === item.id ? "Ocultar historial" : "Ver historial"}
+                    </button>
+
+                    {historialAbierto === item.id ? (
+                      <div className="mt-2 flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-2 text-xs">
+                        {cargandoHistorial ? (
+                          <span className="text-neutral-500">Cargando...</span>
+                        ) : eventosHistorial.length === 0 ? (
+                          <span className="text-neutral-500">Sin cambios registrados todavía.</span>
+                        ) : (
+                          eventosHistorial.map((evento, i) => (
+                            <div key={i} className="flex gap-2 text-neutral-400">
+                              <span className="shrink-0 font-mono text-neutral-600">
+                                {new Date(evento.fecha).toLocaleString()}
+                              </span>
+                              <span>{evento.texto}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
             )}
           </div>
 
