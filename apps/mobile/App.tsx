@@ -21,9 +21,12 @@ import {
   confirmarItems,
   fetchSedes,
   procesarEntrega,
+  registrarDevolucion,
   subirEvidencia,
   type Empleado,
   type ItemEntrega,
+  type MotivoDevolucion,
+  type ResolucionDevolucion,
   type Sede,
 } from './api';
 import PantallaLogin from './PantallaLogin';
@@ -38,6 +41,23 @@ type Fase = 'captura' | 'buscar' | 'confirmando' | 'resultado';
 type EstadoFinal = 'procesada' | 'pendiente_revision' | 'error';
 
 const TIPOS_DOCUMENTO = ['FEI', 'TB', 'RM3', 'RM2'] as const;
+
+// Lista fija de motivos de devolucion (mismos valores que el backend).
+const MOTIVOS_DEVOLUCION: { valor: MotivoDevolucion; texto: string }[] = [
+  { valor: 'danado', texto: 'Dañado' },
+  { valor: 'equivocado', texto: 'Equivocado' },
+  { valor: 'vencido', texto: 'Vencido' },
+  { valor: 'no_era_lo_pedido', texto: 'No era lo pedido' },
+  { valor: 'otro', texto: 'Otro' },
+];
+
+interface DevolucionDraft {
+  cantidad: string;
+  motivo: MotivoDevolucion | null;
+  resolucion: ResolucionDevolucion | null;
+}
+
+const DEVOLUCION_DRAFT_VACIO: DevolucionDraft = { cantidad: '', motivo: null, resolucion: null };
 
 const ESTADO_INFO: Record<EstadoFinal, { icono: string; texto: string; color: string; fondo: string }> = {
   procesada: { icono: '✅', texto: 'Procesada', color: '#34d399', fondo: 'rgba(52,211,153,0.12)' },
@@ -116,6 +136,11 @@ function PantallaCaptura({
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
   // Ids de items con el editor de nota abierto (ver alternarNota).
   const [notasAbiertas, setNotasAbiertas] = useState<Set<string>>(new Set());
+  // Ids de items con el formulario de devolucion abierto, y su borrador
+  // (cantidad/motivo/resolucion) mientras se completa -- se descarta al
+  // cerrar o al registrar con exito (ver alternarDevolucion).
+  const [devolucionesAbiertas, setDevolucionesAbiertas] = useState<Set<string>>(new Set());
+  const [devolucionDrafts, setDevolucionDrafts] = useState<Record<string, DevolucionDraft>>({});
 
   // Consulta por codigo de factura (fase 'buscar'), sin pasar por una foto.
   const [tipoBusqueda, setTipoBusqueda] = useState<(typeof TIPOS_DOCUMENTO)[number]>('FEI');
@@ -313,6 +338,66 @@ function PantallaCaptura({
     });
   };
 
+  const alternarDevolucion = (id: string) => {
+    setDevolucionesAbiertas((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(id)) {
+        siguiente.delete(id);
+      } else {
+        siguiente.add(id);
+      }
+      return siguiente;
+    });
+  };
+
+  const actualizarDraftDevolucion = (id: string, cambios: Partial<DevolucionDraft>) => {
+    setDevolucionDrafts((prev) => ({
+      ...prev,
+      [id]: { ...DEVOLUCION_DRAFT_VACIO, ...prev[id], ...cambios },
+    }));
+  };
+
+  // Devolucion de un producto ya entregado -- accion propia e inmediata,
+  // no forma parte del guardado general de confirmar(). Actualiza el item
+  // local con lo que devuelve el backend (cantidades ya corregidas).
+  const registrarDevolucionItem = async (item: ItemFormulario) => {
+    if (!entregaId) return;
+    const draft = devolucionDrafts[item.id];
+    const cantidad = Number((draft?.cantidad ?? '').trim());
+    if (!draft?.motivo || !draft?.resolucion || !/^\d+$/.test(draft.cantidad.trim())) return;
+    if (cantidad <= 0 || cantidad > item.cantidad_entregada) return;
+
+    setCargando(true);
+    setMensaje('Registrando devolución...');
+    try {
+      const { item: itemActualizado } = await registrarDevolucion(entregaId, {
+        item_id: item.id,
+        cantidad,
+        motivo: draft.motivo,
+        resolucion: draft.resolucion,
+        operador_id: empleado.id,
+        sede_id: sedeSeleccionada?.id ?? '',
+      });
+      // El valor tipeado (entregado hoy) puede haber quedado invalido contra
+      // el nuevo pendiente -- se limpia para que lo carguen de nuevo.
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === item.id ? { ...it, ...itemActualizado, valor: '', nota: itemActualizado.nota ?? '' } : it
+        )
+      );
+      setDevolucionDrafts((prev) => {
+        const { [item.id]: _descartado, ...resto } = prev;
+        return resto;
+      });
+      alternarDevolucion(item.id);
+      setMensaje('Devolución registrada.');
+    } catch (err: any) {
+      setMensaje(err?.detail ?? err?.message ?? 'Error al registrar la devolución.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
   // Check "todo entregado" -- evita tener que tipear el numero a mano.
   // Tocarlo de nuevo lo destilda y deja el campo vacio para tipear otra cosa.
   const alternarTodoEntregado = (item: ItemFormulario) => {
@@ -333,6 +418,8 @@ function PantallaCaptura({
     setEvidenciaActual(null);
     setIndicativoBusqueda('');
     setNotasAbiertas(new Set());
+    setDevolucionesAbiertas(new Set());
+    setDevolucionDrafts({});
   };
 
   // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
@@ -592,12 +679,29 @@ function PantallaCaptura({
               const excedeTope =
                 !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
               const notaAbierta = notasAbiertas.has(item.id);
+              // Una devolucion es sobre algo ya entregado antes -- no tiene
+              // sentido en un documento recien escaneado sin confirmar
+              // (situacion 'nueva'), ni si todavia no se entrego nada.
+              const puedeDevolver = situacion === 'actualizable' && item.cantidad_entregada > 0;
+              const devolucionAbierta = devolucionesAbiertas.has(item.id);
+              const draft = devolucionDrafts[item.id] ?? DEVOLUCION_DRAFT_VACIO;
+              const cantidadDevolucionValida =
+                /^\d+$/.test(draft.cantidad.trim()) &&
+                Number(draft.cantidad.trim()) > 0 &&
+                Number(draft.cantidad.trim()) <= item.cantidad_entregada;
+              const puedeRegistrarDevolucion =
+                cantidadDevolucionValida && !!draft.motivo && !!draft.resolucion && !cargando;
               return (
                 <View key={item.id} style={styles.tarjeta}>
                   <View style={styles.filaTitulo}>
                     <Text style={[styles.itemDescripcion, { flex: 1 }]}>
                       {item.descripcion || 'Producto sin descripción'}
                     </Text>
+                    {puedeDevolver ? (
+                      <Pressable onPress={() => alternarDevolucion(item.id)} hitSlop={8}>
+                        <Text style={styles.notaIcono}>↩️</Text>
+                      </Pressable>
+                    ) : null}
                     <Pressable onPress={() => alternarNota(item.id)} hitSlop={8}>
                       <Text style={styles.notaIcono}>{item.nota.trim() ? '📝' : '➕📝'}</Text>
                     </Pressable>
@@ -616,6 +720,81 @@ function PantallaCaptura({
                     <Pressable onPress={() => alternarNota(item.id)}>
                       <Text style={styles.notaPreview}>📝 {item.nota}</Text>
                     </Pressable>
+                  ) : null}
+
+                  {devolucionAbierta ? (
+                    <View style={styles.devolucionCaja}>
+                      <Text style={styles.etiquetaSeccion}>Devolución -- cantidad</Text>
+                      <TextInput
+                        value={draft.cantidad}
+                        onChangeText={(texto) => actualizarDraftDevolucion(item.id, { cantidad: texto })}
+                        keyboardType="number-pad"
+                        placeholder={`Máx. ${item.cantidad_entregada}`}
+                        placeholderTextColor="#6b7688"
+                        style={styles.inputCantidad}
+                      />
+
+                      <Text style={styles.etiquetaSeccion}>Motivo</Text>
+                      <View style={styles.chipsEnvoltorio}>
+                        {MOTIVOS_DEVOLUCION.map((m) => {
+                          const activo = draft.motivo === m.valor;
+                          return (
+                            <Pressable
+                              key={m.valor}
+                              onPress={() => actualizarDraftDevolucion(item.id, { motivo: m.valor })}
+                              style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                            >
+                              <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
+                                {m.texto}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={styles.etiquetaSeccion}>Resolución</Text>
+                      <View style={styles.chipsEnvoltorio}>
+                        {(
+                          [
+                            { valor: 'reposicion', texto: '🔁 Repongo' },
+                            { valor: 'reembolso', texto: '💵 Reembolso' },
+                          ] as const
+                        ).map((r) => {
+                          const activo = draft.resolucion === r.valor;
+                          return (
+                            <Pressable
+                              key={r.valor}
+                              onPress={() => actualizarDraftDevolucion(item.id, { resolucion: r.valor })}
+                              style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                            >
+                              <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
+                                {r.texto}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      {draft.resolucion === 'reposicion' ? (
+                        <Text style={styles.previewSubtexto}>Vuelve a quedar pendiente -- se debe re-entregar.</Text>
+                      ) : draft.resolucion === 'reembolso' ? (
+                        <Text style={styles.previewSubtexto}>
+                          Se devuelve el dinero -- esa cantidad queda cerrada, no vuelve a pendiente.
+                        </Text>
+                      ) : null}
+
+                      <Pressable
+                        disabled={!puedeRegistrarDevolucion}
+                        style={({ pressed }) => [
+                          styles.boton,
+                          styles.botonPrimario,
+                          !puedeRegistrarDevolucion && styles.botonDeshabilitado,
+                          pressed && puedeRegistrarDevolucion && styles.botonPresionado,
+                        ]}
+                        onPress={() => registrarDevolucionItem(item)}
+                      >
+                        <Text style={styles.botonTexto}>↩️ Registrar devolución</Text>
+                      </Pressable>
+                    </View>
                   ) : null}
 
                   <Text style={styles.previewSubtexto}>
@@ -839,6 +1018,15 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   notaPreview: { color: NEUTRAL_400, fontSize: 13, fontStyle: 'italic' },
+  devolucionCaja: {
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+  },
+  chipsEnvoltorio: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,

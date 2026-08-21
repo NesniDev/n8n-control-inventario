@@ -175,6 +175,24 @@ create table if not exists logs (
 create index if not exists idx_logs_timestamp on logs ("timestamp" desc);
 create index if not exists idx_logs_entidad on logs (entidad_tipo, entidad_id);
 
+-- Devolucion de un producto ya entregado (ver app/services/devoluciones.py).
+-- 'reposicion' hace que esa cantidad vuelva a quedar pendiente (se debe
+-- re-entregar); 'reembolso' la finaliza -- no vuelve a pendiente, esas
+-- unidades salen del total (se devolvio el dinero, no un reemplazo).
+create table if not exists devoluciones (
+    id uuid primary key default gen_random_uuid(),
+    entrega_id uuid not null references entregas(id) on delete cascade,
+    item_id uuid not null references entrega_items(id) on delete cascade,
+    cantidad integer not null check (cantidad > 0),
+    motivo text not null,
+    resolucion text not null,
+    operador_id text not null,
+    sede_id text not null,
+    creado_at timestamptz not null default now()
+);
+
+create index if not exists idx_devoluciones_entrega on devoluciones (entrega_id);
+
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban
 -- agregadas o si la publicacion no existe (p.ej. Postgres self-hosted sin
@@ -192,6 +210,10 @@ begin
         end;
         begin
             alter publication supabase_realtime add table logs;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table devoluciones;
         exception when duplicate_object then null;
         end;
     end if;

@@ -22,3 +22,6 @@ class EventoLog(StrEnum):
     # aplica a una entrega recien insertada (situacion "nueva") que todavia
     # nadie confirmo. Ver cancelar_entrega_no_confirmada en duplicates.py.
     ENTREGA_CANCELADA = "entrega_cancelada"
+    # Se registro la devolucion de un producto ya entregado -- ver
+    # app/services/devoluciones.py.
+    DEVOLUCION_REGISTRADA = "devolucion_registrada"

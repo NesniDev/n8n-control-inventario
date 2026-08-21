@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import get_settings
 from app.db import get_pool
+from app.models.devolucion import DevolucionCreate
 from app.models.entrega import (
     ActualizarItemsRequest,
     EntregaCreate,
@@ -28,6 +29,7 @@ from app.models.entrega import (
     TipoDocumento,
 )
 from app.models.log import EventoLog
+from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.duplicates import (
     CantidadInvalida,
     EntregaDuplicada,
@@ -186,6 +188,28 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return {"id": entrega_id, "items": [item.model_dump() for item in items]}
+
+
+@router.post("/{entrega_id}/devoluciones")
+async def crear_devolucion(entrega_id: str, payload: DevolucionCreate) -> dict:
+    """El cliente devuelve un producto ya entregado (dañado, equivocado,
+    vencido, etc.). 'reposicion' deja esa cantidad pendiente de nuevo (se
+    debe re-entregar); 'reembolso' la finaliza -- no vuelve a pendiente,
+    esas unidades salen del total (se devolvio el dinero, no un reemplazo).
+    Solo aplica sobre una entrega que ya existia, no una recien escaneada
+    sin confirmar todavia."""
+    pool = await get_pool()
+    existente = await pool.fetchrow("select id from entregas where id = $1::uuid", entrega_id)
+    if existente is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+
+    try:
+        item = await registrar_devolucion(entrega_id, payload)
+    except DevolucionInvalida as exc:
+        # 422 y no 502/503/504 -- misma trampa de Traefik que CantidadInvalida.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {"item": item.model_dump()}
 
 
 _SELECT_ENTREGAS_BASE = """

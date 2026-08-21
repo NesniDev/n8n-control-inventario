@@ -224,3 +224,37 @@ export async function confirmarItems(
 
   return parsearRespuesta<{ id: string; items: ItemEntrega[] }>(res);
 }
+
+// Lista fija -- mismos valores que app.models.devolucion.MotivoDevolucion.
+export type MotivoDevolucion = 'danado' | 'equivocado' | 'vencido' | 'no_era_lo_pedido' | 'otro';
+
+// reposicion: la cantidad vuelve a quedar pendiente (se debe re-entregar).
+// reembolso: se devuelve el dinero -- la cantidad queda finalizada, no
+// vuelve a pendiente. Mismos valores que ResolucionDevolucion del backend.
+export type ResolucionDevolucion = 'reposicion' | 'reembolso';
+
+/**
+ * El cliente devuelve un producto ya entregado. Es una accion propia,
+ * inmediata -- no forma parte del guardado general de confirmarItems.
+ * Solo tiene sentido sobre una entrega que ya existia (situacion
+ * 'actualizable'), nunca sobre una recien escaneada sin confirmar.
+ */
+export async function registrarDevolucion(
+  entregaId: string,
+  payload: {
+    item_id: string;
+    cantidad: number;
+    motivo: MotivoDevolucion;
+    resolucion: ResolucionDevolucion;
+    operador_id: string;
+    sede_id: string;
+  }
+): Promise<{ item: ItemEntrega }> {
+  const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/devoluciones`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  return parsearRespuesta<{ item: ItemEntrega }>(res);
+}
