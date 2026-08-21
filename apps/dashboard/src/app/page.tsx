@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import {
   EXPORT_CSV_URL,
+  EXPORT_XLSX_URL,
   actualizarItems,
   fetchEntregas,
   fetchHistorialEntrega,
@@ -391,12 +392,20 @@ export default function DashboardPage() {
           <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
             Entregas recientes
           </h2>
-          <a
-            href={EXPORT_CSV_URL}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
-          >
-            Descargar CSV (Excel)
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={EXPORT_XLSX_URL}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+            >
+              📊 Reporte mensual (Excel)
+            </a>
+            <a
+              href={EXPORT_CSV_URL}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+            >
+              Descargar CSV (Excel)
+            </a>
+          </div>
         </div>
         <input
           value={busqueda}

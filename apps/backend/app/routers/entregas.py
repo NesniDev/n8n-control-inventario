@@ -38,6 +38,7 @@ from app.services.duplicates import (
     procesar_extraccion,
 )
 from app.services.logging_service import registrar_evento
+from app.services.reportes import generar_reporte_mensual_xlsx
 from app.services.vision import ExtraccionFallida, extraer_datos_guia
 
 router = APIRouter(prefix="/entregas", tags=["entregas"])
@@ -386,4 +387,18 @@ async def exportar_entregas_csv(sede_id: str | None = None) -> StreamingResponse
         iter([buffer.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=entregas.csv"},
+    )
+
+
+@router.get("/export.xlsx")
+async def exportar_reporte_mensual(sede_id: str | None = None) -> StreamingResponse:
+    """Reporte mensual para mandarle a un superior -- un Excel real con una
+    hoja por mes (todo el historico) y, dentro de cada hoja, un bloque
+    Fecha+Número por tipo de documento (ver app/services/reportes.py). A
+    diferencia de export.csv, es a nivel de documento, no de producto."""
+    contenido = await generar_reporte_mensual_xlsx(sede_id=sede_id)
+    return StreamingResponse(
+        iter([contenido]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=reporte_mensual.xlsx"},
     )

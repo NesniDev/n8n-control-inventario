@@ -103,3 +103,8 @@ export async function actualizarItems(
 // Descarga directa (no XHR) — el navegador la maneja como un archivo, no
 // necesita CORS de fetch.
 export const EXPORT_CSV_URL = `${API_BASE_URL}/entregas/export.csv`;
+
+// Reporte mensual real en Excel (una hoja por mes, columnas por tipo de
+// documento) -- para que los bodegueros le manden el control a un superior.
+// A diferencia de EXPORT_CSV_URL, es a nivel de documento, no de producto.
+export const EXPORT_XLSX_URL = `${API_BASE_URL}/entregas/export.xlsx`;
