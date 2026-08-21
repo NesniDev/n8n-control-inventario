@@ -5,6 +5,9 @@
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Los 4 tipos mas comunes -- sugerencia rapida (datalist), no una
+// restriccion: en la practica el tipo real de un documento no siempre es
+// uno de estos (ver apps/backend/app/models/entrega.py TipoDocumento).
 export type TipoDocumento = "FEI" | "TB" | "RM3" | "RM2";
 
 export interface ItemEntrega {
@@ -16,7 +19,7 @@ export interface ItemEntrega {
 
 export interface Entrega {
   id: string;
-  tipo: TipoDocumento;
+  tipo: string;
   indicativo_numero: string;
   sede_origen_id: string;
   sede_origen_nombre: string | null;
@@ -65,7 +68,7 @@ export const fetchHistorialEntrega = (entregaId: string) =>
 
 export async function revisarEntrega(
   id: string,
-  campos: { tipo?: TipoDocumento; indicativo_numero?: string }
+  campos: { tipo?: string; indicativo_numero?: string }
 ): Promise<Entrega> {
   const res = await fetch(`${API_BASE_URL}/entregas/${id}/revisar`, {
     method: "PATCH",

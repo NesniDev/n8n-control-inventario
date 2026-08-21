@@ -256,16 +256,24 @@ async def listar_entregas(sede_id: str | None = None, limit: int = 50) -> list[d
 
 
 @router.get("/buscar")
-async def buscar_entrega(tipo: TipoDocumento, indicativo_numero: str) -> dict:
+async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
     """Consulta directa por codigo de factura (sin pasar por una foto) -- el
     bodeguero busca `(tipo, indicativo_numero)` y ve que productos quedan
     pendientes. Usa el mismo indice unico que ya bloquea duplicados (ver
     app.db._SCHEMA), asi que la busqueda es siempre por, a lo sumo, un
-    documento."""
+    documento.
+
+    `tipo` es texto libre y no TipoDocumento -- en la practica el tipo real
+    de un documento no siempre es uno de los 4 conocidos (ver
+    app.models.entrega.TipoDocumento)."""
+    tipo = tipo.strip().upper()
+    if not tipo:
+        raise HTTPException(status_code=422, detail="tipo no puede quedar vacio")
+
     pool = await get_pool()
     row = await pool.fetchrow(
         _SELECT_ENTREGAS_BASE + " where e.tipo = $1 and e.indicativo_numero = $2 group by e.id, s.nombre",
-        tipo.value,
+        tipo,
         indicativo_numero,
     )
     if row is None:
@@ -308,7 +316,7 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     campos = {
-        "tipo": payload.tipo.value if payload.tipo else None,
+        "tipo": payload.tipo.strip().upper() if payload.tipo else None,
         "indicativo_numero": payload.indicativo_numero,
     }
     campos = {k: v for k, v in campos.items() if v is not None}

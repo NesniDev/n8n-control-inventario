@@ -91,7 +91,11 @@ async def procesar_extraccion(
     - Ya existia y todo esta en pendiente=0 -> EntregaDuplicada (409).
     """
     pool = await get_pool()
-    tipo = (extraido.get("tipo") or "FEI").strip()
+    # .upper() ademas de .strip(): "tipo" ya no esta atado al enum de 4
+    # valores conocidos (ver vision.py), la IA puede transcribir cualquier
+    # texto -- sin normalizar el casing, "tb" y "TB" quedarian como
+    # documentos distintos para la barrera anti-duplicado y para buscar_entrega.
+    tipo = (extraido.get("tipo") or "FEI").strip().upper()
     indicativo_numero = (extraido.get("indicativo_numero") or "").strip()
     identificador = _identificador(tipo, indicativo_numero)
     estado = marcar_estado_por_confianza(extraido.get("confianza", {}), min_confidence)

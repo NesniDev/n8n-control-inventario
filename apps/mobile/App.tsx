@@ -184,7 +184,11 @@ function PantallaCaptura({
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
   // Consulta por codigo de factura (fase 'buscar'), sin pasar por una foto.
-  const [tipoBusqueda, setTipoBusqueda] = useState<(typeof TIPOS_DOCUMENTO)[number]>('FEI');
+  // string y no la union de TIPOS_DOCUMENTO: en la practica el tipo real no
+  // siempre es uno de esos 4 -- son la sugerencia rapida, no el limite (ver
+  // chip "+ Otro" en el render).
+  const [tipoBusqueda, setTipoBusqueda] = useState<string>('FEI');
+  const [tipoBusquedaCustom, setTipoBusquedaCustom] = useState(false);
   const [indicativoBusqueda, setIndicativoBusqueda] = useState('');
 
   useEffect(() => {
@@ -532,7 +536,7 @@ function PantallaCaptura({
   const cantidadesValidas =
     situacion !== null && itemsConCambioCantidad.every((item) => valorValido(item, situacion));
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
-  const puedeBuscar = !!indicativoBusqueda.trim() && !cargando;
+  const puedeBuscar = !!indicativoBusqueda.trim() && !!tipoBusqueda.trim() && !cargando;
   const puedeConfirmar = itemsAEnviar.length > 0 && cantidadesValidas && !cargando;
   // Puramente sobre cantidades -- no se ve afectado por si se esta cargando
   // una nota, asi el aviso de "nada pendiente" sigue siendo cierto aunque
@@ -672,18 +676,43 @@ function PantallaCaptura({
                 contentContainerStyle={styles.selectorSedesContenido}
               >
                 {TIPOS_DOCUMENTO.map((t) => {
-                  const activo = tipoBusqueda === t;
+                  const activo = !tipoBusquedaCustom && tipoBusqueda === t;
                   return (
                     <Pressable
                       key={t}
-                      onPress={() => setTipoBusqueda(t)}
+                      onPress={() => {
+                        setTipoBusquedaCustom(false);
+                        setTipoBusqueda(t);
+                      }}
                       style={[styles.chipSede, activo && styles.chipSedeActiva]}
                     >
                       <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>{t}</Text>
                     </Pressable>
                   );
                 })}
+                <Pressable
+                  onPress={() => {
+                    setTipoBusquedaCustom(true);
+                    setTipoBusqueda('');
+                  }}
+                  style={[styles.chipSede, tipoBusquedaCustom && styles.chipSedeActiva]}
+                >
+                  <Text style={[styles.chipSedeTexto, tipoBusquedaCustom && styles.chipSedeTextoActivo]}>
+                    + Otro
+                  </Text>
+                </Pressable>
               </ScrollView>
+
+              {tipoBusquedaCustom ? (
+                <TextInput
+                  value={tipoBusqueda}
+                  onChangeText={(texto) => setTipoBusqueda(texto.toUpperCase())}
+                  placeholder="Escribí el tipo (ej: OT, NC)"
+                  placeholderTextColor="#6b7688"
+                  autoCapitalize="characters"
+                  style={styles.inputCantidad}
+                />
+              ) : null}
             </View>
 
             <View style={styles.tarjeta}>

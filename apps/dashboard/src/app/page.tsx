@@ -83,7 +83,10 @@ function FilaRevision({
   entrega: Entrega;
   onGuardado: () => void;
 }) {
-  const [tipo, setTipo] = useState<TipoDocumento>(entrega.tipo);
+  // string y no TipoDocumento: en la practica el tipo real no siempre es
+  // uno de los 4 conocidos -- son la sugerencia rapida del datalist, no un
+  // limite (ver el <input list=...> mas abajo).
+  const [tipo, setTipo] = useState(entrega.tipo);
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
   const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
   const [guardando, setGuardando] = useState(false);
@@ -169,18 +172,21 @@ function FilaRevision({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Tipo
-              <select
+              <input
                 value={tipo}
-                onChange={(e) => setTipo(e.target.value as TipoDocumento)}
+                onChange={(e) => setTipo(e.target.value.toUpperCase())}
                 disabled={sinPendiente}
+                list="tipos-documento-sugeridos"
+                placeholder="FEI, TB, RM3, RM2 u otro"
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
-              >
+              />
+              {/* Sugerencia rapida de los 4 tipos conocidos -- el input igual
+                  acepta cualquier otro valor, el datalist no restringe. */}
+              <datalist id="tipos-documento-sugeridos">
                 {TIPOS_DOCUMENTO.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
+                  <option key={t} value={t} />
                 ))}
-              </select>
+              </datalist>
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Indicativo/número

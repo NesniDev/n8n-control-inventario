@@ -11,10 +11,11 @@ from openai import AsyncOpenAI, OpenAIError
 
 from app.config import get_settings
 
-# Tipos de documento que reconoce el pipeline: factura (FEI), traslado entre
-# bodegas (TB) o remision (RM3/RM2) — ver app.models.entrega.TipoDocumento.
-_TIPOS_DOCUMENTO = ("FEI", "TB", "RM3", "RM2")
-
+# Tipos de documento mas comunes -- factura (FEI), traslado entre bodegas
+# (TB) o remision (RM3/RM2), ver app.models.entrega.TipoDocumento -- pero
+# "tipo" en el schema de abajo NO esta restringido a estos 4: son la guia
+# del prompt, no una jaula, porque en la practica aparecen otros.
+#
 # Esquema fijo que el modelo debe respetar. response_format=json_schema (modo
 # strict) garantiza que la respuesta valida contra este schema (o falla
 # explicitamente), asi que no necesitamos un parser de texto libre ni
@@ -22,7 +23,11 @@ _TIPOS_DOCUMENTO = ("FEI", "TB", "RM3", "RM2")
 _EXTRACTION_SCHEMA = {
     "type": "object",
     "properties": {
-        "tipo": {"type": "string", "enum": list(_TIPOS_DOCUMENTO)},
+        # Sin "enum": los 4 tipos conocidos son la guia del prompt, no una
+        # jaula -- si el documento real dice otra cosa, la IA la transcribe
+        # tal cual en vez de forzar la mas parecida de las 4 (ver
+        # app.models.entrega.TipoDocumento, que ya no restringe validacion).
+        "tipo": {"type": "string"},
         "indicativo_numero": {"type": "string"},
         "items": {
             "type": "array",

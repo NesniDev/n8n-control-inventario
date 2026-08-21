@@ -111,20 +111,18 @@ begin
 exception when undefined_object then null;
 end $$;
 
+-- "tipo" dejo de estar atado a los 4 valores conocidos (FEI/TB/RM3/RM2): en
+-- la practica el documento real no siempre es uno de esos, hace falta poder
+-- escribir uno nuevo (ver vision.py, EntregaRevision, buscar_entrega). Se
+-- saca el check -- drop es idempotente sin necesidad de chequear pg_constraint
+-- primero (a diferencia del unique de mas abajo, un check no deja indice atras).
+alter table entregas drop constraint if exists entregas_tipo_check;
+
 -- OJO: un unique constraint crea un indice con el mismo nombre por debajo;
 -- si ya existe, Postgres tira duplicate_table (42P07) en vez de
 -- duplicate_object (42710) al intentar recrearlo, asi que la constraint por
 -- excepcion (como la del publication de mas abajo) no alcanza aca — hay que
 -- chequear existencia antes en pg_constraint.
-do $$
-begin
-    if not exists (
-        select 1 from pg_constraint
-        where conname = 'entregas_tipo_check' and conrelid = 'entregas'::regclass
-    ) then
-        alter table entregas add constraint entregas_tipo_check check (tipo in ('FEI', 'TB', 'RM3', 'RM2'));
-    end if;
-end $$;
 
 do $$
 begin

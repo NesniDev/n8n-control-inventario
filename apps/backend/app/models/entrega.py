@@ -11,7 +11,11 @@ class EstadoEntrega(StrEnum):
 
 
 class TipoDocumento(StrEnum):
-    """Factura (FEI), traslado entre bodegas (TB) o remision (RM3/RM2)."""
+    """Los 4 tipos mas comunes -- factura (FEI), traslado entre bodegas (TB)
+    o remision (RM3/RM2). Referencia para armar chips/sugerencias en las
+    apps; NO se usa para validar (en la practica aparecen otros tipos, ver
+    EntregaRevision.tipo y buscar_entrega en routers/entregas.py, los dos
+    aceptan cualquier texto no vacio)."""
 
     FEI = "FEI"
     TB = "TB"
@@ -57,9 +61,18 @@ class EntregaRevision(BaseModel):
     el dashboard. Solo se envian los campos que un supervisor corrigio.
     Las cantidades por producto se corrigen aparte, via PATCH /entregas/{id}/items."""
 
-    tipo: TipoDocumento | None = None
+    # str y no TipoDocumento: en la practica el tipo real del documento no
+    # siempre es uno de los 4 conocidos -- el supervisor tiene que poder
+    # escribir uno nuevo si no esta en la lista (ver dashboard).
+    tipo: str | None = None
     indicativo_numero: str | None = None
     revisado_por: str = "supervisor"
+
+    @model_validator(mode="after")
+    def _validar_tipo(self) -> "EntregaRevision":
+        if self.tipo is not None and not self.tipo.strip():
+            raise ValueError("tipo no puede quedar vacio")
+        return self
 
 
 class ItemActualizacion(BaseModel):
