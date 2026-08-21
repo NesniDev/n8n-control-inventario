@@ -24,6 +24,20 @@ _MESES_ES = {
 # vision.py/EntregaRevision) va despues, en orden alfabetico.
 _ORDEN_TIPOS_CONOCIDOS = ("FEI", "TB", "RM3", "RM2")
 
+# Mismos valores que MotivoDevolucion/ResolucionDevolucion en
+# app/models/devolucion.py -- version legible para el reporte.
+_MOTIVOS_LEGIBLES = {
+    "danado": "Dañado",
+    "equivocado": "Equivocado",
+    "vencido": "Vencido",
+    "no_era_lo_pedido": "No era lo pedido",
+    "otro": "Otro",
+}
+_RESOLUCIONES_LEGIBLES = {
+    "reposicion": "Reposición",
+    "reembolso": "Reembolso",
+}
+
 
 def _orden_tipo(tipo: str) -> tuple[int, str]:
     if tipo in _ORDEN_TIPOS_CONOCIDOS:
@@ -70,6 +84,19 @@ def _ocasiones_por_entrega(
     return ocasiones
 
 
+def _devoluciones_por_entrega(devoluciones_rows: list) -> dict[str, list[str]]:
+    """Un resumen legible por devolucion (ver app/services/devoluciones.py),
+    ya ordenadas por fecha -- una entrega puede tener mas de una."""
+    resumen: dict[str, list[str]] = defaultdict(list)
+    for d in devoluciones_rows:
+        entrega_id = str(d["entrega_id"])
+        fecha = d["creado_at"].strftime("%d/%m/%Y")
+        motivo = _MOTIVOS_LEGIBLES.get(d["motivo"], d["motivo"])
+        resolucion = _RESOLUCIONES_LEGIBLES.get(d["resolucion"], d["resolucion"])
+        resumen[entrega_id].append(f"{fecha}: {d['cantidad']} und ({motivo}, {resolucion})")
+    return resumen
+
+
 async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
     """Una hoja por mes (todo el historico, orden cronologico) -- dentro de
     cada hoja, un bloque de columnas por tipo de documento (Fecha, Número,
@@ -107,18 +134,26 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
         [r for r in logs_rows if r["entidad_id"] in ids_relevantes]
     )
 
-    # (año, mes) -> tipo -> [(fecha, numero, cantidad_total, ocasiones), ...]
-    por_mes: dict[tuple[int, int], dict[str, list[tuple[datetime, str, int, list[tuple[datetime, int]]]]]] = (
-        defaultdict(lambda: defaultdict(list))
+    devoluciones_rows = await pool.fetch(
+        "select entrega_id, cantidad, motivo, resolucion, creado_at from devoluciones order by entrega_id, creado_at"
     )
+    devoluciones_por_entrega = _devoluciones_por_entrega(
+        [r for r in devoluciones_rows if str(r["entrega_id"]) in ids_relevantes]
+    )
+
+    # (año, mes) -> tipo -> [(fecha, numero, cantidad_total, ocasiones, devoluciones), ...]
+    por_mes: dict[
+        tuple[int, int], dict[str, list[tuple[datetime, str, int, list[tuple[datetime, int]], list[str]]]]
+    ] = defaultdict(lambda: defaultdict(list))
     for r in entregas_rows:
         entrega_id = str(r["id"])
         fecha: datetime = r["capturado_at"]
         tipo = (r["tipo"] or "").strip() or "SIN TIPO"
         cantidad_total = cantidad_total_por_entrega.get(entrega_id, 0)
         ocasiones = sorted(ocasiones_por_entrega.get(entrega_id, []), key=lambda o: o[0])
+        devoluciones = devoluciones_por_entrega.get(entrega_id, [])
         por_mes[(fecha.year, fecha.month)][tipo].append(
-            (fecha, r["indicativo_numero"] or "", cantidad_total, ocasiones)
+            (fecha, r["indicativo_numero"] or "", cantidad_total, ocasiones, devoluciones)
         )
 
     wb = Workbook()
@@ -132,35 +167,35 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
         columna = 1
         for tipo in sorted(tipos_del_mes.keys(), key=_orden_tipo):
             entradas = sorted(tipos_del_mes[tipo], key=lambda e: e[0])
-            columnas_bloque = [get_column_letter(columna + i) for i in range(5)]
-            col_fecha, col_numero, col_cantidad, col_n_entregas, col_fechas_ent = columnas_bloque
-            # "Cantidades entregas" queda a la derecha del bloque de 5; se
-            # arma aparte para no perder legibilidad con nombres de variable.
-            col_cantidades_ent = get_column_letter(columna + 5)
+            columnas_bloque = [get_column_letter(columna + i) for i in range(7)]
+            (
+                col_fecha, col_numero, col_cantidad, col_n_entregas,
+                col_fechas_ent, col_cantidades_ent, col_devoluciones,
+            ) = columnas_bloque
 
-            ws.merge_cells(f"{col_fecha}1:{col_cantidades_ent}1")
+            ws.merge_cells(f"{col_fecha}1:{col_devoluciones}1")
             encabezado = ws[f"{col_fecha}1"]
             encabezado.value = tipo
             encabezado.font = Font(bold=True)
             encabezado.alignment = Alignment(horizontal="center")
 
             titulos = [
-                "Fecha", "Número", "Cantidad entregada",
-                "N° entregas", "Fechas entregas", "Cantidades entregas",
+                "Fecha", "Número", "Cantidad entregada", "N° entregas",
+                "Fechas entregas", "Cantidades entregas", "Devoluciones",
             ]
-            columnas_todas = columnas_bloque + [col_cantidades_ent]
-            for col, titulo in zip(columnas_todas, titulos):
+            for col, titulo in zip(columnas_bloque, titulos):
                 celda = ws[f"{col}2"]
                 celda.value = titulo
                 celda.font = Font(bold=True)
 
-            for i, (fecha, numero, cantidad_total, ocasiones) in enumerate(entradas, start=3):
+            for i, (fecha, numero, cantidad_total, ocasiones, devoluciones) in enumerate(entradas, start=3):
                 ws[f"{col_fecha}{i}"] = fecha.strftime("%d/%m/%Y")
                 ws[f"{col_numero}{i}"] = numero
                 ws[f"{col_cantidad}{i}"] = cantidad_total
                 ws[f"{col_n_entregas}{i}"] = len(ocasiones)
                 ws[f"{col_fechas_ent}{i}"] = ", ".join(f.strftime("%d/%m/%Y") for f, _ in ocasiones)
                 ws[f"{col_cantidades_ent}{i}"] = ", ".join(str(c) for _, c in ocasiones)
+                ws[f"{col_devoluciones}{i}"] = "; ".join(devoluciones)
 
             ws.column_dimensions[col_fecha].width = 12
             ws.column_dimensions[col_numero].width = 16
@@ -168,7 +203,8 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
             ws.column_dimensions[col_n_entregas].width = 11
             ws.column_dimensions[col_fechas_ent].width = 28
             ws.column_dimensions[col_cantidades_ent].width = 22
-            columna += 7  # 6 columnas del bloque + 1 en blanco como separador
+            ws.column_dimensions[col_devoluciones].width = 40
+            columna += 8  # 7 columnas del bloque + 1 en blanco como separador
 
     buffer = io.BytesIO()
     wb.save(buffer)
