@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 
 import {
   buscarEntrega,
@@ -61,10 +62,18 @@ interface DevolucionDraft {
 
 const DEVOLUCION_DRAFT_VACIO: DevolucionDraft = { cantidad: '', motivo: null, resolucion: null };
 
-const ESTADO_INFO: Record<EstadoFinal, { icono: string; texto: string; color: string; fondo: string }> = {
-  procesada: { icono: '✅', texto: 'Procesada', color: '#34d399', fondo: 'rgba(52,211,153,0.12)' },
-  pendiente_revision: { icono: '🕵️', texto: 'Pendiente de revisión', color: '#fbbf24', fondo: 'rgba(251,191,36,0.12)' },
-  error: { icono: '⚠️', texto: 'Error', color: '#f87171', fondo: 'rgba(248,113,113,0.12)' },
+const ESTADO_INFO: Record<
+  EstadoFinal,
+  { icono: keyof typeof Ionicons.glyphMap; texto: string; color: string; fondo: string }
+> = {
+  procesada: { icono: 'checkmark-circle', texto: 'Procesada', color: '#34d399', fondo: 'rgba(52,211,153,0.12)' },
+  pendiente_revision: {
+    icono: 'search',
+    texto: 'Pendiente de revisión',
+    color: '#fbbf24',
+    fondo: 'rgba(251,191,36,0.12)',
+  },
+  error: { icono: 'warning', texto: 'Error', color: '#f87171', fondo: 'rgba(248,113,113,0.12)' },
 };
 
 interface ItemFormulario extends ItemEntrega {
@@ -108,6 +117,10 @@ function valorValido(item: ItemFormulario, situacion: 'nueva' | 'actualizable'):
 interface EventoHistorial {
   fecha: string;
   texto: string;
+  // Distingue una devolucion de una entrega comun -- se usa para mostrar un
+  // icono distinto en la fila (ver el render en 'confirmando'), sin meter el
+  // icono adentro del texto.
+  esDevolucion: boolean;
 }
 
 // Arma el historial de fechas de UN producto puntual a partir del historial
@@ -126,17 +139,38 @@ function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial
         eventos.push({
           fecha: log.timestamp,
           texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}`,
+          esDevolucion: false,
         });
       }
     } else if (log.evento === 'devolucion_registrada' && log.detalle?.item_id === itemId) {
       const resolucion = log.detalle.resolucion === 'reposicion' ? 'repuesto' : 'reembolsado';
       eventos.push({
         fecha: log.timestamp,
-        texto: `↩️ Devolución de ${log.detalle.cantidad} (${log.detalle.motivo}) -- ${resolucion}`,
+        texto: `Devolución de ${log.detalle.cantidad} (${log.detalle.motivo}) -- ${resolucion}`,
+        esDevolucion: true,
       });
     }
   }
   return eventos;
+}
+
+// Contenido icono+texto reusado en todos los botones -- iconos de
+// @expo/vector-icons en vez de emojis, mismo look consistente en toda la app.
+function ContenidoBoton({
+  icono,
+  texto,
+  color = '#fff',
+}: {
+  icono: keyof typeof Ionicons.glyphMap;
+  texto: string;
+  color?: string;
+}) {
+  return (
+    <View style={styles.botonContenido}>
+      <Ionicons name={icono} size={18} color={color} />
+      <Text style={[styles.botonTexto, { color }]}>{texto}</Text>
+    </View>
+  );
 }
 
 export default function App() {
@@ -282,7 +316,7 @@ function PantallaCaptura({
         // Ya no queda nada pendiente: es la alerta mas importante del flujo
         // (evita doble despacho entre sedes) — un popup nativo no se puede
         // pasar por alto como el texto en pantalla.
-        Alert.alert('⚠️ Nada pendiente', mensajeError, [{ text: 'Entendido' }]);
+        Alert.alert('Nada pendiente', mensajeError, [{ text: 'Entendido' }]);
       }
     } finally {
       setCargando(false);
@@ -517,6 +551,19 @@ function PantallaCaptura({
     reiniciar();
   };
 
+  // Boton de volver del header -- consistente en todas las pestañas menos
+  // 'captura' (esa es la pantalla inicial, no hay a donde volver). En
+  // 'confirmando' tiene que pasar por cancelarConfirmacion (deshace el
+  // insert de una entrega 'nueva' sin confirmar); en el resto alcanza con
+  // reiniciar.
+  const volverAtras = () => {
+    if (fase === 'confirmando') {
+      cancelarConfirmacion();
+    } else {
+      reiniciar();
+    }
+  };
+
   // Items que requieren una cantidad valida para poder confirmar. Para
   // 'nueva' son TODOS -- el pendiente inicial de cada item (incluido el que
   // quedo en 0 via el check "todo entregado") todavia no se guardo en
@@ -558,9 +605,19 @@ function PantallaCaptura({
       >
         <View style={styles.header}>
           <View style={styles.headerFila}>
+            {fase !== 'captura' ? (
+              <Pressable onPress={volverAtras} disabled={cargando} hitSlop={8} style={styles.botonVolverHeader}>
+                <Ionicons name="chevron-back" size={26} color={cargando ? NEUTRAL_500 : '#fff'} />
+              </Pressable>
+            ) : null}
             <View style={{ flex: 1 }}>
-              <Text style={styles.titulo}>📦 Captura de Despacho</Text>
-              <Text style={styles.subtitulo}>👤 {empleado.nombre}</Text>
+              {/* El titulo muestra la sede elegida -- se actualiza al toque
+                  al cambiar de chip en la pantalla de captura. */}
+              <Text style={styles.titulo}>{sedeSeleccionada?.nombre ?? 'Control de Despacho'}</Text>
+              <View style={styles.subtituloFila}>
+                <Ionicons name="person-outline" size={13} color={NEUTRAL_400} />
+                <Text style={styles.subtitulo}>{empleado.nombre}</Text>
+              </View>
             </View>
             <Pressable onPress={onCerrarSesion} hitSlop={8}>
               <Text style={styles.cerrarSesion}>Cerrar sesión</Text>
@@ -588,10 +645,10 @@ function PantallaCaptura({
                       <Pressable
                         key={s.id}
                         onPress={() => setSedeSeleccionada(s)}
-                        style={[styles.chipSede, activa && styles.chipSedeActiva]}
+                        style={[styles.chipSede, styles.chipSedeFila, activa && styles.chipSedeActiva]}
                       >
+                        {activa ? <Ionicons name="location" size={14} color="#fff" /> : null}
                         <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
-                          {activa ? '📍 ' : ''}
                           {s.nombre}
                         </Text>
                       </Pressable>
@@ -607,7 +664,7 @@ function PantallaCaptura({
                 <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
               ) : (
                 <View style={[styles.preview, styles.previewVacio]}>
-                  <Text style={styles.previewIcono}>📷</Text>
+                  <Ionicons name="camera-outline" size={40} color={NEUTRAL_400} />
                   <Text style={styles.previewTexto}>Sin foto capturada</Text>
                   <Text style={styles.previewSubtexto}>
                     Encuadrá el documento completo, con buena luz
@@ -628,14 +685,20 @@ function PantallaCaptura({
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
                 onPress={tomarFoto}
               >
-                <Text style={styles.botonTexto}>{foto ? '🔁 Repetir foto' : '📷 Tomar foto'}</Text>
+                <ContenidoBoton
+                  icono={foto ? 'camera-reverse-outline' : 'camera-outline'}
+                  texto={foto ? 'Repetir foto' : 'Tomar foto'}
+                />
               </Pressable>
 
               <Pressable
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
                 onPress={elegirDeGaleria}
               >
-                <Text style={styles.botonTexto}>{foto ? '🖼️ Cambiar de galería' : '🖼️ Elegir de galería'}</Text>
+                <ContenidoBoton
+                  icono="images-outline"
+                  texto={foto ? 'Cambiar de galería' : 'Elegir de galería'}
+                />
               </Pressable>
 
               {foto ? (
@@ -649,7 +712,10 @@ function PantallaCaptura({
                   ]}
                   onPress={enviar}
                 >
-                  <Text style={styles.botonTexto}>{cargando ? 'Procesando...' : '✅ Enviar y procesar'}</Text>
+                  <ContenidoBoton
+                    icono="checkmark-circle-outline"
+                    texto={cargando ? 'Procesando...' : 'Enviar y procesar'}
+                  />
                 </Pressable>
               ) : null}
 
@@ -660,7 +726,7 @@ function PantallaCaptura({
                   setFase('buscar');
                 }}
               >
-                <Text style={styles.botonTexto}>🔍 Consultar factura</Text>
+                <ContenidoBoton icono="search-outline" texto="Consultar factura" />
               </Pressable>
             </View>
           </>
@@ -695,10 +761,15 @@ function PantallaCaptura({
                     setTipoBusquedaCustom(true);
                     setTipoBusqueda('');
                   }}
-                  style={[styles.chipSede, tipoBusquedaCustom && styles.chipSedeActiva]}
+                  style={[styles.chipSede, styles.chipSedeFila, tipoBusquedaCustom && styles.chipSedeActiva]}
                 >
+                  <Ionicons
+                    name="add-outline"
+                    size={14}
+                    color={tipoBusquedaCustom ? '#fff' : NEUTRAL_400}
+                  />
                   <Text style={[styles.chipSedeTexto, tipoBusquedaCustom && styles.chipSedeTextoActivo]}>
-                    + Otro
+                    Otro
                   </Text>
                 </Pressable>
               </ScrollView>
@@ -740,13 +811,13 @@ function PantallaCaptura({
                 ]}
                 onPress={buscarFactura}
               >
-                <Text style={styles.botonTexto}>{cargando ? 'Buscando...' : '🔍 Buscar'}</Text>
+                <ContenidoBoton icono="search-outline" texto={cargando ? 'Buscando...' : 'Buscar'} />
               </Pressable>
               <Pressable
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
                 onPress={reiniciar}
               >
-                <Text style={styles.botonTexto}>⬅ Volver</Text>
+                <ContenidoBoton icono="chevron-back-outline" texto="Volver" color={NEUTRAL_400} />
               </Pressable>
             </View>
           </>
@@ -804,16 +875,28 @@ function PantallaCaptura({
                     </Text>
                     {puedeVerHistorial ? (
                       <Pressable onPress={() => alternarHistorial(item.id)} hitSlop={8}>
-                        <Text style={styles.notaIcono}>🕒</Text>
+                        <Ionicons
+                          name={historialAbierto ? 'time' : 'time-outline'}
+                          size={20}
+                          color={historialAbierto ? ACENTO : NEUTRAL_400}
+                        />
                       </Pressable>
                     ) : null}
                     {puedeDevolver ? (
                       <Pressable onPress={() => alternarDevolucion(item.id)} hitSlop={8}>
-                        <Text style={styles.notaIcono}>↩️</Text>
+                        <Ionicons
+                          name="arrow-undo-outline"
+                          size={20}
+                          color={devolucionAbierta ? ACENTO : NEUTRAL_400}
+                        />
                       </Pressable>
                     ) : null}
                     <Pressable onPress={() => alternarNota(item.id)} hitSlop={8}>
-                      <Text style={styles.notaIcono}>{item.nota.trim() ? '📝' : '➕📝'}</Text>
+                      <Ionicons
+                        name={item.nota.trim() ? 'document-text' : 'document-text-outline'}
+                        size={20}
+                        color={item.nota.trim() || notaAbierta ? ACENTO : NEUTRAL_400}
+                      />
                     </Pressable>
                   </View>
 
@@ -834,6 +917,9 @@ function PantallaCaptura({
                                 minute: '2-digit',
                               })}
                             </Text>
+                            {evento.esDevolucion ? (
+                              <Ionicons name="arrow-undo-outline" size={12} color={NEUTRAL_500} />
+                            ) : null}
                             <Text style={styles.historialTexto}>{evento.texto}</Text>
                           </View>
                         ))
@@ -851,8 +937,9 @@ function PantallaCaptura({
                       multiline
                     />
                   ) : item.nota.trim() ? (
-                    <Pressable onPress={() => alternarNota(item.id)}>
-                      <Text style={styles.notaPreview}>📝 {item.nota}</Text>
+                    <Pressable onPress={() => alternarNota(item.id)} style={styles.notaPreviewFila}>
+                      <Ionicons name="document-text-outline" size={13} color={NEUTRAL_400} />
+                      <Text style={styles.notaPreview}>{item.nota}</Text>
                     </Pressable>
                   ) : null}
 
@@ -890,8 +977,8 @@ function PantallaCaptura({
                       <View style={styles.chipsEnvoltorio}>
                         {(
                           [
-                            { valor: 'reposicion', texto: '🔁 Repongo' },
-                            { valor: 'reembolso', texto: '💵 Reembolso' },
+                            { valor: 'reposicion', texto: 'Repongo', icono: 'repeat-outline' },
+                            { valor: 'reembolso', texto: 'Reembolso', icono: 'cash-outline' },
                           ] as const
                         ).map((r) => {
                           const activo = draft.resolucion === r.valor;
@@ -899,8 +986,9 @@ function PantallaCaptura({
                             <Pressable
                               key={r.valor}
                               onPress={() => actualizarDraftDevolucion(item.id, { resolucion: r.valor })}
-                              style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                              style={[styles.chipSede, styles.chipSedeFila, activo && styles.chipSedeActiva]}
                             >
+                              <Ionicons name={r.icono} size={14} color={activo ? '#fff' : NEUTRAL_400} />
                               <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
                                 {r.texto}
                               </Text>
@@ -926,7 +1014,7 @@ function PantallaCaptura({
                         ]}
                         onPress={() => registrarDevolucionItem(item)}
                       >
-                        <Text style={styles.botonTexto}>↩️ Registrar devolución</Text>
+                        <ContenidoBoton icono="arrow-undo-outline" texto="Registrar devolución" />
                       </Pressable>
                     </View>
                   ) : null}
@@ -944,7 +1032,7 @@ function PantallaCaptura({
                       style={styles.checkboxFila}
                     >
                       <View style={[styles.checkboxCaja, marcadoTodoEntregado && styles.checkboxCajaMarcada]}>
-                        {marcadoTodoEntregado ? <Text style={styles.checkboxCheck}>✓</Text> : null}
+                        {marcadoTodoEntregado ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
                       </View>
                       <Text style={styles.checkboxTexto}>
                         {situacion === 'nueva'
@@ -979,7 +1067,10 @@ function PantallaCaptura({
                     // pendiente en 0 al guardar (se ve el numero de hoy, que
                     // encima suele coincidir con el total si nunca se entrego
                     // nada de este producto).
-                    <Text style={styles.previewSubtexto}>✅ Vas a entregar los {tope} pendientes — quedará en 0.</Text>
+                    <View style={styles.filaConIcono}>
+                      <Ionicons name="checkmark-circle-outline" size={14} color={NEUTRAL_500} />
+                      <Text style={styles.previewSubtexto}>Vas a entregar los {tope} pendientes — quedará en 0.</Text>
+                    </View>
                   ) : excedeTope ? (
                     <Text style={styles.textoErrorInline}>
                       {situacion === 'nueva'
@@ -1001,7 +1092,7 @@ function PantallaCaptura({
 
             {documentoCompleto ? (
               <View style={[styles.badgeEstado, { backgroundColor: 'rgba(52,211,153,0.12)' }]}>
-                <Text style={styles.badgeEstadoIcono}>✅</Text>
+                <Ionicons name="checkmark-circle" size={22} color="#34d399" />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.badgeEstadoTitulo, { color: '#34d399' }]}>Documento completo</Text>
                   <Text style={styles.badgeEstadoMensaje}>
@@ -1025,13 +1116,16 @@ function PantallaCaptura({
                   ]}
                   onPress={confirmar}
                 >
-                  <Text style={styles.botonTexto}>
-                    {cargando
-                      ? 'Guardando...'
-                      : itemsConCambioCantidad.length === 0
-                        ? '📝 Guardar nota'
-                        : '✅ Confirmar cantidades'}
-                  </Text>
+                  <ContenidoBoton
+                    icono={itemsConCambioCantidad.length === 0 ? 'document-text-outline' : 'checkmark-circle-outline'}
+                    texto={
+                      cargando
+                        ? 'Guardando...'
+                        : itemsConCambioCantidad.length === 0
+                          ? 'Guardar nota'
+                          : 'Confirmar cantidades'
+                    }
+                  />
                 </Pressable>
               )}
               <Pressable
@@ -1039,7 +1133,11 @@ function PantallaCaptura({
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
                 onPress={cancelarConfirmacion}
               >
-                <Text style={styles.botonTexto}>{itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}</Text>
+                <ContenidoBoton
+                  icono="close-outline"
+                  texto={itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}
+                  color={NEUTRAL_400}
+                />
               </Pressable>
             </View>
           </>
@@ -1049,7 +1147,7 @@ function PantallaCaptura({
           <>
             {infoEstadoFinal ? (
               <View style={[styles.badgeEstado, { backgroundColor: infoEstadoFinal.fondo }]}>
-                <Text style={styles.badgeEstadoIcono}>{infoEstadoFinal.icono}</Text>
+                <Ionicons name={infoEstadoFinal.icono} size={22} color={infoEstadoFinal.color} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.badgeEstadoTitulo, { color: infoEstadoFinal.color }]}>
                     {infoEstadoFinal.texto}
@@ -1063,7 +1161,7 @@ function PantallaCaptura({
                 style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
                 onPress={reiniciar}
               >
-                <Text style={styles.botonTexto}>➕ Nueva captura</Text>
+                <ContenidoBoton icono="camera-outline" texto="Nueva captura" />
               </Pressable>
             </View>
           </>
@@ -1089,8 +1187,10 @@ const styles = StyleSheet.create({
   },
   scroll: { padding: 20, paddingBottom: 40, gap: 16 },
   header: { marginTop: 8, marginBottom: 4, gap: 4 },
-  headerFila: { flexDirection: 'row', alignItems: 'flex-start' },
+  headerFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  botonVolverHeader: { marginRight: 2 },
   titulo: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  subtituloFila: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   subtitulo: { color: NEUTRAL_400, fontSize: 13 },
   cerrarSesion: { color: '#f87171', fontSize: 12, fontWeight: '600', marginTop: 6 },
   tarjeta: {
@@ -1135,10 +1235,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxCajaMarcada: { backgroundColor: ACENTO, borderColor: ACENTO },
-  checkboxCheck: { color: '#fff', fontSize: 14, fontWeight: '800' },
   checkboxTexto: { color: '#d3d9e6', fontSize: 13, fontWeight: '600', flexShrink: 1 },
-  filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  notaIcono: { fontSize: 18 },
+  filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  filaConIcono: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   inputNota: {
     borderWidth: 1,
     borderColor: NEUTRAL_700,
@@ -1151,7 +1250,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     textAlignVertical: 'top',
   },
-  notaPreview: { color: NEUTRAL_400, fontSize: 13, fontStyle: 'italic' },
+  notaPreviewFila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  notaPreview: { color: NEUTRAL_400, fontSize: 13, fontStyle: 'italic', flexShrink: 1 },
   devolucionCaja: {
     gap: 8,
     padding: 12,
@@ -1182,6 +1282,7 @@ const styles = StyleSheet.create({
     borderColor: NEUTRAL_700,
   },
   chipSedeActiva: { backgroundColor: ACENTO, borderColor: ACENTO },
+  chipSedeFila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontWeight: '600' },
   chipSedeTextoActivo: { color: '#fff' },
   preview: { width: '100%', height: 300, borderRadius: 12, backgroundColor: NEUTRAL_800 },
@@ -1193,8 +1294,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     gap: 4,
   },
-  previewIcono: { fontSize: 40, marginBottom: 4 },
-  previewTexto: { color: NEUTRAL_400, fontSize: 14, fontWeight: '600' },
+  previewTexto: { color: NEUTRAL_400, fontSize: 14, fontWeight: '600', marginTop: 4 },
   previewSubtexto: { color: NEUTRAL_500, fontSize: 12 },
   estadoBox: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   mensajeSubiendo: { color: '#d3d9e6', fontSize: 14, flexShrink: 1 },
@@ -1205,7 +1305,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
-  badgeEstadoIcono: { fontSize: 22 },
   badgeEstadoTitulo: { fontSize: 14, fontWeight: '700' },
   badgeEstadoMensaje: { color: '#d3d9e6', fontSize: 13, marginTop: 2 },
   acciones: { gap: 10, marginTop: 4 },
@@ -1221,4 +1320,5 @@ const styles = StyleSheet.create({
   botonDeshabilitado: { opacity: 0.4 },
   botonPrimario: { backgroundColor: ACENTO, borderColor: ACENTO },
   botonTexto: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  botonContenido: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });
