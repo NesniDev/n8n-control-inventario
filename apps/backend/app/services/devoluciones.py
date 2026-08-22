@@ -31,6 +31,15 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
     aplicar_actualizacion_items con entregado_hoy): "and cantidad_entregada
     >= $cantidad" es la validacion real -- si no hay fila que la cumpla, no
     se puede devolver mas de lo que consta como entregado.
+
+    Ademas "and actualizado_at > creado_at": un item recien insertado por
+    procesar_extraccion trae cantidad_entregada = cantidad_pendiente = lo
+    que leyo la IA (ver ese modulo) -- ANTES de que nadie confirme nada. Sin
+    este chequeo, "cantidad_entregada >= $cantidad" solo no alcanza para
+    saber si algo se entrego de verdad: un documento recien escaneado (nunca
+    confirmado via aplicar_actualizacion_items) pasaria igual. actualizado_at
+    solo avanza con una confirmacion real (paso 2) o una devolucion previa,
+    nunca con el insert -- ver ItemEntrega.confirmado.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -42,7 +51,8 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
                     set cantidad_entregada = cantidad_entregada - $2,
                         cantidad_pendiente = cantidad_pendiente + $2,
                         actualizado_at = now()
-                    where id = $1::uuid and entrega_id = $3::uuid and cantidad_entregada >= $2
+                    where id = $1::uuid and entrega_id = $3::uuid
+                        and cantidad_entregada >= $2 and actualizado_at > creado_at
                     returning id, descripcion, cantidad_entregada, cantidad_pendiente, nota
                     """,
                     payload.item_id,
@@ -55,7 +65,8 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
                     update entrega_items
                     set cantidad_entregada = cantidad_entregada - $2,
                         actualizado_at = now()
-                    where id = $1::uuid and entrega_id = $3::uuid and cantidad_entregada >= $2
+                    where id = $1::uuid and entrega_id = $3::uuid
+                        and cantidad_entregada >= $2 and actualizado_at > creado_at
                     returning id, descripcion, cantidad_entregada, cantidad_pendiente, nota
                     """,
                     payload.item_id,
@@ -65,13 +76,18 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
 
             if fila is None:
                 actual = await conn.fetchrow(
-                    "select descripcion, cantidad_entregada from entrega_items"
-                    " where id = $1::uuid and entrega_id = $2::uuid",
+                    "select descripcion, cantidad_entregada, (actualizado_at > creado_at) as confirmado"
+                    " from entrega_items where id = $1::uuid and entrega_id = $2::uuid",
                     payload.item_id,
                     entrega_id,
                 )
                 if actual is None:
                     raise DevolucionInvalida(f"El item {payload.item_id} no existe en esta entrega.")
+                if not actual["confirmado"]:
+                    raise DevolucionInvalida(
+                        f"'{actual['descripcion']}' todavia no fue confirmado -- nada de ese item "
+                        "se entrego de verdad, no se puede registrar una devolucion."
+                    )
                 raise DevolucionInvalida(
                     f"'{actual['descripcion']}' solo tiene {actual['cantidad_entregada']} entregado, "
                     f"no se puede devolver {payload.cantidad}."
@@ -112,4 +128,5 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
         cantidad_entregada=fila["cantidad_entregada"],
         cantidad_pendiente=fila["cantidad_pendiente"],
         nota=fila["nota"],
+        confirmado=True,  # el guard de arriba ya exigio actualizado_at > creado_at
     )

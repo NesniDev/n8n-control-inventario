@@ -44,6 +44,13 @@ class ItemEntrega(BaseModel):
     # Nota manual del bodeguero (una sola, se sobreescribe) -- no la pone la
     # IA, es informacion adicional libre sobre ese producto puntual.
     nota: str | None = None
+    # False solo para un item recien insertado por procesar_extraccion que
+    # todavia nadie confirmo via aplicar_actualizacion_items ni devolucion
+    # (ver esa funcion): en ese estado cantidad_entregada ya trae el valor
+    # que leyo la IA (no 0), asi que NO alcanza con "cantidad_entregada > 0"
+    # para saber si algo se entrego de verdad -- ver puedeDevolver en
+    # apps/mobile/App.tsx y el guard de registrar_devolucion.
+    confirmado: bool = True
 
 
 class EntregaCreate(BaseModel):

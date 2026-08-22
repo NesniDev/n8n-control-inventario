@@ -25,6 +25,10 @@ export interface ItemEntrega {
   // Nota manual del bodeguero (una sola, se sobreescribe) -- no la pone la
   // IA, es informacion adicional libre sobre ese producto puntual.
   nota: string | null;
+  // false solo para un item recien escaneado que todavia nadie confirmo
+  // (ver ItemEntrega.confirmado en el backend) -- ahi cantidad_entregada ya
+  // trae el valor que leyo la IA, no lo que se entrego de verdad.
+  confirmado: boolean;
 }
 
 export interface ResultadoEnvio {

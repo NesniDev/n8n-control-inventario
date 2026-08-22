@@ -852,7 +852,12 @@ function PantallaCaptura({
               // Una devolucion es sobre algo ya entregado antes -- no tiene
               // sentido en un documento recien escaneado sin confirmar
               // (situacion 'nueva'), ni si todavia no se entrego nada.
-              const puedeDevolver = situacion === 'actualizable' && item.cantidad_entregada > 0;
+              // item.confirmado cubre el caso donde "Consultar factura"
+              // trae un documento que la IA leyo pero que nadie confirmo
+              // todavia: ahi situacion siempre llega como 'actualizable'
+              // (ver GET /entregas/buscar) y cantidad_entregada ya es el
+              // valor que leyo la IA, no lo que se entrego de verdad.
+              const puedeDevolver = situacion === 'actualizable' && item.cantidad_entregada > 0 && item.confirmado;
               const devolucionAbierta = devolucionesAbiertas.has(item.id);
               const draft = devolucionDrafts[item.id] ?? DEVOLUCION_DRAFT_VACIO;
               const cantidadDevolucionValida =

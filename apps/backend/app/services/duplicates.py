@@ -50,7 +50,8 @@ def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: flo
 async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEntrega]:
     rows = await conn.fetch(
         """
-        select id, descripcion, cantidad_entregada, cantidad_pendiente, nota
+        select id, descripcion, cantidad_entregada, cantidad_pendiente, nota,
+            (actualizado_at > creado_at) as confirmado
         from entrega_items where entrega_id = $1::uuid
         order by creado_at
         """,
@@ -63,6 +64,7 @@ async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEn
             cantidad_entregada=r["cantidad_entregada"],
             cantidad_pendiente=r["cantidad_pendiente"],
             nota=r["nota"],
+            confirmado=r["confirmado"],
         )
         for r in rows
     ]
@@ -142,6 +144,9 @@ async def procesar_extraccion(
                             descripcion=descripcion,
                             cantidad_entregada=cantidad,
                             cantidad_pendiente=cantidad,
+                            # Recien insertado, todavia nadie lo confirmo --
+                            # ver el comentario en ItemEntrega.confirmado.
+                            confirmado=False,
                         )
                     )
         except asyncpg.UniqueViolationError as exc:

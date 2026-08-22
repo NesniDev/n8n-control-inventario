@@ -221,7 +221,8 @@ _SELECT_ENTREGAS_BASE = """
                     'id', i.id, 'descripcion', i.descripcion,
                     'cantidad_entregada', i.cantidad_entregada,
                     'cantidad_pendiente', i.cantidad_pendiente,
-                    'nota', i.nota
+                    'nota', i.nota,
+                    'confirmado', (i.actualizado_at > i.creado_at)
                 ) order by i.creado_at
             ) filter (where i.id is not null),
             '[]'
