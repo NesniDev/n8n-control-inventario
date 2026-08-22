@@ -15,6 +15,13 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { useFonts, SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+} from '@expo-google-fonts/manrope';
 
 import {
   buscarEntrega,
@@ -159,12 +166,15 @@ function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial
 function ContenidoBoton({
   icono,
   texto,
-  color = '#fff',
+  color = TEXTO_PRIMARIO,
 }: {
   icono: keyof typeof Ionicons.glyphMap;
   texto: string;
   color?: string;
 }) {
+  // TEXTO_PRIMARIO esta definido mas abajo -- una funcion solo evalua su
+  // default param recien cuando se llama, y para entonces el modulo ya
+  // termino de inicializar todos sus consts.
   return (
     <View style={styles.botonContenido}>
       <Ionicons name={icono} size={18} color={color} />
@@ -175,6 +185,28 @@ function ContenidoBoton({
 
 export default function App() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
+  // Space Grotesk (titulos/labels/numeros) + Manrope (texto de cuerpo) --
+  // ver los consts FUENTE_* mas abajo. Se cargan una sola vez aca arriba,
+  // antes de login o captura, para que ninguna pantalla renderice con la
+  // fuente del sistema y despues "salte" a la tipografia real.
+  const [fuentesCargadas] = useFonts({
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+  });
+
+  if (!fuentesCargadas) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={ACENTO} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!empleado) {
     return <PantallaLogin onLogin={setEmpleado} />;
@@ -229,11 +261,15 @@ function PantallaCaptura({
     fetchSedes()
       .then((lista) => {
         setSedes(lista);
-        // Preseleccionamos la sede del empleado logueado, pero se puede
-        // cambiar (un operador puede estar cubriendo otra sede ese dia).
-        setSedeSeleccionada(
-          (actual) => actual ?? lista.find((s) => s.id === empleado.sede_id) ?? lista[0] ?? null
-        );
+        // El operador solo despacha desde la sede a la que pertenece su
+        // login (empleado.sede_id) -- no se deja elegir otra, para que no
+        // quede una entrega registrada bajo la sede equivocada.
+        const propia = lista.find((s) => s.id === empleado.sede_id);
+        if (propia) {
+          setSedeSeleccionada(propia);
+        } else {
+          setErrorSedes('No se encontro la sede de este operador.');
+        }
       })
       .catch((err) => setErrorSedes(err?.message ?? 'No se pudieron cargar las sedes'));
   }, [empleado.sede_id]);
@@ -610,14 +646,29 @@ function PantallaCaptura({
                 <Ionicons name="chevron-back" size={26} color={cargando ? NEUTRAL_500 : '#fff'} />
               </Pressable>
             ) : null}
-            <View style={{ flex: 1 }}>
-              {/* El titulo muestra la sede elegida -- se actualiza al toque
-                  al cambiar de chip en la pantalla de captura. */}
-              <Text style={styles.titulo}>{sedeSeleccionada?.nombre ?? 'Control de Despacho'}</Text>
-              <View style={styles.subtituloFila}>
-                <Ionicons name="person-outline" size={13} color={NEUTRAL_400} />
-                <Text style={styles.subtitulo}>{empleado.nombre}</Text>
-              </View>
+            {/* Sede + operador compactados en un solo recuadro -- la sede ya
+                no se elige (ver el efecto que busca por empleado.sede_id),
+                asi que no hace falta la tarjeta aparte que habia antes. */}
+            <View style={styles.recuadroIdentidad}>
+              {errorSedes ? (
+                <Text style={styles.textoErrorInline} numberOfLines={1}>
+                  {errorSedes}
+                </Text>
+              ) : !sedeSeleccionada ? (
+                <ActivityIndicator size="small" color={ACENTO} />
+              ) : (
+                <>
+                  <Ionicons name="location" size={14} color={ACENTO} />
+                  <Text style={styles.recuadroSedeTexto} numberOfLines={1}>
+                    {sedeSeleccionada.nombre}
+                  </Text>
+                  <Text style={styles.recuadroDivisor}>·</Text>
+                  <Ionicons name="person-outline" size={13} color={NEUTRAL_400} />
+                  <Text style={styles.recuadroOperadorTexto} numberOfLines={1}>
+                    {empleado.nombre}
+                  </Text>
+                </>
+              )}
             </View>
             <Pressable onPress={onCerrarSesion} hitSlop={8}>
               <Text style={styles.cerrarSesion}>Cerrar sesión</Text>
@@ -627,37 +678,6 @@ function PantallaCaptura({
 
         {fase === 'captura' ? (
           <>
-            <View style={styles.tarjeta}>
-              <Text style={styles.etiquetaSeccion}>Sede</Text>
-              {errorSedes ? (
-                <Text style={styles.textoErrorInline}>{errorSedes}</Text>
-              ) : sedes.length === 0 ? (
-                <ActivityIndicator style={{ alignSelf: 'flex-start', marginTop: 4 }} color="#c8631f" />
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.selectorSedesContenido}
-                >
-                  {sedes.map((s) => {
-                    const activa = sedeSeleccionada?.id === s.id;
-                    return (
-                      <Pressable
-                        key={s.id}
-                        onPress={() => setSedeSeleccionada(s)}
-                        style={[styles.chipSede, styles.chipSedeFila, activa && styles.chipSedeActiva]}
-                      >
-                        {activa ? <Ionicons name="location" size={14} color="#fff" /> : null}
-                        <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
-                          {s.nombre}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </View>
-
             <View style={styles.tarjeta}>
               <Text style={styles.etiquetaSeccion}>Evidencia</Text>
               {foto ? (
@@ -1176,13 +1196,27 @@ function PantallaCaptura({
   );
 }
 
-const NEUTRAL_900 = '#111827';
-const NEUTRAL_850 = '#161f2e';
-const NEUTRAL_800 = '#1c2534';
-const NEUTRAL_700 = '#2a3446';
-const NEUTRAL_500 = '#6b7688';
-const NEUTRAL_400 = '#8a94a6';
+const NEUTRAL_900 = '#0f1520'; // fondo
+const NEUTRAL_850 = '#161d29'; // tarjetas
+const NEUTRAL_800 = '#1d2635'; // inputs / superficies elevadas
+const NEUTRAL_700 = '#2a3446'; // borde
+const BORDE_FUERTE = '#384158'; // borde de mas contraste (checkbox, foco)
+const NEUTRAL_500 = '#6b7688'; // texto terciario
+const NEUTRAL_400 = '#9aa3b5'; // texto secundario
+const TEXTO_PRIMARIO = '#f5f3ef'; // blanco calido, no #fff puro
 const ACENTO = '#c8631f';
+
+// Space Grotesk para titulos/labels/numeros (caracter tecnico, va bien con
+// cantidades); Manrope para texto de cuerpo (mas calido, legible en chico).
+// Los pesos vienen del archivo de fuente en si -- no combinar con
+// fontWeight numerico en los estilos de abajo, un font file cargado ya
+// tiene un solo peso real.
+const FUENTE_DISPLAY = 'SpaceGrotesk_700Bold';
+const FUENTE_DISPLAY_SEMI = 'SpaceGrotesk_600SemiBold';
+const FUENTE_BODY = 'Manrope_400Regular';
+const FUENTE_BODY_MEDIA = 'Manrope_500Medium';
+const FUENTE_BODY_SEMI = 'Manrope_600SemiBold';
+const FUENTE_BODY_BOLD = 'Manrope_700Bold';
 
 const styles = StyleSheet.create({
   container: {
@@ -1194,37 +1228,56 @@ const styles = StyleSheet.create({
   header: { marginTop: 8, marginBottom: 4, gap: 4 },
   headerFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   botonVolverHeader: { marginRight: 2 },
-  titulo: { color: '#fff', fontSize: 24, fontWeight: '800' },
-  subtituloFila: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  subtitulo: { color: NEUTRAL_400, fontSize: 13 },
-  cerrarSesion: { color: '#f87171', fontSize: 12, fontWeight: '600', marginTop: 6 },
-  tarjeta: {
+  recuadroIdentidad: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: NEUTRAL_850,
-    borderRadius: 16,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
-    padding: 14,
-    gap: 10,
+    borderRadius: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  recuadroSedeTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_DISPLAY, flexShrink: 1 },
+  recuadroDivisor: { color: NEUTRAL_500, fontSize: 14 },
+  recuadroOperadorTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
+  cerrarSesion: { color: '#f87171', fontSize: 12, fontFamily: FUENTE_BODY_SEMI, marginTop: 6 },
+  tarjeta: {
+    backgroundColor: NEUTRAL_850,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    padding: 18,
+    gap: 12,
+    // Sombra ambiente para despegar la tarjeta del fondo -- shadow* para
+    // iOS, elevation para Android (RN no comparte una sola propiedad).
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 20,
+    elevation: 6,
   },
   etiquetaSeccion: {
     color: NEUTRAL_500,
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: FUENTE_DISPLAY_SEMI,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
   },
-  itemDescripcion: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  textoErrorInline: { color: '#f87171', fontSize: 13 },
+  itemDescripcion: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_BOLD },
+  textoErrorInline: { color: '#f87171', fontSize: 13, fontFamily: FUENTE_BODY_MEDIA },
   inputCantidad: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: TEXTO_PRIMARIO,
+    fontSize: 17,
+    fontFamily: FUENTE_DISPLAY_SEMI,
   },
   inputCantidadBloqueado: { opacity: 0.5 },
   inputCantidadError: { borderColor: '#f87171' },
@@ -1232,35 +1285,36 @@ const styles = StyleSheet.create({
   checkboxCaja: {
     width: 22,
     height: 22,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: NEUTRAL_700,
+    borderRadius: 7,
+    borderWidth: 1.6,
+    borderColor: BORDE_FUERTE,
     backgroundColor: NEUTRAL_800,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxCajaMarcada: { backgroundColor: ACENTO, borderColor: ACENTO },
-  checkboxTexto: { color: '#d3d9e6', fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  checkboxTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
   filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   filaConIcono: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   inputNota: {
     borderWidth: 1,
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#fff',
+    color: TEXTO_PRIMARIO,
     fontSize: 13,
+    fontFamily: FUENTE_BODY,
     minHeight: 44,
     textAlignVertical: 'top',
   },
   notaPreviewFila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   notaPreview: { color: NEUTRAL_400, fontSize: 13, fontStyle: 'italic', flexShrink: 1 },
   devolucionCaja: {
-    gap: 8,
-    padding: 12,
-    borderRadius: 12,
+    gap: 9,
+    padding: 15,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
@@ -1268,62 +1322,62 @@ const styles = StyleSheet.create({
   chipsEnvoltorio: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   historialCaja: {
     gap: 6,
-    padding: 10,
-    borderRadius: 10,
+    padding: 12,
+    borderRadius: 13,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
   },
   historialFila: { flexDirection: 'row', gap: 8, alignItems: 'baseline' },
-  historialFecha: { color: NEUTRAL_500, fontSize: 11, fontVariant: ['tabular-nums'] },
-  historialTexto: { color: '#d3d9e6', fontSize: 12, flexShrink: 1 },
+  historialFecha: { color: NEUTRAL_500, fontSize: 11, fontFamily: FUENTE_DISPLAY_SEMI, fontVariant: ['tabular-nums'] },
+  historialTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY, flexShrink: 1 },
   selectorSedesContenido: { gap: 8, paddingRight: 4 },
   chipSede: {
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 20,
+    borderRadius: 999,
     backgroundColor: NEUTRAL_800,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
   },
   chipSedeActiva: { backgroundColor: ACENTO, borderColor: ACENTO },
   chipSedeFila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontWeight: '600' },
-  chipSedeTextoActivo: { color: '#fff' },
-  preview: { width: '100%', height: 300, borderRadius: 12, backgroundColor: NEUTRAL_800 },
+  chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_BOLD },
+  chipSedeTextoActivo: { color: TEXTO_PRIMARIO },
+  preview: { width: '100%', height: 300, borderRadius: 14, backgroundColor: NEUTRAL_800 },
   previewVacio: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: NEUTRAL_700,
+    borderWidth: 1.5,
+    borderColor: BORDE_FUERTE,
     borderStyle: 'dashed',
     gap: 4,
   },
-  previewTexto: { color: NEUTRAL_400, fontSize: 14, fontWeight: '600', marginTop: 4 },
-  previewSubtexto: { color: NEUTRAL_500, fontSize: 12 },
+  previewTexto: { color: NEUTRAL_400, fontSize: 14, fontFamily: FUENTE_BODY_SEMI, marginTop: 4 },
+  previewSubtexto: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY },
   estadoBox: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  mensajeSubiendo: { color: '#d3d9e6', fontSize: 14, flexShrink: 1 },
+  mensajeSubiendo: { color: NEUTRAL_400, fontSize: 14, fontFamily: FUENTE_BODY, flexShrink: 1 },
   badgeEstado: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 16,
+    padding: 16,
   },
-  badgeEstadoTitulo: { fontSize: 14, fontWeight: '700' },
-  badgeEstadoMensaje: { color: '#d3d9e6', fontSize: 13, marginTop: 2 },
+  badgeEstadoTitulo: { fontSize: 14, fontFamily: FUENTE_DISPLAY_SEMI },
+  badgeEstadoMensaje: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY, marginTop: 2 },
   acciones: { gap: 10, marginTop: 4 },
   boton: {
     backgroundColor: NEUTRAL_800,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
-    paddingVertical: 15,
-    borderRadius: 12,
+    paddingVertical: 16,
+    borderRadius: 16,
     alignItems: 'center',
   },
   botonPresionado: { opacity: 0.75 },
   botonDeshabilitado: { opacity: 0.4 },
   botonPrimario: { backgroundColor: ACENTO, borderColor: ACENTO },
-  botonTexto: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  botonTexto: { color: TEXTO_PRIMARIO, fontFamily: FUENTE_DISPLAY_SEMI, fontSize: 15 },
   botonContenido: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

@@ -31,7 +31,8 @@
         {
           "cameraPermission": "Esta app usa la cámara para capturar guías de despacho."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
