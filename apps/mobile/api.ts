@@ -72,7 +72,7 @@ async function parsearRespuesta<T>(res: Response): Promise<T> {
   try {
     body = await res.json();
   } catch {
-    throw { status: res.status, detail: 'Error del servidor, probá de nuevo.' } as ErrorEnvio;
+    throw { status: res.status, detail: 'Error del servidor, prueba de nuevo.' } as ErrorEnvio;
   }
   if (!res.ok) {
     throw { status: res.status, detail: body?.detail ?? 'Error desconocido' } as ErrorEnvio;
@@ -209,12 +209,13 @@ export async function cancelarEntrega(entregaId: string, operadorId: string, sed
  * Paso 2: confirma lo que el bodeguero ingreso por producto. Para una
  * entrega "nueva" manda cantidad_pendiente (valor absoluto); para una
  * "actualizable" manda entregado_hoy (delta, lo suma/resta el backend). La
- * nota es independiente de la cantidad -- se puede mandar sola (ej. un item
- * ya bloqueado, sin nada pendiente, pero al que igual se le quiere anotar algo).
+ * nota y la descripcion son independientes de la cantidad -- se pueden
+ * mandar solas (ej. un item ya bloqueado, sin nada pendiente, pero al que
+ * igual se le quiere anotar algo o corregirle el nombre que leyo la IA).
  */
 export async function confirmarItems(
   entregaId: string,
-  items: ({ id: string; nota?: string } & (
+  items: ({ id: string; nota?: string; descripcion?: string } & (
     | { cantidad_pendiente: number }
     | { entregado_hoy: number }
     | {}

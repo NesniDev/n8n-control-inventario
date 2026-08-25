@@ -11,13 +11,17 @@ class EstadoEntrega(StrEnum):
 
 
 class TipoDocumento(StrEnum):
-    """Los 4 tipos mas comunes -- factura (FEI), traslado entre bodegas (TB)
-    o remision (RM3/RM2). Referencia para armar chips/sugerencias en las
-    apps; NO se usa para validar (en la practica aparecen otros tipos, ver
-    EntregaRevision.tipo y buscar_entrega en routers/entregas.py, los dos
+    """Los tipos mas comunes -- factura (FEI/FV1, de Sede Centro), EDP/EDV
+    (de Polo Sur, ver _TIPO_SEDE_DUENA en duplicates.py), traslado entre
+    bodegas (TB) o remision (RM3/RM2). Referencia para armar chips/sugerencias
+    en las apps; NO se usa para validar (en la practica aparecen otros tipos,
+    ver EntregaRevision.tipo y buscar_entrega en routers/entregas.py, los dos
     aceptan cualquier texto no vacio)."""
 
     FEI = "FEI"
+    FV1 = "FV1"
+    EDP = "EDP"
+    EDV = "EDV"
     TB = "TB"
     RM3 = "RM3"
     RM2 = "RM2"

@@ -50,7 +50,11 @@ import PantallaLogin from './PantallaLogin';
 type Fase = 'captura' | 'buscar' | 'confirmando' | 'resultado';
 type EstadoFinal = 'procesada' | 'pendiente_revision' | 'error';
 
-const TIPOS_DOCUMENTO = ['FEI', 'TB', 'RM3', 'RM2'] as const;
+// FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
+// duplicates.py); TB/RM3/RM2 no tienen sede duena. Solo sugerencia rapida
+// para el chip "Consultar factura" -- se puede escribir cualquier otro tipo
+// con el chip "+ Otro".
+const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB', 'RM3', 'RM2'] as const;
 
 // Lista fija de motivos de devolucion (mismos valores que el backend).
 const MOTIVOS_DEVOLUCION: { valor: MotivoDevolucion; texto: string }[] = [
@@ -88,6 +92,11 @@ interface ItemFormulario extends ItemEntrega {
   // Texto editable de la nota -- siempre string (nunca null), se inicializa
   // desde item.nota ?? '' al cargar (ver enviar()/buscarFactura()).
   nota: string;
+  // Foto de la descripcion tal como llego del backend -- para saber si
+  // item.descripcion fue editada a mano (la IA a veces no lee bien el
+  // nombre del producto) sin agregar un booleano aparte que hay que
+  // mantener sincronizado. Se fija una sola vez al cargar los items.
+  descripcionOriginal: string;
 }
 
 // Para 'nueva' bloquea segun lo que se esta tipeando (el bodeguero declara
@@ -248,6 +257,10 @@ function PantallaCaptura({
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
   // Ids de items con el editor de nota abierto (ver alternarNota).
   const [notasAbiertas, setNotasAbiertas] = useState<Set<string>>(new Set());
+  // Ids de items con el editor del nombre del producto abierto -- la IA a
+  // veces no lee bien el nombre (letra chica, foto poco clara), asi que se
+  // puede corregir a mano antes de confirmar (ver alternarDescripcion).
+  const [descripcionesAbiertas, setDescripcionesAbiertas] = useState<Set<string>>(new Set());
   // Ids de items con el formulario de devolucion abierto, y su borrador
   // (cantidad/motivo/resolucion) mientras se completa -- se descarta al
   // cerrar o al registrar con exito (ver alternarDevolucion).
@@ -405,7 +418,14 @@ function PantallaCaptura({
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
-      setItems(resultado.items.map((item) => ({ ...item, valor: '', nota: item.nota ?? '' })));
+      setItems(
+        resultado.items.map((item) => ({
+          ...item,
+          valor: '',
+          nota: item.nota ?? '',
+          descripcionOriginal: item.descripcion,
+        }))
+      );
       setFase('confirmando');
       setMensaje('');
     } catch (err: any) {
@@ -446,7 +466,14 @@ function PantallaCaptura({
       // compartido entre los dos endpoints.
       setSituacion(resultado.situacion === 'necesita_traslado' ? 'actualizable' : resultado.situacion);
       setEstadoFinal(resultado.estado);
-      setItems(resultado.items.map((item) => ({ ...item, valor: '', nota: item.nota ?? '' })));
+      setItems(
+        resultado.items.map((item) => ({
+          ...item,
+          valor: '',
+          nota: item.nota ?? '',
+          descripcionOriginal: item.descripcion,
+        }))
+      );
       setEvidenciaActual(null);
       setFase('confirmando');
       setMensaje('');
@@ -470,16 +497,21 @@ function PantallaCaptura({
     try {
       const payload = itemsAEnviar.map((item) => {
         const nota = item.nota.trim() || undefined;
+        // Solo se manda si de verdad se corrigio el nombre -- la IA a veces
+        // no lo lee bien y se puede editar a mano (ver actualizarDescripcionItem).
+        const descripcion =
+          item.descripcion.trim() !== item.descripcionOriginal.trim() ? item.descripcion.trim() : undefined;
         // Un item bloqueado (ver esBloqueado) solo puede estar en
-        // itemsAEnviar por tener una nota nueva (ver mas abajo) -- no hay
-        // cantidad que mandar, y mandar entregado_hoy/cantidad_pendiente
-        // igual no rompe nada, pero es mas claro mandar solo la nota.
+        // itemsAEnviar por tener una nota o descripcion nueva (ver mas
+        // abajo) -- no hay cantidad que mandar, y mandar
+        // entregado_hoy/cantidad_pendiente igual no rompe nada, pero es mas
+        // claro mandar solo lo que de verdad cambio.
         if (situacion === 'actualizable' && esBloqueado(item, situacion)) {
-          return { id: item.id, nota };
+          return { id: item.id, nota, descripcion };
         }
         return situacion === 'nueva'
-          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()), nota }
-          : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota };
+          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()), nota, descripcion }
+          : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota, descripcion };
       });
       await confirmarItems(
         entregaId,
@@ -512,10 +544,27 @@ function PantallaCaptura({
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, nota } : item)));
   };
 
+  const actualizarDescripcionItem = (id: string, descripcion: string) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, descripcion } : item)));
+  };
+
   // Que items tienen el editor de nota abierto -- separado del texto en si,
   // asi se puede abrir el editor sin que eso cuente como "tiene nota".
   const alternarNota = (id: string) => {
     setNotasAbiertas((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(id)) {
+        siguiente.delete(id);
+      } else {
+        siguiente.add(id);
+      }
+      return siguiente;
+    });
+  };
+
+  // Mismo patron que alternarNota -- separado del texto en si.
+  const alternarDescripcion = (id: string) => {
+    setDescripcionesAbiertas((prev) => {
       const siguiente = new Set(prev);
       if (siguiente.has(id)) {
         siguiente.delete(id);
@@ -685,11 +734,17 @@ function PantallaCaptura({
   const itemsConCambioCantidad =
     situacion === 'actualizable' ? items.filter((item) => !esBloqueado(item, situacion)) : items;
   // Items que de verdad hay que mandar al guardar: los de arriba, mas
-  // cualquier item bloqueado al que se le haya agregado una nota (eso
-  // tambien es un cambio real, aunque no toque cantidades).
+  // cualquier item bloqueado al que se le haya agregado una nota o
+  // corregido el nombre (eso tambien es un cambio real, aunque no toque
+  // cantidades).
   const itemsAEnviar =
     situacion === 'actualizable'
-      ? items.filter((item) => !esBloqueado(item, situacion) || item.nota.trim() !== '')
+      ? items.filter(
+          (item) =>
+            !esBloqueado(item, situacion) ||
+            item.nota.trim() !== '' ||
+            item.descripcion.trim() !== item.descripcionOriginal.trim()
+        )
       : items;
   const cantidadesValidas =
     situacion !== null && itemsConCambioCantidad.every((item) => valorValido(item, situacion));
@@ -775,8 +830,8 @@ function PantallaCaptura({
                 <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
                 <Text style={styles.previewSubtexto}>
                   {necesitaTraslado.rechazado
-                    ? 'La foto del traslado no coincide con los productos de la factura -- probá con la correcta.'
-                    : `El tipo "${necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde acá, adjuntá una foto del traslado.`}
+                    ? 'La foto del traslado no coincide con los productos de la factura -- prueba con la correcta.'
+                    : `El tipo "${necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde acá, adjunta una foto del traslado.`}
                 </Text>
                 {fotoTraslado ? (
                   <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
@@ -982,6 +1037,8 @@ function PantallaCaptura({
               const excedeTope =
                 !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
               const notaAbierta = notasAbiertas.has(item.id);
+              const descripcionAbierta = descripcionesAbiertas.has(item.id);
+              const descripcionEditada = item.descripcion.trim() !== item.descripcionOriginal.trim();
               // Una devolucion es sobre algo ya entregado antes -- no tiene
               // sentido en un documento recien escaneado sin confirmar
               // (situacion 'nueva'), ni si todavia no se entrego nada.
@@ -1008,9 +1065,27 @@ function PantallaCaptura({
               return (
                 <View key={item.id} style={styles.tarjeta}>
                   <View style={styles.filaTitulo}>
-                    <Text style={[styles.itemDescripcion, { flex: 1 }]}>
-                      {item.descripcion || 'Producto sin descripción'}
-                    </Text>
+                    {descripcionAbierta ? (
+                      <TextInput
+                        value={item.descripcion}
+                        onChangeText={(texto) => actualizarDescripcionItem(item.id, texto)}
+                        placeholder="Nombre del producto"
+                        placeholderTextColor={NEUTRAL_500}
+                        autoFocus
+                        style={[styles.itemDescripcion, styles.inputDescripcion, { flex: 1 }]}
+                      />
+                    ) : (
+                      <Text style={[styles.itemDescripcion, { flex: 1 }]}>
+                        {item.descripcion || 'Producto sin descripción'}
+                      </Text>
+                    )}
+                    <Pressable onPress={() => alternarDescripcion(item.id)} hitSlop={8}>
+                      <Ionicons
+                        name={descripcionEditada || descripcionAbierta ? 'pencil' : 'pencil-outline'}
+                        size={20}
+                        color={descripcionEditada || descripcionAbierta ? ACENTO : NEUTRAL_400}
+                      />
+                    </Pressable>
                     {puedeVerHistorial ? (
                       <Pressable onPress={() => alternarHistorial(item.id)} hitSlop={8}>
                         <Ionicons
@@ -1380,6 +1455,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   itemDescripcion: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_BOLD },
+  inputDescripcion: {
+    borderBottomWidth: 1.5,
+    borderBottomColor: ACENTO,
+    paddingVertical: 2,
+  },
   textoErrorInline: { color: '#f87171', fontSize: 13, fontFamily: FUENTE_BODY_MEDIA },
   inputCantidad: {
     borderWidth: 1.5,

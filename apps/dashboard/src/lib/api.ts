@@ -5,10 +5,11 @@
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// Los 4 tipos mas comunes -- sugerencia rapida (datalist), no una
-// restriccion: en la practica el tipo real de un documento no siempre es
-// uno de estos (ver apps/backend/app/models/entrega.py TipoDocumento).
-export type TipoDocumento = "FEI" | "TB" | "RM3" | "RM2";
+// Tipos mas comunes -- sugerencia rapida (datalist), no una restriccion: en
+// la practica el tipo real de un documento no siempre es uno de estos (ver
+// apps/backend/app/models/entrega.py TipoDocumento). FEI/FV1 son de Sede
+// Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en duplicates.py).
+export type TipoDocumento = "FEI" | "FV1" | "EDP" | "EDV" | "TB" | "RM3" | "RM2";
 
 export interface ItemEntrega {
   id: string;
@@ -58,8 +59,12 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export const fetchEntregas = () => getJson<Entrega[]>("/entregas?limit=50");
-export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=30");
+// Ventana mas grande que antes (era 50/30) para que el resumen del dia y el
+// feed de actividad -- calculados del lado del cliente filtrando por fecha,
+// no hay un filtro de rango de fechas en el backend todavia -- tengan un
+// universo representativo y no se corten a mitad del dia en una sede activa.
+export const fetchEntregas = () => getJson<Entrega[]>("/entregas?limit=150");
+export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=150");
 
 // Historial completo de una entrega (todos sus productos) -- el filtrado
 // por producto se hace del lado del cliente, ver historialDeItem en page.tsx.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   EXPORT_CSV_URL,
@@ -29,14 +29,24 @@ const ESTADO_CLASS: Record<Entrega["estado"], string> = {
   duplicado_bloqueado: "bg-red-500/15 text-red-400",
 };
 
-// Factura (FEI), traslado entre bodegas (TB) o remision (RM3/RM2) — ver
-// app.models.entrega.TipoDocumento en el backend.
-const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "TB", "RM3", "RM2"];
+// FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
+// el backend); TB/RM3/RM2 no tienen sede dueña -- sugerencia rápida del
+// datalist, no una restricción real (se puede escribir cualquier otro tipo).
+const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB", "RM3", "RM2"];
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function sumar(items: ItemEntrega[], campo: "cantidad_entregada" | "cantidad_pendiente") {
   return items.reduce((total, item) => total + item[campo], 0);
+}
+
+function esHoy(fechaIso: string | null | undefined): boolean {
+  if (!fechaIso) return false;
+  return new Date(fechaIso).toDateString() === new Date().toDateString();
+}
+
+function tienePendiente(entrega: Entrega): boolean {
+  return entrega.items.some((item) => item.cantidad_pendiente > 0);
 }
 
 interface EventoHistorial {
@@ -77,6 +87,89 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
   return eventos;
 }
 
+// Traduce un evento tecnico de `logs` a una frase que el dueño del negocio
+// entiende sin conocer el pipeline interno. Los pasos puramente tecnicos de
+// cada escaneo (foto_capturada, extraccion_ia, chequeo_duplicado,
+// validacion, sync_tiempo_real, turnos_generados) son ruido para este feed
+// -- devuelven null y quedan afuera (ver EventoLog en el backend para la
+// lista completa de eventos que existen).
+function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): string | null {
+  const entrega = entregasPorId.get(log.entidad_id);
+  const doc = entrega ? [entrega.tipo, entrega.indicativo_numero].filter(Boolean).join(" ") : null;
+  const sede = entrega?.sede_origen_nombre ?? log.sede_id;
+
+  switch (log.evento) {
+    case "entrega_insertada":
+      return `Nueva entrega registrada${doc ? ` — ${doc}` : ""} en ${sede}.`;
+    case "entrega_actualizada": {
+      const detalle = log.detalle as { items?: { cantidad_pendiente: number }[] } | undefined;
+      const pendiente = detalle?.items?.reduce((total, i) => total + (i.cantidad_pendiente ?? 0), 0);
+      return `Se confirmaron cantidades${doc ? ` de ${doc}` : ""}${
+        pendiente !== undefined ? ` — quedan ${pendiente} pendientes` : ""
+      }.`;
+    }
+    case "devolucion_registrada": {
+      const detalle = log.detalle as { cantidad?: number; motivo?: string; resolucion?: string } | undefined;
+      const resolucion = detalle?.resolucion === "reposicion" ? "se repone" : "se reembolsa el dinero";
+      return `Devolución${doc ? ` en ${doc}` : ""} de ${detalle?.cantidad ?? "?"} unidades (${
+        detalle?.motivo ?? "sin motivo"
+      }) — ${resolucion}.`;
+    }
+    case "duplicado_bloqueado": {
+      const detalle = log.detalle as { tipo?: string; indicativo_numero?: string } | undefined;
+      return `Se bloqueó un reintento de "${detalle?.tipo ?? "?"} ${
+        detalle?.indicativo_numero ?? ""
+      }" — ese documento ya estaba completo.`;
+    }
+    case "revision_manual_aprobada":
+      return `Un supervisor aprobó la revisión${doc ? ` de ${doc}` : ""}.`;
+    case "entrega_cancelada":
+      return `Se canceló una captura${doc ? ` de ${doc}` : ""} sin confirmar -- no quedó nada guardado.`;
+    case "health_check_fallido":
+      return "Aviso técnico: un chequeo de salud del sistema falló.";
+    default:
+      return null;
+  }
+}
+
+type Tono = "neutral" | "bien" | "atencion" | "alerta";
+
+const TONO_CLASE: Record<Tono, string> = {
+  neutral: "border-neutral-800",
+  bien: "border-emerald-500/30",
+  atencion: "border-amber-500/30",
+  alerta: "border-red-500/30",
+};
+
+const TONO_TEXTO: Record<Tono, string> = {
+  neutral: "text-neutral-100",
+  bien: "text-emerald-400",
+  atencion: "text-amber-400",
+  alerta: "text-red-400",
+};
+
+// Tarjeta de resumen -- una idea, un numero grande, sin que haga falta leer
+// una tabla para entender como viene el dia.
+function TarjetaResumen({
+  titulo,
+  valor,
+  tono,
+  detalle,
+}: {
+  titulo: string;
+  valor: number | string;
+  tono: Tono;
+  detalle?: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-1 rounded-lg border ${TONO_CLASE[tono]} bg-neutral-900/60 p-4`}>
+      <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">{titulo}</span>
+      <span className={`text-2xl font-semibold ${TONO_TEXTO[tono]}`}>{valor}</span>
+      {detalle ? <span className="text-xs text-neutral-500">{detalle}</span> : null}
+    </div>
+  );
+}
+
 function FilaRevision({
   entrega,
   onGuardado,
@@ -85,7 +178,7 @@ function FilaRevision({
   onGuardado: () => void;
 }) {
   // string y no TipoDocumento: en la practica el tipo real no siempre es
-  // uno de los 4 conocidos -- son la sugerencia rapida del datalist, no un
+  // uno de los conocidos -- son la sugerencia rapida del datalist, no un
   // limite (ver el <input list=...> mas abajo).
   const [tipo, setTipo] = useState(entrega.tipo);
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
@@ -178,10 +271,10 @@ function FilaRevision({
                 onChange={(e) => setTipo(e.target.value.toUpperCase())}
                 disabled={sinPendiente}
                 list="tipos-documento-sugeridos"
-                placeholder="FEI, TB, RM3, RM2 u otro"
+                placeholder="FEI, EDP, TB u otro"
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
               />
-              {/* Sugerencia rapida de los 4 tipos conocidos -- el input igual
+              {/* Sugerencia rapida de los tipos conocidos -- el input igual
                   acepta cualquier otro valor, el datalist no restringe. */}
               <datalist id="tipos-documento-sugeridos">
                 {TIPOS_DOCUMENTO.map((t) => (
@@ -190,7 +283,7 @@ function FilaRevision({
               </datalist>
             </label>
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
-              Indicativo/número
+              N° de documento
               <input
                 value={indicativoNumero}
                 onChange={(e) => setIndicativoNumero(e.target.value)}
@@ -222,7 +315,7 @@ function FilaRevision({
                         />
                       </label>
                       <label className="flex flex-col gap-1 text-xs text-neutral-500">
-                        Cantidad (CANT)
+                        Entregado
                         <input
                           type="number"
                           value={item.cantidad_entregada}
@@ -348,6 +441,41 @@ export default function DashboardPage() {
 
   const error = entregasError instanceof Error ? entregasError.message : null;
 
+  // --- Resumen del dia: todo esto se calcula de lo ya cargado, sin pedirle
+  // nada nuevo al backend (ver el comentario de limit en lib/api.ts). ---
+  const entregasPorId = useMemo(() => new Map((entregas ?? []).map((e) => [e.id, e])), [entregas]);
+  const entregasHoy = useMemo(() => (entregas ?? []).filter((e) => esHoy(e.capturado_at)), [entregas]);
+  const paraRevisar = useMemo(
+    () => (entregas ?? []).filter((e) => e.estado === "pendiente_revision"),
+    [entregas]
+  );
+  const conPendiente = useMemo(
+    () => (entregas ?? []).filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision"),
+    [entregas]
+  );
+  const necesitanAtencion = useMemo(() => [...paraRevisar, ...conPendiente], [paraRevisar, conPendiente]);
+  const devolucionesHoy = useMemo(
+    () => (logs ?? []).filter((l) => l.evento === "devolucion_registrada" && esHoy(l.timestamp)),
+    [logs]
+  );
+  const porSedeHoy = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const e of entregasHoy) {
+      const nombre = e.sede_origen_nombre ?? e.sede_origen_id;
+      mapa.set(nombre, (mapa.get(nombre) ?? 0) + 1);
+    }
+    return [...mapa.entries()].sort((a, b) => b[1] - a[1]);
+  }, [entregasHoy]);
+
+  // Feed de actividad en lenguaje llano -- los eventos puramente tecnicos
+  // (ver describirEvento) no aparecen aca.
+  const actividad = useMemo(() => {
+    return (logs ?? [])
+      .map((log) => ({ log, texto: describirEvento(log, entregasPorId) }))
+      .filter((x): x is { log: LogEvent; texto: string } => x.texto !== null)
+      .slice(0, 25);
+  }, [logs, entregasPorId]);
+
   const termino = busqueda.trim().toLowerCase();
   const entregasFiltradas = !termino
     ? entregas
@@ -377,7 +505,7 @@ export default function DashboardPage() {
         </div>
         <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
         <p className="text-sm text-neutral-400">
-          Entregas y auditoría en tiempo real — se actualiza al instante ante cualquier cambio.
+          Así viene el negocio hoy, en las dos sedes — se actualiza solo, sin recargar la página.
         </p>
       </header>
 
@@ -387,11 +515,73 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
+      {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">Cómo va hoy</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <TarjetaResumen
+            titulo="Entregas hoy"
+            valor={entregasHoy.length}
+            tono="neutral"
+            detalle={porSedeHoy.length > 0 ? porSedeHoy.map(([sede, n]) => `${sede}: ${n}`).join(" · ") : "Todavía sin movimiento"}
+          />
+          <TarjetaResumen
+            titulo="Necesitan atención"
+            valor={necesitanAtencion.length}
+            tono={necesitanAtencion.length > 0 ? "atencion" : "bien"}
+            detalle={necesitanAtencion.length > 0 ? "Revisión o entrega sin terminar" : "Todo al día"}
+          />
+          <TarjetaResumen
+            titulo="Para revisar"
+            valor={paraRevisar.length}
+            tono={paraRevisar.length > 0 ? "atencion" : "bien"}
+            detalle="La IA no estaba segura del todo"
+          />
+          <TarjetaResumen
+            titulo="Devoluciones hoy"
+            valor={devolucionesHoy.length}
+            tono={devolucionesHoy.length > 0 ? "alerta" : "neutral"}
+            detalle="Productos que volvieron"
+          />
+        </div>
+      </section>
+
+      {/* Lo que hay que mirar -- separado de "todas las entregas" para no
+          tener que leer la tabla entera buscando que esta mal. */}
+      {necesitanAtencion.length > 0 ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
+            Necesita tu atención
+          </h2>
+          <div className="flex flex-col gap-2">
+            {necesitanAtencion.map((e) => (
+              <button
+                key={e.id}
+                onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
+              >
+                <span className="font-medium text-neutral-100">
+                  {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
+                </span>
+                <span className="text-xs font-medium text-amber-400">
+                  {e.estado === "pendiente_revision"
+                    ? "La IA no está segura — revisar"
+                    : `Faltan entregar ${sumar(e.items, "cantidad_pendiente")} unidades`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
-            Entregas recientes
-          </h2>
+          <div>
+            <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
+              Todas las entregas
+            </h2>
+            <p className="text-xs text-neutral-600">Historial completo, ordenado por más reciente.</p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <a
               href={EXPORT_XLSX_URL}
@@ -410,7 +600,7 @@ export default function DashboardPage() {
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar por tipo, indicativo/número, sede, operador o producto..."
+          placeholder="Buscar por tipo, número, sede, operador o producto..."
           className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
         />
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
@@ -418,10 +608,10 @@ export default function DashboardPage() {
             <thead className="bg-neutral-900 text-neutral-500">
               <tr>
                 <th className="px-4 py-2 font-medium">Tipo</th>
-                <th className="px-4 py-2 font-medium">Indicativo/número</th>
-                <th className="px-4 py-2 font-medium">Sede origen</th>
+                <th className="px-4 py-2 font-medium">N° de documento</th>
+                <th className="px-4 py-2 font-medium">Sede</th>
                 <th className="px-4 py-2 font-medium">Productos</th>
-                <th className="px-4 py-2 font-medium">Cantidad (CANT)</th>
+                <th className="px-4 py-2 font-medium">Entregado</th>
                 <th className="px-4 py-2 font-medium">Pendiente</th>
                 <th className="px-4 py-2 font-medium">Estado</th>
                 <th className="px-4 py-2 font-medium">Capturado</th>
@@ -512,21 +702,21 @@ export default function DashboardPage() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
-          Auditoría reciente
-        </h2>
-        <ul className="flex flex-col gap-1 rounded-lg border border-neutral-800 p-3 text-sm">
-          {!logsCargando && logs?.length === 0 ? (
-            <li className="text-neutral-500">Sin eventos registrados todavía.</li>
+        <div>
+          <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
+            Actividad reciente
+          </h2>
+          <p className="text-xs text-neutral-600">Qué fue pasando, en lenguaje simple.</p>
+        </div>
+        <ul className="flex flex-col divide-y divide-neutral-800 rounded-lg border border-neutral-800 p-1 text-sm">
+          {!logsCargando && actividad.length === 0 ? (
+            <li className="px-3 py-4 text-neutral-500">Sin actividad registrada todavía.</li>
           ) : null}
-          {logs?.map((log) => (
-            <li key={log.id} className="flex items-center justify-between gap-3 text-neutral-400">
-              <span className="font-mono text-neutral-300">{log.evento}</span>
-              <span className="truncate text-neutral-500">
-                {log.sede_id} · {log.actor_id} · {log.resultado}
-              </span>
-              <span className="shrink-0 text-neutral-600">
-                {new Date(log.timestamp).toLocaleTimeString()}
+          {actividad.map(({ log, texto }) => (
+            <li key={log.id} className="flex items-center justify-between gap-3 px-3 py-2 text-neutral-300">
+              <span>{texto}</span>
+              <span className="shrink-0 text-xs text-neutral-600">
+                {new Date(log.timestamp).toLocaleString()}
               </span>
             </li>
           ))}
