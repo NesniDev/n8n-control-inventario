@@ -11,10 +11,14 @@ from openai import AsyncOpenAI, OpenAIError
 
 from app.config import get_settings
 
-# Tipos de documento mas comunes -- factura (FEI), traslado entre bodegas
-# (TB) o remision (RM3/RM2), ver app.models.entrega.TipoDocumento -- pero
-# "tipo" en el schema de abajo NO esta restringido a estos 4: son la guia
-# del prompt, no una jaula, porque en la practica aparecen otros.
+# Tipos de documento mas comunes -- factura (FEI/FV1), EDP/EDV, traslado
+# entre bodegas (TB) o remision (RM3/RM2), ver app.models.entrega.TipoDocumento
+# -- pero "tipo" en el schema de abajo NO esta restringido a estos: son la
+# guia del prompt, no una jaula, porque en la practica aparecen otros. Ver
+# tambien _TIPO_SEDE_DUENA en app/services/duplicates.py: EDP/EDV son de
+# Polo Sur, FEI/FV1 de Sede Centro -- si el prompt no menciona un codigo
+# explicitamente, el modelo tiende a "redondearlo" al ejemplo mas parecido
+# (FEI) en vez de transcribirlo tal cual, lo que rompia esa restriccion.
 #
 # Esquema fijo que el modelo debe respetar. response_format=json_schema (modo
 # strict) garantiza que la respuesta valida contra este schema (o falla
@@ -23,9 +27,9 @@ from app.config import get_settings
 _EXTRACTION_SCHEMA = {
     "type": "object",
     "properties": {
-        # Sin "enum": los 4 tipos conocidos son la guia del prompt, no una
+        # Sin "enum": los tipos conocidos son la guia del prompt, no una
         # jaula -- si el documento real dice otra cosa, la IA la transcribe
-        # tal cual en vez de forzar la mas parecida de las 4 (ver
+        # tal cual en vez de forzar la mas parecida de la lista (ver
         # app.models.entrega.TipoDocumento, que ya no restringe validacion).
         "tipo": {"type": "string"},
         "indicativo_numero": {"type": "string"},
@@ -58,15 +62,20 @@ _EXTRACTION_SCHEMA = {
 }
 
 _EXTRACTION_PROMPT = (
-    "Esta es una foto de un documento de despacho: puede ser una factura "
-    "(tipo FEI), un traslado entre bodegas (tipo TB) o una remision (tipo "
-    "RM3 o RM2, segun lo que diga el documento). Identifica el tipo de "
-    "documento, su indicativo/numero (el consecutivo impreso, por ejemplo si "
-    "el documento dice 'FEI 10254' el indicativo_numero es '10254'), y la "
-    "lista de productos con su cantidad (columnas DETALLE y CANT. del "
-    "documento) -- puede haber uno o varios productos, listalos todos, uno "
-    "por item. Si el documento no distingue productos individuales, usa un "
-    "solo item con una descripcion general y la cantidad total. Para tipo e "
+    "Esta es una foto de un documento de despacho. El tipo es el codigo "
+    "impreso junto al numero (ej. 'FEI 10254' -> tipo FEI, 'EDP 340' -> tipo "
+    "EDP) -- puede ser, entre otros, FEI o FV1 (factura), EDP o EDV, TB "
+    "(traslado entre bodegas), o RM3/RM2 (remision). Esta lista es solo "
+    "referencia, NO una jaula: transcribi EXACTAMENTE el codigo que este "
+    "impreso en el documento, letra por letra, aunque no sea ninguno de "
+    "estos ejemplos -- nunca lo reemplaces por el mas parecido de la lista "
+    "ni asumas FEI por defecto. Identifica el tipo de documento, su "
+    "indicativo/numero (el consecutivo impreso, por ejemplo si el documento "
+    "dice 'FEI 10254' el indicativo_numero es '10254'), y la lista de "
+    "productos con su cantidad (columnas DETALLE y CANT. del documento) -- "
+    "puede haber uno o varios productos, listalos todos, uno por item. Si "
+    "el documento no distingue productos individuales, usa un solo item con "
+    "una descripcion general y la cantidad total. Para tipo e "
     "indicativo_numero asigna un score de confianza entre 0 y 1 segun que "
     "tan legible/clara estaba esa parte de la imagen -- si no es legible, "
     "usa cadena vacia y confianza baja en vez de inventar un valor."
