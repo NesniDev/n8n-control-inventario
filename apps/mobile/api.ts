@@ -32,11 +32,17 @@ export interface ItemEntrega {
 }
 
 export interface ResultadoEnvio {
-  id: string;
+  // null solo con situacion 'necesita_traslado' -- no se inserto nada
+  // todavia (ver mas abajo).
+  id: string | null;
   // nueva: no existia, se creo -- el bodeguero confirma cuanto quedo
   // pendiente por producto. actualizable: ya existia y le quedaba algo
   // pendiente -- el bodeguero dice cuanto entrego hoy por producto.
-  situacion: 'nueva' | 'actualizable';
+  // necesita_traslado: el tipo (ej. FEI/FV1) le pertenece a otra sede (ej.
+  // Sede Centro) distinta de la que esta procesando (ej. Polo Sur) -- items
+  // trae lo que leyo la IA como referencia, pero no hay nada guardado; hay
+  // que reintentar procesarEntrega con traslado_url para que se registre.
+  situacion: 'nueva' | 'actualizable' | 'necesita_traslado';
   estado: 'procesada' | 'pendiente_revision';
   // FEI (factura) / TB (traslado) / RM3 / RM2 (remision).
   tipo: string;
@@ -158,6 +164,10 @@ export async function procesarEntrega(payload: {
   sede_origen_id: string;
   operador_id: string;
   capturado_at: string;
+  // Foto del traslado entre sedes -- solo hace falta reenviarla cuando la
+  // primera llamada devolvio situacion 'necesita_traslado' (ver
+  // ResultadoEnvio). Se sube igual que la evidencia (subirEvidencia).
+  traslado_url?: string;
 }): Promise<ResultadoEnvio> {
   const res = await fetch(`${API_BASE_URL}/entregas/procesar`, {
     method: 'POST',

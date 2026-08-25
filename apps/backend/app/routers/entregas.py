@@ -111,14 +111,20 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             capturado_at=payload.capturado_at,
             evidencia_url=payload.evidencia_url,
             min_confidence=settings.min_confidence,
+            traslado_url=payload.traslado_url,
         )
     except EntregaDuplicada as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+    # necesita_traslado no inserto nada -- no hay entrega_id (None). Los logs
+    # de aca abajo se atan a hash_evidencia, mismo identificador que ya se usa
+    # mas arriba para FOTO_CAPTURADA/EXTRACCION_IA antes de que exista la fila.
+    entidad_id_log = entrega_id or payload.hash_evidencia
+
     await registrar_evento(
         EventoLog.VALIDACION,
         entidad_tipo="entrega",
-        entidad_id=entrega_id,
+        entidad_id=entidad_id_log,
         actor_id=payload.operador_id,
         sede_id=payload.sede_origen_id,
         resultado="ok" if estado == EstadoEntrega.PROCESADA else "revision_manual",
@@ -131,7 +137,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
     await registrar_evento(
         EventoLog.SYNC_TIEMPO_REAL,
         entidad_tipo="entrega",
-        entidad_id=entrega_id,
+        entidad_id=entidad_id_log,
         actor_id="system",
         sede_id=payload.sede_origen_id,
         resultado="ok",

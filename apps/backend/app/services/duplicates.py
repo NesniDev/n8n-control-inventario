@@ -37,6 +37,26 @@ class CantidadInvalida(Exception):
     en esta entrega -- ver aplicar_actualizacion_items."""
 
 
+class _NecesitaTraslado(Exception):
+    """Uso interno de procesar_extraccion: se dispara DENTRO de la
+    transaccion tentativa (asi el insert que ya se hizo se deshace solo) para
+    devolver SituacionEntrega.NECESITA_TRASLADO en vez de crear el
+    documento -- ver _TIPO_SEDE_DUENA."""
+
+
+# tipo (mayusculas) -> codigo de sedes.codigo (SEDE-01/SEDE-02, NO nombre --
+# el nombre de una sede se puede renombrar, ej. "Sede Principal" ya paso a
+# llamarse "Sede Centro", el codigo es el identificador estable). Un tipo que
+# no esta aca (TB, RM3, RM2, o cualquier otro que la IA transcriba) no tiene
+# sede duena, se procesa igual que siempre, sin esta restriccion.
+_TIPO_SEDE_DUENA = {
+    "EDP": "SEDE-02",  # Polo Sur
+    "EDV": "SEDE-02",
+    "FEI": "SEDE-01",  # Sede Centro
+    "FV1": "SEDE-01",
+}
+
+
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
     # Las cantidades quedan afuera del gate: siempre las confirma el
     # bodeguero a mano en el paso 2 (ver procesar_extraccion), sin importar
@@ -79,7 +99,8 @@ async def procesar_extraccion(
     capturado_at: datetime,
     evidencia_url: str,
     min_confidence: float,
-) -> tuple[SituacionEntrega, str, list[ItemEntrega], EstadoEntrega, str]:
+    traslado_url: str | None = None,
+) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
     - No existia -> intenta insertarla (items = lo que leyo la IA, con
@@ -88,6 +109,12 @@ async def procesar_extraccion(
       barrera real contra la carrera entre sedes -- se inserta primero y se
       atrapa la excepcion, no se pre-chequea con un select (mismo patron que
       ya usaba este modulo).
+    - No existia, pero el tipo pertenece a otra sede (ver _TIPO_SEDE_DUENA) y
+      no vino traslado_url -> no se inserta nada, se devuelve
+      "necesita_traslado" (id=None) con lo que leyo la IA. Esto SOLO aplica
+      al crear el documento -- una vez aceptado (con o sin traslado), el
+      resto del ciclo (confirmar cantidades, devoluciones) sigue sin
+      restriccion de sede, igual que hoy.
     - Ya existia y le queda algo pendiente en cualquier item -> "actualizable",
       no se escribe nada todavia, se devuelven los items tal cual estan.
     - Ya existia y todo esta en pendiente=0 -> EntregaDuplicada (409).
@@ -110,8 +137,9 @@ async def procesar_extraccion(
                     """
                     insert into entregas (
                         tipo, indicativo_numero, hash_evidencia, sede_origen_id,
-                        estado, confianza_ia, evidencia_url, operador_id, capturado_at, procesado_at
-                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+                        estado, confianza_ia, evidencia_url, operador_id, capturado_at,
+                        procesado_at, traslado_url
+                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
                     returning id
                     """,
                     tipo,
@@ -123,7 +151,21 @@ async def procesar_extraccion(
                     evidencia_url,
                     operador_id,
                     capturado_at,
+                    traslado_url,
                 )
+
+                # Si el tipo pertenece a otra sede y no vino traslado_url, se
+                # deshace este insert (la excepcion adentro de la
+                # transaccion hace rollback sola) y se devuelve
+                # necesita_traslado en vez de crear el documento.
+                dueno_esperado = _TIPO_SEDE_DUENA.get(tipo)
+                if dueno_esperado is not None and not traslado_url:
+                    fila_sede = await conn.fetchrow(
+                        "select codigo from sedes where id::text = $1", sede_origen_id
+                    )
+                    if fila_sede is None or fila_sede["codigo"] != dueno_esperado:
+                        raise _NecesitaTraslado()
+
                 items: list[ItemEntrega] = []
                 for it in items_extraidos:
                     cantidad = max(0, int(it.get("cantidad") or 0))
@@ -149,6 +191,22 @@ async def procesar_extraccion(
                             confirmado=False,
                         )
                     )
+        except _NecesitaTraslado:
+            # El insert de arriba ya se deshizo (rollback de la transaccion).
+            # Se arman los items "vista previa" a partir de lo que leyo la
+            # IA -- nunca se insertaron, por eso id="" (el movil no los usa
+            # para nada mas que mostrar contexto en el aviso de traslado).
+            items_vista = [
+                ItemEntrega(
+                    id="",
+                    descripcion=str(it.get("descripcion") or ""),
+                    cantidad_entregada=max(0, int(it.get("cantidad") or 0)),
+                    cantidad_pendiente=max(0, int(it.get("cantidad") or 0)),
+                    confirmado=False,
+                )
+                for it in items_extraidos
+            ]
+            return SituacionEntrega.NECESITA_TRASLADO, None, items_vista, estado, tipo
         except asyncpg.UniqueViolationError as exc:
             # "entregas" tiene DOS unique: (tipo, indicativo_numero) -- la
             # barrera real -- y hash_evidencia -- evita reprocesar la misma

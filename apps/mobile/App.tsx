@@ -223,6 +223,12 @@ function PantallaCaptura({
   onCerrarSesion: () => void;
 }) {
   const [foto, setFoto] = useState<string | null>(null);
+  // Solo se llena cuando procesarEntrega devolvio situacion
+  // 'necesita_traslado' -- el tipo leido (ej. FEI) pertenece a otra sede
+  // distinta de sedeSeleccionada. fotoTraslado es la foto que el bodeguero
+  // adjunta para poder seguir igual (ver enviar()).
+  const [necesitaTraslado, setNecesitaTraslado] = useState<{ tipo: string } | null>(null);
+  const [fotoTraslado, setFotoTraslado] = useState<string | null>(null);
   const [fase, setFase] = useState<Fase>('captura');
   const [mensaje, setMensaje] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -277,6 +283,10 @@ function PantallaCaptura({
   const usarResultado = (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
       setFoto(resultado.assets[0].uri);
+      // Foto nueva -- si venia de un intento anterior con necesita_traslado,
+      // ese aviso ya no aplica (es de OTRO documento).
+      setNecesitaTraslado(null);
+      setFotoTraslado(null);
       setFase('captura');
       setMensaje('');
     }
@@ -314,7 +324,39 @@ function PantallaCaptura({
     usarResultado(resultado);
   };
 
+  // Espejo de tomarFoto/elegirDeGaleria, pero para la foto de traslado --
+  // solo aparecen cuando necesitaTraslado esta seteado (ver enviar()).
+  const usarResultadoTraslado = (resultado: ImagePicker.ImagePickerResult) => {
+    if (!resultado.canceled && resultado.assets[0]) {
+      setFotoTraslado(resultado.assets[0].uri);
+    }
+  };
+
+  const tomarFotoTraslado = async () => {
+    const permiso = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara para capturar el traslado.');
+      return;
+    }
+    const resultado = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false, exif: false });
+    usarResultadoTraslado(resultado);
+  };
+
+  const elegirTrasladoDeGaleria = async () => {
+    const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a las fotos para elegir el traslado.');
+      return;
+    }
+    const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, exif: false });
+    usarResultadoTraslado(resultado);
+  };
+
   // Paso 1: sube la foto y le pide al backend que identifique el documento.
+  // Si ya se adjunto una foto de traslado (necesitaTraslado de un intento
+  // anterior), se sube y se reenvia junto con la evidencia -- el backend
+  // vuelve a leer la misma foto con IA (se acepta ese costo extra por
+  // simplicidad, ver plan) y esta vez si la registra.
   const enviar = async () => {
     if (!foto || !sedeSeleccionada) return;
     setCargando(true);
@@ -323,6 +365,14 @@ function PantallaCaptura({
     try {
       const { url, hash } = await subirEvidencia(foto);
       setEvidenciaActual({ url, hash });
+
+      let trasladoUrl: string | undefined;
+      if (fotoTraslado) {
+        setMensaje('Subiendo traslado...');
+        const subida = await subirEvidencia(fotoTraslado);
+        trasladoUrl = subida.url;
+      }
+
       setMensaje('Extrayendo datos con IA...');
 
       const resultado = await procesarEntrega({
@@ -331,8 +381,17 @@ function PantallaCaptura({
         sede_origen_id: sedeSeleccionada.id,
         operador_id: empleado.id,
         capturado_at: new Date().toISOString(),
+        traslado_url: trasladoUrl,
       });
 
+      if (resultado.situacion === 'necesita_traslado') {
+        setNecesitaTraslado({ tipo: resultado.tipo });
+        setMensaje('');
+        return;
+      }
+
+      setNecesitaTraslado(null);
+      setFotoTraslado(null);
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
@@ -371,7 +430,11 @@ function PantallaCaptura({
     try {
       const resultado = await buscarEntrega(tipoBusqueda, indicativo);
       setEntregaId(resultado.id);
-      setSituacion(resultado.situacion);
+      // GET /entregas/buscar siempre fuerza situacion "actualizable" del
+      // lado del backend -- nunca devuelve necesita_traslado (esa situacion
+      // solo sale de procesarEntrega, ver enviar()), pero el tipo es
+      // compartido entre los dos endpoints.
+      setSituacion(resultado.situacion === 'necesita_traslado' ? 'actualizable' : resultado.situacion);
       setEstadoFinal(resultado.estado);
       setItems(resultado.items.map((item) => ({ ...item, valor: '', nota: item.nota ?? '' })));
       setEvidenciaActual(null);
@@ -551,6 +614,8 @@ function PantallaCaptura({
 
   const reiniciar = () => {
     setFoto(null);
+    setNecesitaTraslado(null);
+    setFotoTraslado(null);
     setFase('captura');
     setMensaje('');
     setEntregaId(null);
@@ -618,7 +683,9 @@ function PantallaCaptura({
       : items;
   const cantidadesValidas =
     situacion !== null && itemsConCambioCantidad.every((item) => valorValido(item, situacion));
-  const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando;
+  // Si necesitaTraslado esta activo (el tipo leido pertenece a otra sede),
+  // hace falta tambien la foto del traslado para poder reenviar.
+  const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando && (!necesitaTraslado || !!fotoTraslado);
   const puedeBuscar = !!indicativoBusqueda.trim() && !!tipoBusqueda.trim() && !cargando;
   const puedeConfirmar = itemsAEnviar.length > 0 && cantidadesValidas && !cargando;
   // Puramente sobre cantidades -- no se ve afectado por si se esta cargando
@@ -692,6 +759,41 @@ function PantallaCaptura({
                 </View>
               )}
             </View>
+
+            {necesitaTraslado ? (
+              <View style={styles.tarjeta}>
+                <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
+                <Text style={styles.previewSubtexto}>
+                  El tipo "{necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde
+                  acá, adjuntá una foto del traslado.
+                </Text>
+                {fotoTraslado ? (
+                  <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.preview, styles.previewVacio]}>
+                    <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />
+                    <Text style={styles.previewTexto}>Sin foto de traslado</Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Pressable
+                    style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                    onPress={tomarFotoTraslado}
+                  >
+                    <ContenidoBoton
+                      icono={fotoTraslado ? 'camera-reverse-outline' : 'camera-outline'}
+                      texto={fotoTraslado ? 'Repetir foto' : 'Tomar foto'}
+                    />
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                    onPress={elegirTrasladoDeGaleria}
+                  >
+                    <ContenidoBoton icono="images-outline" texto="Galería" />
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
             {cargando ? (
               <View style={[styles.tarjeta, styles.estadoBox]}>

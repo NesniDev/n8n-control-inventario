@@ -30,10 +30,16 @@ class SituacionEntrega(StrEnum):
     arranca igual a cantidad_entregada hasta que el bodeguero confirme el real).
     actualizable: ya existia y le queda algo pendiente en algun item -- se
     devuelven los items actuales para que el bodeguero los actualice.
+    necesita_traslado: el tipo leido (ej. FEI) le pertenece a otra sede
+    distinta de sede_origen_id (ej. Polo Sur) -- no se inserto nada todavia.
+    Se devuelven tipo/indicativo_numero/items tal como los leyo la IA para no
+    perder la extraccion; reenviando el mismo POST con traslado_url si se
+    inserta normal (ver _TIPO_SEDE_DUENA en duplicates.py).
     """
 
     NUEVA = "nueva"
     ACTUALIZABLE = "actualizable"
+    NECESITA_TRASLADO = "necesita_traslado"
 
 
 class ItemEntrega(BaseModel):
@@ -61,6 +67,12 @@ class EntregaCreate(BaseModel):
     sede_origen_id: str
     operador_id: str
     capturado_at: datetime
+    # Foto del traslado entre sedes, subida a Storage igual que evidencia_url
+    # -- solo hace falta cuando el tipo leido pertenece a otra sede (ver
+    # _TIPO_SEDE_DUENA en duplicates.py). Sin esto, ese caso no se inserta:
+    # se devuelve situacion "necesita_traslado" y el movil reintenta el mismo
+    # POST agregando este campo.
+    traslado_url: str | None = None
 
 
 class EntregaRevision(BaseModel):

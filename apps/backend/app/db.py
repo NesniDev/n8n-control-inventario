@@ -93,6 +93,9 @@ alter table entrega_items add column if not exists nota text;
 -- de bien contra una DB nueva que contra una que ya tenia el esquema viejo.
 alter table entregas add column if not exists tipo text not null default 'FEI';
 alter table entregas add column if not exists indicativo_numero text not null default '';
+-- Foto de respaldo cuando el tipo pertenece a otra sede (ej. FEI escaneado
+-- desde Polo Sur) -- ver _TIPO_SEDE_DUENA en app/services/duplicates.py.
+alter table entregas add column if not exists traslado_url text;
 -- Migracion a items por entrega (un documento puede traer varios productos):
 -- cantidad_entregada/cantidad_pendiente/detalle (si existian de una version
 -- anterior) se mudan a entrega_items.
