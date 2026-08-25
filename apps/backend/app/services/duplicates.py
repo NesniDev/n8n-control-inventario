@@ -57,6 +57,25 @@ _TIPO_SEDE_DUENA = {
 }
 
 
+def _items_coinciden(items_factura: list[dict], items_traslado: list[dict]) -> bool:
+    """Compara los items leidos de la factura contra los leidos del traslado
+    -- dos fotos DISTINTAS del mismo envio, cada una leida por IA por
+    separado, casi nunca van a coincidir letra por letra en la descripcion
+    (distinto papel, distinto OCR); exigir texto identico rechazaria
+    traslados legitimos todo el tiempo. En cambio se compara algo objetivo y
+    dificil de que coincida por casualidad con un documento ajeno: mismo
+    numero de productos y mismo total de unidades.
+
+    Heuristica, no prueba exacta -- un traslado ajeno con el mismo total por
+    casualidad pasaria igual. Mas estricto que esto exige texto, que es
+    fragil por el OCR; se puede reforzar despues si esto no alcanza."""
+    if len(items_factura) != len(items_traslado):
+        return False
+    total_factura = sum(max(0, int(it.get("cantidad") or 0)) for it in items_factura)
+    total_traslado = sum(max(0, int(it.get("cantidad") or 0)) for it in items_traslado)
+    return total_factura == total_traslado
+
+
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
     # Las cantidades quedan afuera del gate: siempre las confirma el
     # bodeguero a mano en el paso 2 (ver procesar_extraccion), sin importar
@@ -100,6 +119,7 @@ async def procesar_extraccion(
     evidencia_url: str,
     min_confidence: float,
     traslado_url: str | None = None,
+    items_traslado: list[dict] | None = None,
 ) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
@@ -110,7 +130,8 @@ async def procesar_extraccion(
       atrapa la excepcion, no se pre-chequea con un select (mismo patron que
       ya usaba este modulo).
     - No existia, pero el tipo pertenece a otra sede (ver _TIPO_SEDE_DUENA) y
-      no vino traslado_url -> no se inserta nada, se devuelve
+      no vino traslado_url, o vino pero sus items no coinciden con los de la
+      factura (ver _items_coinciden) -> no se inserta nada, se devuelve
       "necesita_traslado" (id=None) con lo que leyo la IA. Esto SOLO aplica
       al crear el documento -- una vez aceptado (con o sin traslado), el
       resto del ciclo (confirmar cantidades, devoluciones) sigue sin
@@ -154,17 +175,23 @@ async def procesar_extraccion(
                     traslado_url,
                 )
 
-                # Si el tipo pertenece a otra sede y no vino traslado_url, se
-                # deshace este insert (la excepcion adentro de la
-                # transaccion hace rollback sola) y se devuelve
-                # necesita_traslado en vez de crear el documento.
+                # Si el tipo pertenece a otra sede, se deshace este insert
+                # (la excepcion adentro de la transaccion hace rollback sola)
+                # y se devuelve necesita_traslado en vez de crear el
+                # documento -- salvo que vino un traslado y sus items
+                # coinciden con los de la factura (ver _items_coinciden).
                 dueno_esperado = _TIPO_SEDE_DUENA.get(tipo)
-                if dueno_esperado is not None and not traslado_url:
+                if dueno_esperado is not None:
                     fila_sede = await conn.fetchrow(
                         "select codigo from sedes where id::text = $1", sede_origen_id
                     )
-                    if fila_sede is None or fila_sede["codigo"] != dueno_esperado:
-                        raise _NecesitaTraslado()
+                    sede_no_coincide = fila_sede is None or fila_sede["codigo"] != dueno_esperado
+                    if sede_no_coincide:
+                        traslado_valido = traslado_url is not None and _items_coinciden(
+                            items_extraidos, items_traslado or []
+                        )
+                        if not traslado_valido:
+                            raise _NecesitaTraslado()
 
                 items: list[ItemEntrega] = []
                 for it in items_extraidos:

@@ -227,7 +227,11 @@ function PantallaCaptura({
   // 'necesita_traslado' -- el tipo leido (ej. FEI) pertenece a otra sede
   // distinta de sedeSeleccionada. fotoTraslado es la foto que el bodeguero
   // adjunta para poder seguir igual (ver enviar()).
-  const [necesitaTraslado, setNecesitaTraslado] = useState<{ tipo: string } | null>(null);
+  // rechazado: true cuando YA se habia adjuntado una foto de traslado y el
+  // backend igual devolvio necesita_traslado -- significa que esa foto no
+  // corresponde a la factura (ver _items_coinciden en el backend), no que
+  // falte adjuntar una.
+  const [necesitaTraslado, setNecesitaTraslado] = useState<{ tipo: string; rechazado: boolean } | null>(null);
   const [fotoTraslado, setFotoTraslado] = useState<string | null>(null);
   const [fase, setFase] = useState<Fase>('captura');
   const [mensaje, setMensaje] = useState('');
@@ -385,7 +389,13 @@ function PantallaCaptura({
       });
 
       if (resultado.situacion === 'necesita_traslado') {
-        setNecesitaTraslado({ tipo: resultado.tipo });
+        const yaHabiaTraslado = !!trasladoUrl;
+        setNecesitaTraslado({ tipo: resultado.tipo, rechazado: yaHabiaTraslado });
+        if (yaHabiaTraslado) {
+          // La foto que se mando no correspondia a esta factura -- se
+          // limpia para obligar a elegir una nueva, no reintentar la misma.
+          setFotoTraslado(null);
+        }
         setMensaje('');
         return;
       }
@@ -764,8 +774,9 @@ function PantallaCaptura({
               <View style={styles.tarjeta}>
                 <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
                 <Text style={styles.previewSubtexto}>
-                  El tipo "{necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde
-                  acá, adjuntá una foto del traslado.
+                  {necesitaTraslado.rechazado
+                    ? 'La foto del traslado no coincide con los productos de la factura -- probá con la correcta.'
+                    : `El tipo "${necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde acá, adjuntá una foto del traslado.`}
                 </Text>
                 {fotoTraslado ? (
                   <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
