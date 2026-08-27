@@ -55,6 +55,16 @@ async def excepcion_no_manejada(request: Request, exc: Exception) -> JSONRespons
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor, proba de nuevo."})
 
 
+# Marcador manual de build -- no se calcula del commit de git en runtime
+# porque el Dockerfile solo copia app/ y scripts/ (build path "apps/backend"
+# en EasyPanel, ver README): el directorio .git vive en la raiz del repo y
+# no esta disponible dentro del contexto de build ni de la imagen. Bumpear
+# a mano este string en cada cambio que valga la pena poder confirmar desde
+# afuera (ver GET /health) -- unica forma de verificar que un deploy en
+# EasyPanel realmente tomo el commit esperado sin entrar al panel.
+_BUILD_MARCADOR = "traslado-por-concepto"
+
+
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "build": _BUILD_MARCADOR}
