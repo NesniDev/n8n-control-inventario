@@ -33,6 +33,16 @@ _EXTRACTION_SCHEMA = {
         # app.models.entrega.TipoDocumento, que ya no restringe validacion).
         "tipo": {"type": "string"},
         "indicativo_numero": {"type": "string"},
+        "concepto": {
+            "type": "string",
+            "description": (
+                "Texto libre del campo 'Concepto' u 'Observaciones' del documento, si "
+                "existe -- en guias de traslado suele referenciar el numero de la "
+                "factura de origen (ver _concepto_referencia_factura en "
+                "app.services.duplicates). Cadena vacia si el documento no tiene ese "
+                "campo."
+            ),
+        },
         "items": {
             "type": "array",
             "description": "Productos listados en el documento (columnas DETALLE/CANT.), uno por linea.",
@@ -57,7 +67,7 @@ _EXTRACTION_SCHEMA = {
             "additionalProperties": False,
         },
     },
-    "required": ["tipo", "indicativo_numero", "items", "confianza"],
+    "required": ["tipo", "indicativo_numero", "concepto", "items", "confianza"],
     "additionalProperties": False,
 }
 
@@ -75,7 +85,11 @@ _EXTRACTION_PROMPT = (
     "productos con su cantidad (columnas DETALLE y CANT. del documento) -- "
     "puede haber uno o varios productos, listalos todos, uno por item. Si "
     "el documento no distingue productos individuales, usa un solo item con "
-    "una descripcion general y la cantidad total. Para tipo e "
+    "una descripcion general y la cantidad total. Si el documento tiene un "
+    "campo de texto libre tipo 'Concepto' u 'Observaciones' (comun en guias "
+    "de traslado y remisiones, donde suele referenciar el numero de la "
+    "factura de origen del movimiento), transcribilo completo y tal cual en "
+    "concepto; si no existe ese campo, usa cadena vacia. Para tipo e "
     "indicativo_numero asigna un score de confianza entre 0 y 1 segun que "
     "tan legible/clara estaba esa parte de la imagen -- si no es legible, "
     "usa cadena vacia y confianza baja en vez de inventar un valor."
