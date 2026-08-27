@@ -57,23 +57,19 @@ _TIPO_SEDE_DUENA = {
 }
 
 
-def _items_coinciden(items_factura: list[dict], items_traslado: list[dict]) -> bool:
-    """Compara los items leidos de la factura contra los leidos del traslado
-    -- dos fotos DISTINTAS del mismo envio, cada una leida por IA por
-    separado, casi nunca van a coincidir letra por letra en la descripcion
-    (distinto papel, distinto OCR); exigir texto identico rechazaria
-    traslados legitimos todo el tiempo. En cambio se compara algo objetivo y
-    dificil de que coincida por casualidad con un documento ajeno: mismo
-    numero de productos y mismo total de unidades.
-
-    Heuristica, no prueba exacta -- un traslado ajeno con el mismo total por
-    casualidad pasaria igual. Mas estricto que esto exige texto, que es
-    fragil por el OCR; se puede reforzar despues si esto no alcanza."""
-    if len(items_factura) != len(items_traslado):
+def _concepto_referencia_factura(indicativo_numero: str, concepto_traslado: str) -> bool:
+    """El concepto de la guia de traslado (campo de texto libre del
+    documento, ver 'concepto' en vision._EXTRACTION_SCHEMA) debe mencionar
+    el numero de la factura para la que se pide la excepcion de sede -- ni
+    el tipo (la guia es TB, la factura no, asi que nunca van a coincidir)
+    ni los productos, solo el numero. Substring normalizado (upper + strip)
+    en vez de igualdad exacta: el concepto es texto libre, puede traer
+    prefijos/palabras alrededor del numero (ej. "Traslado factura FEI
+    10254", "Ref. 10254")."""
+    numero = indicativo_numero.strip().upper()
+    if not numero:
         return False
-    total_factura = sum(max(0, int(it.get("cantidad") or 0)) for it in items_factura)
-    total_traslado = sum(max(0, int(it.get("cantidad") or 0)) for it in items_traslado)
-    return total_factura == total_traslado
+    return numero in concepto_traslado.strip().upper()
 
 
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
@@ -119,7 +115,7 @@ async def procesar_extraccion(
     evidencia_url: str,
     min_confidence: float,
     traslado_url: str | None = None,
-    items_traslado: list[dict] | None = None,
+    concepto_traslado: str | None = None,
 ) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
@@ -130,8 +126,8 @@ async def procesar_extraccion(
       atrapa la excepcion, no se pre-chequea con un select (mismo patron que
       ya usaba este modulo).
     - No existia, pero el tipo pertenece a otra sede (ver _TIPO_SEDE_DUENA) y
-      no vino traslado_url, o vino pero sus items no coinciden con los de la
-      factura (ver _items_coinciden) -> no se inserta nada, se devuelve
+      no vino traslado_url, o vino pero su concepto no menciona el numero de
+      la factura (ver _concepto_referencia_factura) -> no se inserta nada, se devuelve
       "necesita_traslado" (id=None) con lo que leyo la IA. Esto SOLO aplica
       al crear el documento -- una vez aceptado (con o sin traslado), el
       resto del ciclo (confirmar cantidades, devoluciones) sigue sin
@@ -178,8 +174,9 @@ async def procesar_extraccion(
                 # Si el tipo pertenece a otra sede, se deshace este insert
                 # (la excepcion adentro de la transaccion hace rollback sola)
                 # y se devuelve necesita_traslado en vez de crear el
-                # documento -- salvo que vino un traslado y sus items
-                # coinciden con los de la factura (ver _items_coinciden).
+                # documento -- salvo que vino un traslado cuyo concepto
+                # menciona el numero de esta factura (ver
+                # _concepto_referencia_factura).
                 dueno_esperado = _TIPO_SEDE_DUENA.get(tipo)
                 if dueno_esperado is not None:
                     fila_sede = await conn.fetchrow(
@@ -187,8 +184,8 @@ async def procesar_extraccion(
                     )
                     sede_no_coincide = fila_sede is None or fila_sede["codigo"] != dueno_esperado
                     if sede_no_coincide:
-                        traslado_valido = traslado_url is not None and _items_coinciden(
-                            items_extraidos, items_traslado or []
+                        traslado_valido = traslado_url is not None and _concepto_referencia_factura(
+                            indicativo_numero, concepto_traslado or ""
                         )
                         if not traslado_valido:
                             raise _NecesitaTraslado()

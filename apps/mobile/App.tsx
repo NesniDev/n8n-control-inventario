@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
+  Modal,
+  PanResponder,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -97,6 +100,10 @@ interface ItemFormulario extends ItemEntrega {
   // nombre del producto) sin agregar un booleano aparte que hay que
   // mantener sincronizado. Se fija una sola vez al cargar los items.
   descripcionOriginal: string;
+  // Mismo patron para cantidad_entregada -- en 'nueva' es lo que la IA leyo
+  // como cantidad total del documento ("Cantidad leida", ver mas abajo), y
+  // tambien se puede corregir a mano si la IA se equivoco.
+  cantidadEntregadaOriginal: number;
 }
 
 // Para 'nueva' bloquea segun lo que se esta tipeando (el bodeguero declara
@@ -192,6 +199,122 @@ function ContenidoBoton({
   );
 }
 
+const { width: ANCHO_PANTALLA, height: ALTO_PANTALLA } = Dimensions.get('window');
+
+// Visor a pantalla completa para revisar una foto ya tomada (evidencia o
+// traslado) con zoom -- pellizcar con dos dedos para acercar/alejar, arrastrar
+// con un dedo para moverse dentro de la imagen ampliada, doble toque para
+// alternar entre 1x y 2.5x. Sin dependencias nuevas: PanResponder + touches
+// crudos, nada de gesture-handler/reanimated (evita otro build nativo).
+function VisorFotoZoom({ uri, onCerrar }: { uri: string; onCerrar: () => void }) {
+  const [escala, setEscala] = useState(1);
+  const [desplazamiento, setDesplazamiento] = useState({ x: 0, y: 0 });
+
+  // Todo lo que sigue es estado "de gesto en curso", no de React -- se lee y
+  // escribe dentro de los callbacks del PanResponder, no dispara renders.
+  const escalaAlIniciarPinch = useRef(1);
+  const distanciaAlIniciarPinch = useRef<number | null>(null);
+  const ultimoToqueUnico = useRef<{ x: number; y: number } | null>(null);
+  const inicioToqueSimple = useRef<{ x: number; y: number; tiempo: number } | null>(null);
+  const ultimoTapSimple = useRef(0);
+
+  const distanciaEntreToques = (toques: { pageX: number; pageY: number }[]) =>
+    Math.hypot(toques[0].pageX - toques[1].pageX, toques[0].pageY - toques[1].pageY);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const toques = evt.nativeEvent.touches;
+        if (toques.length === 1) {
+          inicioToqueSimple.current = { x: toques[0].pageX, y: toques[0].pageY, tiempo: Date.now() };
+        }
+      },
+      onPanResponderMove: (evt) => {
+        const toques = evt.nativeEvent.touches;
+        if (toques.length === 2) {
+          ultimoToqueUnico.current = null;
+          const distanciaActual = distanciaEntreToques(toques);
+          if (distanciaAlIniciarPinch.current == null) {
+            // Primer frame con dos dedos -- fija el punto de partida en vez
+            // de saltar de golpe a la escala que daria el primer delta.
+            distanciaAlIniciarPinch.current = distanciaActual;
+            escalaAlIniciarPinch.current = escala;
+          } else {
+            const factor = distanciaActual / distanciaAlIniciarPinch.current;
+            setEscala(Math.min(Math.max(escalaAlIniciarPinch.current * factor, 1), 5));
+          }
+        } else if (toques.length === 1) {
+          distanciaAlIniciarPinch.current = null;
+          const toque = toques[0];
+          if (escala > 1 && ultimoToqueUnico.current) {
+            setDesplazamiento((prev) => ({
+              x: prev.x + (toque.pageX - ultimoToqueUnico.current!.x),
+              y: prev.y + (toque.pageY - ultimoToqueUnico.current!.y),
+            }));
+          }
+          ultimoToqueUnico.current = { x: toque.pageX, y: toque.pageY };
+        }
+      },
+      onPanResponderRelease: (evt) => {
+        distanciaAlIniciarPinch.current = null;
+        ultimoToqueUnico.current = null;
+
+        const inicio = inicioToqueSimple.current;
+        inicioToqueSimple.current = null;
+        if (!inicio) return;
+
+        const fin = evt.nativeEvent.changedTouches[0];
+        const movimiento = fin ? Math.hypot(fin.pageX - inicio.x, fin.pageY - inicio.y) : 0;
+        const duracion = Date.now() - inicio.tiempo;
+        if (movimiento > 10 || duracion > 250) return; // fue arrastre, no tap
+
+        const ahora = Date.now();
+        if (ahora - ultimoTapSimple.current < 300) {
+          // Doble toque: alterna entre 1x (reset) y 2.5x centrado.
+          ultimoTapSimple.current = 0;
+          if (escala > 1) {
+            setEscala(1);
+            setDesplazamiento({ x: 0, y: 0 });
+          } else {
+            setEscala(2.5);
+          }
+        } else {
+          ultimoTapSimple.current = ahora;
+        }
+      },
+    })
+  ).current;
+
+  return (
+    <Modal visible animationType="fade" onRequestClose={onCerrar} statusBarTranslucent>
+      <View style={estilosVisorZoom.fondo}>
+        <Pressable style={estilosVisorZoom.botonCerrar} onPress={onCerrar} hitSlop={14}>
+          <Ionicons name="close" size={26} color={TEXTO_PRIMARIO} />
+        </Pressable>
+        <View style={estilosVisorZoom.area} {...panResponder.panHandlers}>
+          <Image
+            source={{ uri }}
+            resizeMode="contain"
+            style={[
+              estilosVisorZoom.imagen,
+              {
+                transform: [
+                  { translateX: desplazamiento.x },
+                  { translateY: desplazamiento.y },
+                  { scale: escala },
+                ],
+              },
+            ]}
+          />
+        </View>
+        <Text style={estilosVisorZoom.ayuda}>Pellizcá para zoom · doble toque para acercar/alejar</Text>
+      </View>
+    </Modal>
+  );
+}
+
 export default function App() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
   // Space Grotesk (titulos/labels/numeros) + Manrope (texto de cuerpo) --
@@ -232,14 +355,17 @@ function PantallaCaptura({
   onCerrarSesion: () => void;
 }) {
   const [foto, setFoto] = useState<string | null>(null);
+  // Uri de la foto (evidencia o traslado) mostrada a pantalla completa con
+  // zoom -- null cuando el visor esta cerrado (ver VisorFotoZoom).
+  const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null);
   // Solo se llena cuando procesarEntrega devolvio situacion
   // 'necesita_traslado' -- el tipo leido (ej. FEI) pertenece a otra sede
   // distinta de sedeSeleccionada. fotoTraslado es la foto que el bodeguero
   // adjunta para poder seguir igual (ver enviar()).
   // rechazado: true cuando YA se habia adjuntado una foto de traslado y el
-  // backend igual devolvio necesita_traslado -- significa que esa foto no
-  // corresponde a la factura (ver _items_coinciden en el backend), no que
-  // falte adjuntar una.
+  // backend igual devolvio necesita_traslado -- significa que el concepto de
+  // esa foto no menciona el numero de esta factura (ver
+  // _concepto_referencia_factura en el backend), no que falte adjuntar una.
   const [necesitaTraslado, setNecesitaTraslado] = useState<{ tipo: string; rechazado: boolean } | null>(null);
   const [fotoTraslado, setFotoTraslado] = useState<string | null>(null);
   const [fase, setFase] = useState<Fase>('captura');
@@ -261,6 +387,10 @@ function PantallaCaptura({
   // veces no lee bien el nombre (letra chica, foto poco clara), asi que se
   // puede corregir a mano antes de confirmar (ver alternarDescripcion).
   const [descripcionesAbiertas, setDescripcionesAbiertas] = useState<Set<string>>(new Set());
+  // Ids de items con el editor de "Cantidad leida" abierto -- solo aplica a
+  // 'nueva' (ver alternarCantidadLeida): la IA tambien se puede equivocar
+  // leyendo el total del documento, no solo el nombre.
+  const [cantidadesLeidasAbiertas, setCantidadesLeidasAbiertas] = useState<Set<string>>(new Set());
   // Ids de items con el formulario de devolucion abierto, y su borrador
   // (cantidad/motivo/resolucion) mientras se completa -- se descarta al
   // cerrar o al registrar con exito (ver alternarDevolucion).
@@ -424,6 +554,7 @@ function PantallaCaptura({
           valor: '',
           nota: item.nota ?? '',
           descripcionOriginal: item.descripcion,
+          cantidadEntregadaOriginal: item.cantidad_entregada,
         }))
       );
       setFase('confirmando');
@@ -472,6 +603,7 @@ function PantallaCaptura({
           valor: '',
           nota: item.nota ?? '',
           descripcionOriginal: item.descripcion,
+          cantidadEntregadaOriginal: item.cantidad_entregada,
         }))
       );
       setEvidenciaActual(null);
@@ -501,6 +633,13 @@ function PantallaCaptura({
         // no lo lee bien y se puede editar a mano (ver actualizarDescripcionItem).
         const descripcion =
           item.descripcion.trim() !== item.descripcionOriginal.trim() ? item.descripcion.trim() : undefined;
+        // Mismo criterio para la cantidad leida -- solo tiene sentido en
+        // 'nueva' (ver actualizarCantidadLeidaItem); en 'actualizable' la
+        // cantidad se maneja aparte, con el delta de entregado_hoy.
+        const cantidadEntregadaCorregida =
+          situacion === 'nueva' && item.cantidad_entregada !== item.cantidadEntregadaOriginal
+            ? item.cantidad_entregada
+            : undefined;
         // Un item bloqueado (ver esBloqueado) solo puede estar en
         // itemsAEnviar por tener una nota o descripcion nueva (ver mas
         // abajo) -- no hay cantidad que mandar, y mandar
@@ -510,7 +649,13 @@ function PantallaCaptura({
           return { id: item.id, nota, descripcion };
         }
         return situacion === 'nueva'
-          ? { id: item.id, cantidad_pendiente: Number(item.valor.trim()), nota, descripcion }
+          ? {
+              id: item.id,
+              cantidad_pendiente: Number(item.valor.trim()),
+              nota,
+              descripcion,
+              cantidad_entregada: cantidadEntregadaCorregida,
+            }
           : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota, descripcion };
       });
       await confirmarItems(
@@ -548,6 +693,12 @@ function PantallaCaptura({
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, descripcion } : item)));
   };
 
+  const actualizarCantidadLeidaItem = (id: string, textoCrudo: string) => {
+    const limpio = textoCrudo.replace(/[^0-9]/g, '');
+    const cantidad_entregada = limpio === '' ? 0 : Number(limpio);
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, cantidad_entregada } : item)));
+  };
+
   // Que items tienen el editor de nota abierto -- separado del texto en si,
   // asi se puede abrir el editor sin que eso cuente como "tiene nota".
   const alternarNota = (id: string) => {
@@ -565,6 +716,18 @@ function PantallaCaptura({
   // Mismo patron que alternarNota -- separado del texto en si.
   const alternarDescripcion = (id: string) => {
     setDescripcionesAbiertas((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(id)) {
+        siguiente.delete(id);
+      } else {
+        siguiente.add(id);
+      }
+      return siguiente;
+    });
+  };
+
+  const alternarCantidadLeida = (id: string) => {
+    setCantidadesLeidasAbiertas((prev) => {
       const siguiente = new Set(prev);
       if (siguiente.has(id)) {
         siguiente.delete(id);
@@ -802,8 +965,24 @@ function PantallaCaptura({
                 </>
               )}
             </View>
-            <Pressable onPress={onCerrarSesion} hitSlop={8}>
-              <Text style={styles.cerrarSesion}>Cerrar sesión</Text>
+            <Pressable
+              onPress={() => {
+                // Si hay un envio en curso (subida de evidencia o
+                // procesarEntrega en vuelo), cerrar sesion aca solo desmonta
+                // la pantalla -- el await sigue corriendo y termina
+                // registrando la entrega igual. Se bloquea mientras cargando
+                // para que el operador espere a que termine o falle.
+                if (cargando) {
+                  Alert.alert('Espera un momento', 'Hay un envío en curso -- esperá a que termine antes de cerrar sesión.');
+                  return;
+                }
+                onCerrarSesion();
+              }}
+              hitSlop={8}
+            >
+              <Text style={[styles.cerrarSesion, cargando && styles.cerrarSesionDeshabilitado]}>
+                Cerrar sesión
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -813,7 +992,12 @@ function PantallaCaptura({
             <View style={styles.tarjeta}>
               <Text style={styles.etiquetaSeccion}>Evidencia</Text>
               {foto ? (
-                <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
+                <Pressable onPress={() => setFotoAmpliada(foto)}>
+                  <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
+                  <View style={styles.iconoAmpliar}>
+                    <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                  </View>
+                </Pressable>
               ) : (
                 <View style={[styles.preview, styles.previewVacio]}>
                   <Ionicons name="camera-outline" size={40} color={NEUTRAL_400} />
@@ -830,11 +1014,16 @@ function PantallaCaptura({
                 <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
                 <Text style={styles.previewSubtexto}>
                   {necesitaTraslado.rechazado
-                    ? 'La foto del traslado no coincide con los productos de la factura -- prueba con la correcta.'
+                    ? 'La foto del traslado no menciona el número de esta factura -- prueba con la correcta.'
                     : `El tipo "${necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde acá, adjunta una foto del traslado.`}
                 </Text>
                 {fotoTraslado ? (
-                  <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
+                  <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
+                    <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
+                    <View style={styles.iconoAmpliar}>
+                      <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                    </View>
+                  </Pressable>
                 ) : (
                   <View style={[styles.preview, styles.previewVacio]}>
                     <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />
@@ -1037,8 +1226,16 @@ function PantallaCaptura({
               const excedeTope =
                 !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
               const notaAbierta = notasAbiertas.has(item.id);
-              const descripcionAbierta = descripcionesAbiertas.has(item.id);
+              // Solo se puede corregir el nombre recien leido por la IA
+              // (situacion 'nueva') -- al consultar un documento que ya
+              // existia (buscar o re-escaneo, siempre 'actualizable') el
+              // nombre ya quedo confirmado antes, no tiene sentido seguir
+              // permitiendo tocarlo desde cualquier consulta.
+              const puedeEditarDescripcion = situacion === 'nueva';
+              const descripcionAbierta = puedeEditarDescripcion && descripcionesAbiertas.has(item.id);
               const descripcionEditada = item.descripcion.trim() !== item.descripcionOriginal.trim();
+              const cantidadLeidaAbierta = cantidadesLeidasAbiertas.has(item.id);
+              const cantidadLeidaEditada = item.cantidad_entregada !== item.cantidadEntregadaOriginal;
               // Una devolucion es sobre algo ya entregado antes -- no tiene
               // sentido en un documento recien escaneado sin confirmar
               // (situacion 'nueva'), ni si todavia no se entrego nada.
@@ -1079,13 +1276,20 @@ function PantallaCaptura({
                         {item.descripcion || 'Producto sin descripción'}
                       </Text>
                     )}
-                    <Pressable onPress={() => alternarDescripcion(item.id)} hitSlop={8}>
-                      <Ionicons
-                        name={descripcionEditada || descripcionAbierta ? 'pencil' : 'pencil-outline'}
-                        size={20}
-                        color={descripcionEditada || descripcionAbierta ? ACENTO : NEUTRAL_400}
-                      />
-                    </Pressable>
+                    {puedeEditarDescripcion ? (
+                      <Pressable onPress={() => alternarDescripcion(item.id)} hitSlop={8}>
+                        <Ionicons
+                          name={descripcionEditada || descripcionAbierta ? 'pencil' : 'pencil-outline'}
+                          size={20}
+                          color={descripcionEditada || descripcionAbierta ? ACENTO : NEUTRAL_400}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  {/* Acciones secundarias del item, separadas del lapiz de
+                      arriba (edita el nombre, esta fila no toca el nombre). */}
+                  <View style={styles.filaAccionesItem}>
                     {puedeVerHistorial ? (
                       <Pressable onPress={() => alternarHistorial(item.id)} hitSlop={8}>
                         <Ionicons
@@ -1232,11 +1436,33 @@ function PantallaCaptura({
                     </View>
                   ) : null}
 
-                  <Text style={styles.previewSubtexto}>
-                    {situacion === 'nueva'
-                      ? `Cantidad leída: ${item.cantidad_entregada}`
-                      : `Pendiente actual: ${item.cantidad_pendiente}`}
-                  </Text>
+                  {situacion === 'nueva' ? (
+                    <View style={styles.filaConIcono}>
+                      {cantidadLeidaAbierta ? (
+                        <>
+                          <Text style={styles.previewSubtexto}>Cantidad leída:</Text>
+                          <TextInput
+                            value={String(item.cantidad_entregada)}
+                            onChangeText={(texto) => actualizarCantidadLeidaItem(item.id, texto)}
+                            keyboardType="number-pad"
+                            autoFocus
+                            style={[styles.inputCantidad, styles.inputCantidadLeida]}
+                          />
+                        </>
+                      ) : (
+                        <Text style={styles.previewSubtexto}>Cantidad leída: {item.cantidad_entregada}</Text>
+                      )}
+                      <Pressable onPress={() => alternarCantidadLeida(item.id)} hitSlop={8}>
+                        <Ionicons
+                          name={cantidadLeidaEditada || cantidadLeidaAbierta ? 'pencil' : 'pencil-outline'}
+                          size={16}
+                          color={cantidadLeidaEditada || cantidadLeidaAbierta ? ACENTO : NEUTRAL_400}
+                        />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Text style={styles.previewSubtexto}>Pendiente actual: {item.cantidad_pendiente}</Text>
+                  )}
 
                   {bloqueado ? null : (
                     <Pressable
@@ -1380,6 +1606,9 @@ function PantallaCaptura({
           </>
         ) : null}
       </ScrollView>
+      {fotoAmpliada ? (
+        <VisorFotoZoom uri={fotoAmpliada} onCerrar={() => setFotoAmpliada(null)} />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1405,6 +1634,20 @@ const FUENTE_BODY = 'Manrope_400Regular';
 const FUENTE_BODY_MEDIA = 'Manrope_500Medium';
 const FUENTE_BODY_SEMI = 'Manrope_600SemiBold';
 const FUENTE_BODY_BOLD = 'Manrope_700Bold';
+
+const estilosVisorZoom = StyleSheet.create({
+  fondo: { flex: 1, backgroundColor: '#000000f2', alignItems: 'center', justifyContent: 'center' },
+  botonCerrar: { position: 'absolute', top: 54, right: 20, zIndex: 10, padding: 6 },
+  area: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  imagen: { width: ANCHO_PANTALLA, height: ALTO_PANTALLA * 0.82 },
+  ayuda: {
+    position: 'absolute',
+    bottom: 36,
+    color: NEUTRAL_400,
+    fontSize: 12,
+    fontFamily: FUENTE_BODY_SEMI,
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -1432,6 +1675,7 @@ const styles = StyleSheet.create({
   recuadroDivisor: { color: NEUTRAL_500, fontSize: 14 },
   recuadroOperadorTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
   cerrarSesion: { color: '#f87171', fontSize: 12, fontFamily: FUENTE_BODY_SEMI, marginTop: 6 },
+  cerrarSesionDeshabilitado: { color: NEUTRAL_500 },
   tarjeta: {
     backgroundColor: NEUTRAL_850,
     borderRadius: 20,
@@ -1459,6 +1703,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1.5,
     borderBottomColor: ACENTO,
     paddingVertical: 2,
+  },
+  inputCantidadLeida: {
+    minWidth: 56,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    fontSize: 13,
   },
   textoErrorInline: { color: '#f87171', fontSize: 13, fontFamily: FUENTE_BODY_MEDIA },
   inputCantidad: {
@@ -1488,6 +1738,7 @@ const styles = StyleSheet.create({
   checkboxCajaMarcada: { backgroundColor: ACENTO, borderColor: ACENTO },
   checkboxTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
   filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  filaAccionesItem: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   filaConIcono: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   inputNota: {
     borderWidth: 1,
@@ -1538,6 +1789,14 @@ const styles = StyleSheet.create({
   chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_BOLD },
   chipSedeTextoActivo: { color: TEXTO_PRIMARIO },
   preview: { width: '100%', height: 300, borderRadius: 14, backgroundColor: NEUTRAL_800 },
+  iconoAmpliar: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#00000099',
+    borderRadius: 999,
+    padding: 6,
+  },
   previewVacio: {
     alignItems: 'center',
     justifyContent: 'center',
