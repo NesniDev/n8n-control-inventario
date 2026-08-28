@@ -16,16 +16,15 @@ npx expo start
 
 ## Flujo
 
-1. El operador inicia sesión con su **PIN** (sin usuario/contraseña — ver abajo).
-2. Elige la sede (preseleccionada según la sede del empleado, pero se puede cambiar).
-3. Toma la foto (`expo-image-picker`).
-4. `subirEvidencia()` (`api.ts`) la sube al bucket `evidencia` de Supabase Storage y calcula un hash SHA-256 del contenido.
-5. `procesarEntrega()` llama a `POST /entregas/procesar` del backend con la URL pública + el hash.
-6. La UI muestra el resultado: `procesada`, `pendiente_revision`, o el error (p. ej. `409` si la guía ya fue registrada por otra sede — con un popup nativo además del texto en pantalla).
+1. El operador inicia sesión eligiendo **sede → PIN** (sin usuario/contraseña — ver abajo). La sede elegida en el login pasa a ser la sede de trabajo de esa sesión, no necesariamente la del perfil del empleado (permite cubrir turno en otra sede).
+2. Toma la foto (`expo-image-picker`).
+3. `subirEvidencia()` (`api.ts`) la sube al bucket `evidencia` de Supabase Storage y calcula un hash SHA-256 del contenido.
+4. `procesarEntrega()` llama a `POST /entregas/procesar` del backend con la URL pública + el hash.
+5. La UI muestra el resultado: `procesada`, `pendiente_revision`, o el error (p. ej. `409` si la guía ya fue registrada por otra sede — con un popup nativo además del texto en pantalla).
 
-## Login por PIN
+## Login por sede + PIN
 
-Sin correo ni contraseña — cada empleado tiene un PIN de 4 a 6 dígitos. El PIN nunca se guarda en texto plano (PBKDF2-HMAC-SHA256 + sal por empleado, ver `apps/backend/app/services/auth_pin.py`).
+Sin correo ni contraseña. El login tiene dos pasos (`PantallaLogin.tsx`): elegir sede (`GET /sedes`) y confirmar con el PIN de 4 a 6 dígitos, que identifica al empleado (no hace falta elegirlo aparte). El PIN nunca se guarda en texto plano (PBKDF2-HMAC-SHA256 + sal por empleado, ver `apps/backend/app/services/auth_pin.py`).
 
 **Crear un empleado** (hasta que exista una pantalla de administración):
 

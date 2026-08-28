@@ -62,8 +62,9 @@ _EXTRACTION_SCHEMA = {
             "properties": {
                 "tipo": {"type": "number"},
                 "indicativo_numero": {"type": "number"},
+                "items": {"type": "number"},
             },
-            "required": ["tipo", "indicativo_numero"],
+            "required": ["tipo", "indicativo_numero", "items"],
             "additionalProperties": False,
         },
     },
@@ -92,7 +93,11 @@ _EXTRACTION_PROMPT = (
     "concepto; si no existe ese campo, usa cadena vacia. Para tipo e "
     "indicativo_numero asigna un score de confianza entre 0 y 1 segun que "
     "tan legible/clara estaba esa parte de la imagen -- si no es legible, "
-    "usa cadena vacia y confianza baja en vez de inventar un valor."
+    "usa cadena vacia y confianza baja en vez de inventar un valor. Asigna "
+    "tambien un score de confianza entre 0 y 1 para items en conjunto (no "
+    "uno por producto): que tan legibles estaban los nombres y cantidades "
+    "de la lista completa -- baja si la letra es chica, borrosa, o el papel "
+    "esta doblado/manchado justo en esa zona."
 )
 
 

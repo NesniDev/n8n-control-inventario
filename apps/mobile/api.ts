@@ -95,7 +95,8 @@ export interface Empleado {
   rol: 'operador' | 'supervisor' | 'admin';
 }
 
-/** Login sin correo/contrasena: solo un PIN de 4 a 6 digitos. */
+/** Login sin correo/contrasena: solo un PIN de 4 a 6 digitos -- identifica
+ * al empleado (ver POST /auth/pin en el backend). */
 export async function loginConPin(pin: string): Promise<Empleado> {
   const res = await fetch(`${API_BASE_URL}/auth/pin`, {
     method: 'POST',
@@ -215,7 +216,7 @@ export async function cancelarEntrega(entregaId: string, operadorId: string, sed
  */
 export async function confirmarItems(
   entregaId: string,
-  items: ({ id: string; nota?: string; descripcion?: string } & (
+  items: ({ id: string; nota?: string; descripcion?: string; cantidad_entregada?: number } & (
     | { cantidad_pendiente: number }
     | { entregado_hoy: number }
     | {}

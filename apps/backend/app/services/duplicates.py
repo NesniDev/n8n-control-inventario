@@ -123,6 +123,7 @@ async def procesar_extraccion(
     min_confidence: float,
     traslado_url: str | None = None,
     concepto_traslado: str | None = None,
+    items_traslado: list[dict] | None = None,
 ) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
@@ -138,7 +139,10 @@ async def procesar_extraccion(
       "necesita_traslado" (id=None) con lo que leyo la IA. Esto SOLO aplica
       al crear el documento -- una vez aceptado (con o sin traslado), el
       resto del ciclo (confirmar cantidades, devoluciones) sigue sin
-      restriccion de sede, igual que hoy.
+      restriccion de sede, igual que hoy. Si el traslado SI se acepta y la
+      factura se leyo con poca confianza en los items, se insertan los
+      productos leidos del traslado en vez de los de la factura (ver
+      confianza_items mas abajo).
     - Ya existia y le queda algo pendiente en cualquier item -> "actualizable",
       no se escribe nada todavia, se devuelven los items tal cual estan.
     - Ya existia y todo esta en pendiente=0 -> EntregaDuplicada (409).
@@ -196,6 +200,19 @@ async def procesar_extraccion(
                         )
                         if not traslado_valido:
                             raise _NecesitaTraslado()
+
+                        confianza_items = (extraido.get("confianza") or {}).get("items", 1.0)
+                        if confianza_items < min_confidence and items_traslado:
+                            # La factura no se leyo bien (nombres/cantidades
+                            # poco legibles) y el traslado ya fue validado
+                            # por numero -- se usan sus productos en vez de
+                            # los de la factura, que en la practica suelen
+                            # verse mejor en la guia de traslado. Reemplazo
+                            # de la lista completa, no item por item
+                            # (emparejar dos listas leidas por separado por
+                            # OCR es fragil, misma razon por la que se
+                            # descarto _items_coinciden).
+                            items_extraidos = items_traslado
 
                 items: list[ItemEntrega] = []
                 for it in items_extraidos:
