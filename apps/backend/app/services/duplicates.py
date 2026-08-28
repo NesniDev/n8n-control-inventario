@@ -57,19 +57,26 @@ _TIPO_SEDE_DUENA = {
 }
 
 
-def _concepto_referencia_factura(indicativo_numero: str, concepto_traslado: str) -> bool:
+def _concepto_referencia_factura(tipo: str, indicativo_numero: str, concepto_traslado: str) -> bool:
     """El concepto de la guia de traslado (campo de texto libre del
     documento, ver 'concepto' en vision._EXTRACTION_SCHEMA) debe mencionar
-    el numero de la factura para la que se pide la excepcion de sede -- ni
-    el tipo (la guia es TB, la factura no, asi que nunca van a coincidir)
-    ni los productos, solo el numero. Substring normalizado (upper + strip)
-    en vez de igualdad exacta: el concepto es texto libre, puede traer
-    prefijos/palabras alrededor del numero (ej. "Traslado factura FEI
-    10254", "Ref. 10254")."""
+    el identificador de la factura para la que se pide la excepcion de sede
+    -- no el tipo de la guia en si (que es TB, no el de la factura, asi que
+    comparar el tipo del TRASLADO nunca coincidiria), sino la referencia
+    "TIPO-INDICATIVO" tal como aparece impresa en el documento fisico (ej.
+    "FEI-21542", con guion, no espacio). Buscar solo el numero suelto daria
+    falsos positivos con cualquier numero que aparezca en el concepto por
+    otro motivo -- el identificador completo es mucho mas dificil que
+    coincida por casualidad con un traslado ajeno.
+
+    Substring normalizado (upper + strip) en vez de igualdad exacta: el
+    concepto es texto libre, puede traer palabras alrededor (ej. "Traslado
+    por factura FEI-21542 a bodega central")."""
     numero = indicativo_numero.strip().upper()
     if not numero:
         return False
-    return numero in concepto_traslado.strip().upper()
+    identificador = f"{tipo.strip().upper()}-{numero}"
+    return identificador in concepto_traslado.strip().upper()
 
 
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
@@ -185,7 +192,7 @@ async def procesar_extraccion(
                     sede_no_coincide = fila_sede is None or fila_sede["codigo"] != dueno_esperado
                     if sede_no_coincide:
                         traslado_valido = traslado_url is not None and _concepto_referencia_factura(
-                            indicativo_numero, concepto_traslado or ""
+                            tipo, indicativo_numero, concepto_traslado or ""
                         )
                         if not traslado_valido:
                             raise _NecesitaTraslado()
