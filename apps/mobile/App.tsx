@@ -31,7 +31,6 @@ import {
   cancelarEntrega,
   confirmarItems,
   fetchHistorialEntrega,
-  fetchSedes,
   procesarEntrega,
   registrarDevolucion,
   subirEvidencia,
@@ -316,7 +315,9 @@ function VisorFotoZoom({ uri, onCerrar }: { uri: string; onCerrar: () => void })
 }
 
 export default function App() {
-  const [empleado, setEmpleado] = useState<Empleado | null>(null);
+  // Sede y empleado se resuelven juntos en el login (ver PantallaLogin) --
+  // un solo estado evita un instante con empleado seteado y sede todavia no.
+  const [sesion, setSesion] = useState<{ empleado: Empleado; sede: Sede } | null>(null);
   // Space Grotesk (titulos/labels/numeros) + Manrope (texto de cuerpo) --
   // ver los consts FUENTE_* mas abajo. Se cargan una sola vez aca arriba,
   // antes de login o captura, para que ninguna pantalla renderice con la
@@ -340,18 +341,26 @@ export default function App() {
     );
   }
 
-  if (!empleado) {
-    return <PantallaLogin onLogin={setEmpleado} />;
+  if (!sesion) {
+    return <PantallaLogin onLogin={(empleado, sede) => setSesion({ empleado, sede })} />;
   }
 
-  return <PantallaCaptura empleado={empleado} onCerrarSesion={() => setEmpleado(null)} />;
+  return (
+    <PantallaCaptura
+      empleado={sesion.empleado}
+      sede={sesion.sede}
+      onCerrarSesion={() => setSesion(null)}
+    />
+  );
 }
 
 function PantallaCaptura({
   empleado,
+  sede,
   onCerrarSesion,
 }: {
   empleado: Empleado;
+  sede: Sede;
   onCerrarSesion: () => void;
 }) {
   const [foto, setFoto] = useState<string | null>(null);
@@ -371,9 +380,9 @@ function PantallaCaptura({
   const [fase, setFase] = useState<Fase>('captura');
   const [mensaje, setMensaje] = useState('');
   const [cargando, setCargando] = useState(false);
-  const [sedes, setSedes] = useState<Sede[]>([]);
-  const [sedeSeleccionada, setSedeSeleccionada] = useState<Sede | null>(null);
-  const [errorSedes, setErrorSedes] = useState<string | null>(null);
+  // La sede de trabajo ya se eligio en el login (PantallaLogin) -- puede no
+  // ser la sede del perfil del empleado (ej. cubriendo turno en otra).
+  const sedeSeleccionada = sede;
 
   // Datos de la evidencia ya subida, necesarios para el paso 2.
   const [entregaId, setEntregaId] = useState<string | null>(null);
@@ -409,23 +418,6 @@ function PantallaCaptura({
   const [tipoBusqueda, setTipoBusqueda] = useState<string>('FEI');
   const [tipoBusquedaCustom, setTipoBusquedaCustom] = useState(false);
   const [indicativoBusqueda, setIndicativoBusqueda] = useState('');
-
-  useEffect(() => {
-    fetchSedes()
-      .then((lista) => {
-        setSedes(lista);
-        // El operador solo despacha desde la sede a la que pertenece su
-        // login (empleado.sede_id) -- no se deja elegir otra, para que no
-        // quede una entrega registrada bajo la sede equivocada.
-        const propia = lista.find((s) => s.id === empleado.sede_id);
-        if (propia) {
-          setSedeSeleccionada(propia);
-        } else {
-          setErrorSedes('No se encontro la sede de este operador.');
-        }
-      })
-      .catch((err) => setErrorSedes(err?.message ?? 'No se pudieron cargar las sedes'));
-  }, [empleado.sede_id]);
 
   const usarResultado = (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
@@ -942,28 +934,18 @@ function PantallaCaptura({
               </Pressable>
             ) : null}
             {/* Sede + operador compactados en un solo recuadro -- la sede ya
-                no se elige (ver el efecto que busca por empleado.sede_id),
-                asi que no hace falta la tarjeta aparte que habia antes. */}
+                llega elegida por props desde el login, no hace falta la
+                tarjeta aparte que habia antes. */}
             <View style={styles.recuadroIdentidad}>
-              {errorSedes ? (
-                <Text style={styles.textoErrorInline} numberOfLines={1}>
-                  {errorSedes}
-                </Text>
-              ) : !sedeSeleccionada ? (
-                <ActivityIndicator size="small" color={ACENTO} />
-              ) : (
-                <>
-                  <Ionicons name="location" size={14} color={ACENTO} />
-                  <Text style={styles.recuadroSedeTexto} numberOfLines={1}>
-                    {sedeSeleccionada.nombre}
-                  </Text>
-                  <Text style={styles.recuadroDivisor}>·</Text>
-                  <Ionicons name="person-outline" size={13} color={NEUTRAL_400} />
-                  <Text style={styles.recuadroOperadorTexto} numberOfLines={1}>
-                    {empleado.nombre}
-                  </Text>
-                </>
-              )}
+              <Ionicons name="location" size={14} color={ACENTO} />
+              <Text style={styles.recuadroSedeTexto} numberOfLines={1}>
+                {sedeSeleccionada.nombre}
+              </Text>
+              <Text style={styles.recuadroDivisor}>·</Text>
+              <Ionicons name="person-outline" size={13} color={NEUTRAL_400} />
+              <Text style={styles.recuadroOperadorTexto} numberOfLines={1}>
+                {empleado.nombre}
+              </Text>
             </View>
             <Pressable
               onPress={() => {
