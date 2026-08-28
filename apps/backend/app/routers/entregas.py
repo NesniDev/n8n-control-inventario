@@ -108,12 +108,14 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
     # duplicates.py); una foto de traslado que no referencia esta factura no
     # debe destrabar la restriccion de sede.
     concepto_traslado = None
+    items_traslado = None
     if payload.traslado_url:
         try:
             extraido_traslado = await extraer_datos_guia(payload.traslado_url)
         except ExtraccionFallida as exc:
             raise HTTPException(status_code=422, detail=f"No se pudo leer el traslado: {exc}") from exc
         concepto_traslado = (extraido_traslado.get("concepto") or "").strip()
+        items_traslado = extraido_traslado.get("items") or []
 
     try:
         situacion, entrega_id, items, estado, tipo = await procesar_extraccion(
@@ -126,6 +128,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             min_confidence=settings.min_confidence,
             traslado_url=payload.traslado_url,
             concepto_traslado=concepto_traslado,
+            items_traslado=items_traslado,
         )
     except EntregaDuplicada as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
