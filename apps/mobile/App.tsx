@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import Signature from 'react-native-signature-canvas';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
 import {
@@ -34,6 +35,7 @@ import {
   procesarEntrega,
   registrarDevolucion,
   subirEvidencia,
+  subirFirma,
   type Empleado,
   type ItemEntrega,
   type LogEntry,
@@ -48,8 +50,12 @@ import PantallaLogin from './PantallaLogin';
 // confirmando: el bodeguero ve los productos y carga cantidades (paso 2) --
 // llega aca tanto desde 'captura' (documento nuevo o re-escaneado) como
 // desde 'buscar' (consulta directa, siempre situacion 'actualizable').
+// firma: solo cuando de verdad hay un cambio de cantidades (se esta
+// entregando algo) -- el cliente firma en pantalla antes de guardar, es
+// obligatorio (ver Signature mas abajo). No aplica al camino "Guardar nota"
+// (itemsConCambioCantidad.length === 0), que no es un evento de entrega.
 // resultado: pantalla final (procesada / pendiente de revision / error).
-type Fase = 'captura' | 'buscar' | 'confirmando' | 'resultado';
+type Fase = 'captura' | 'buscar' | 'confirmando' | 'firma' | 'resultado';
 type EstadoFinal = 'procesada' | 'pendiente_revision' | 'error';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
@@ -390,6 +396,12 @@ function PantallaCaptura({
   const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
   const [items, setItems] = useState<ItemFormulario[]>([]);
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
+  // Firma del cliente (fase 'firma') -- data URI base64 que entrega
+  // <Signature onOK>. Se manda a subirFirma recien al guardar (confirmar()).
+  const [firmaBase64, setFirmaBase64] = useState<string | null>(null);
+  // Mensaje cuando el cliente toca "Guardar firma" sin haber dibujado nada
+  // (onEmpty de <Signature>) -- la firma es obligatoria, no se avanza.
+  const [errorFirma, setErrorFirma] = useState<string | null>(null);
   // Ids de items con el editor de nota abierto (ver alternarNota).
   const [notasAbiertas, setNotasAbiertas] = useState<Set<string>>(new Set());
   // Ids de items con el editor del nombre del producto abierto -- la IA a
@@ -612,8 +624,12 @@ function PantallaCaptura({
 
   // Paso 2: confirma lo que cargo el bodeguero por producto (ver
   // itemsAEnviar: para 'nueva' van todos, para 'actualizable' solo los que
-  // de verdad traen un cambio).
-  const confirmar = async () => {
+  // de verdad traen un cambio). firmaFirmada llega directo desde el onOK de
+  // <Signature> (ver fase 'firma') -- no alcanza con leer el estado
+  // firmaBase64 aca: setFirmaBase64 y la llamada a confirmar() pasan en el
+  // mismo evento, y confirmar todavia ve el closure viejo (null) hasta el
+  // proximo render. Si no viene (camino "Guardar nota"), sigue sin firma.
+  const confirmar = async (firmaFirmada?: string) => {
     if (!entregaId || !situacion) return;
     setCargando(true);
     setMensaje('Guardando...');
@@ -650,6 +666,16 @@ function PantallaCaptura({
             }
           : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota, descripcion };
       });
+
+      const firma = firmaFirmada ?? firmaBase64;
+      let firmaUrl: string | undefined;
+      if (firma) {
+        setMensaje('Subiendo firma...');
+        const subida = await subirFirma(entregaId, firma);
+        firmaUrl = subida.url;
+        setMensaje('Guardando...');
+      }
+
       await confirmarItems(
         entregaId,
         payload,
@@ -658,7 +684,8 @@ function PantallaCaptura({
         // Si se llego por 'buscar' no hay foto nueva -- el backend trata un
         // string vacio como "no actualizar evidencia" (ver aplicar_actualizacion_items).
         evidenciaActual?.url ?? '',
-        evidenciaActual?.hash ?? ''
+        evidenciaActual?.hash ?? '',
+        firmaUrl
       );
       setFase('resultado');
       setMensaje(
@@ -837,6 +864,8 @@ function PantallaCaptura({
     setEstadoFinal(null);
     setItems([]);
     setEvidenciaActual(null);
+    setFirmaBase64(null);
+    setErrorFirma(null);
     setIndicativoBusqueda('');
     setNotasAbiertas(new Set());
     setDevolucionesAbiertas(new Set());
@@ -868,11 +897,12 @@ function PantallaCaptura({
 
   // Boton de volver del header -- consistente en todas las pestañas menos
   // 'captura' (esa es la pantalla inicial, no hay a donde volver). En
-  // 'confirmando' tiene que pasar por cancelarConfirmacion (deshace el
-  // insert de una entrega 'nueva' sin confirmar); en el resto alcanza con
-  // reiniciar.
+  // 'confirmando' Y 'firma' (la firma es un paso intermedio de la misma
+  // confirmacion todavia sin guardar) tiene que pasar por
+  // cancelarConfirmacion (deshace el insert de una entrega 'nueva' sin
+  // confirmar); en el resto alcanza con reiniciar.
   const volverAtras = () => {
-    if (fase === 'confirmando') {
+    if (fase === 'confirmando' || fase === 'firma') {
       cancelarConfirmacion();
     } else {
       reiniciar();
@@ -1535,7 +1565,17 @@ function PantallaCaptura({
                     !puedeConfirmar && styles.botonDeshabilitado,
                     pressed && puedeConfirmar && styles.botonPresionado,
                   ]}
-                  onPress={confirmar}
+                  onPress={
+                    // Solo hay firma cuando de verdad se esta entregando algo
+                    // (itemsConCambioCantidad.length > 0) -- "Guardar nota" no
+                    // es un evento de entrega, sigue llamando confirmar directo.
+                    itemsConCambioCantidad.length === 0
+                      ? () => confirmar()
+                      : () => {
+                          setErrorFirma(null);
+                          setFase('firma');
+                        }
+                  }
                 >
                   <ContenidoBoton
                     icono={itemsConCambioCantidad.length === 0 ? 'document-text-outline' : 'checkmark-circle-outline'}
@@ -1559,6 +1599,53 @@ function PantallaCaptura({
                   texto={itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}
                   color={NEUTRAL_400}
                 />
+              </Pressable>
+            </View>
+          </>
+        ) : null}
+
+        {fase === 'firma' ? (
+          <>
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Firma del cliente</Text>
+              <Text style={styles.previewSubtexto}>
+                Pedile al cliente que firme con el dedo para confirmar que recibió los productos.
+              </Text>
+              <View style={styles.firmaContenedor}>
+                <Signature
+                  onOK={(firma) => {
+                    setErrorFirma(null);
+                    setFirmaBase64(firma);
+                    // Se llama con la firma en si (no el estado, todavia no
+                    // se actualizo -- ver comentario en confirmar()).
+                    confirmar(firma);
+                  }}
+                  onEmpty={() => setErrorFirma('Pedile al cliente que firme antes de continuar')}
+                  descriptionText="Firmá dentro del recuadro"
+                  clearText="Borrar"
+                  confirmText="Guardar firma"
+                  penColor={NEUTRAL_900}
+                  backgroundColor="#ffffff"
+                  webStyle={ESTILO_WEB_FIRMA}
+                />
+              </View>
+              {errorFirma ? <Text style={styles.textoErrorInline}>{errorFirma}</Text> : null}
+            </View>
+
+            {cargando ? (
+              <View style={[styles.tarjeta, styles.estadoBox]}>
+                <ActivityIndicator color="#c8631f" />
+                <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.acciones}>
+              <Pressable
+                disabled={cargando}
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+                onPress={() => setFase('confirmando')}
+              >
+                <ContenidoBoton icono="chevron-back-outline" texto="Volver" color={NEUTRAL_400} />
               </Pressable>
             </View>
           </>
@@ -1604,6 +1691,35 @@ const NEUTRAL_500 = '#6b7688'; // texto terciario
 const NEUTRAL_400 = '#9aa3b5'; // texto secundario
 const TEXTO_PRIMARIO = '#f5f3ef'; // blanco calido, no #fff puro
 const ACENTO = '#c8631f';
+
+// CSS inyectado dentro del <style> del WebView de <Signature> (ver
+// h5/html.js del paquete) -- el fondo del canvas en si queda blanco
+// (backgroundColor="#ffffff" en el uso mas abajo, asi la firma exportada se
+// ve igual sin importar donde se abra despues), pero el resto del WebView
+// (borde, footer, botones) sigue la paleta oscura del resto de la app.
+const ESTILO_WEB_FIRMA = `
+  body, html { background-color: ${NEUTRAL_800}; }
+  .m-signature-pad {
+    box-shadow: none;
+    border: 1px solid ${NEUTRAL_700};
+    border-radius: 12px;
+  }
+  .m-signature-pad--footer .description {
+    color: ${NEUTRAL_400};
+    font-family: Helvetica, sans-serif;
+  }
+  .m-signature-pad--footer .button {
+    border-radius: 8px;
+    font-family: Helvetica, sans-serif;
+    font-weight: 600;
+  }
+  .m-signature-pad--footer .button.save {
+    background-color: ${ACENTO};
+  }
+  .m-signature-pad--footer .button.clear {
+    background-color: ${NEUTRAL_700};
+  }
+`;
 
 // Space Grotesk para titulos/labels/numeros (caracter tecnico, va bien con
 // cantidades); Manrope para texto de cuerpo (mas calido, legible en chico).
@@ -1771,6 +1887,15 @@ const styles = StyleSheet.create({
   chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_BOLD },
   chipSedeTextoActivo: { color: TEXTO_PRIMARIO },
   preview: { width: '100%', height: 300, borderRadius: 14, backgroundColor: NEUTRAL_800 },
+  // <Signature> renderiza un WebView por dentro -- necesita una altura fija
+  // explicita en el contenedor, un WebView no crece solo con el contenido.
+  firmaContenedor: {
+    width: '100%',
+    height: 320,
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 10,
+  },
   iconoAmpliar: {
     position: 'absolute',
     top: 10,
