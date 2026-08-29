@@ -204,6 +204,7 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
             sede_id=payload.sede_id,
             evidencia_url=payload.evidencia_url,
             hash_evidencia=payload.hash_evidencia,
+            firma_url=payload.firma_url,
         )
     except CantidadInvalida as exc:
         # 422 y no 502/503/504: el proxy de EasyPanel (Traefik) intercepta esos

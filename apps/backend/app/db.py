@@ -96,6 +96,11 @@ alter table entregas add column if not exists indicativo_numero text not null de
 -- Foto de respaldo cuando el tipo pertenece a otra sede (ej. FEI escaneado
 -- desde Polo Sur) -- ver _TIPO_SEDE_DUENA en app/services/duplicates.py.
 alter table entregas add column if not exists traslado_url text;
+-- Firma del cliente al confirmar la entrega (paso 2, PATCH /entregas/{id}/items)
+-- -- foto en si vive en Storage (bucket evidencia, subpath firmas/), aca solo
+-- la URL publica. Null si el guardado fue "Guardar nota" (sin cambio de
+-- cantidades, no es un evento de entrega -- ver aplicar_actualizacion_items).
+alter table entregas add column if not exists firma_url text;
 -- Migracion a items por entrega (un documento puede traer varios productos):
 -- cantidad_entregada/cantidad_pendiente/detalle (si existian de una version
 -- anterior) se mudan a entrega_items.

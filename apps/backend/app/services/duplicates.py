@@ -308,6 +308,7 @@ async def aplicar_actualizacion_items(
     sede_id: str,
     evidencia_url: str | None = None,
     hash_evidencia: str | None = None,
+    firma_url: str | None = None,
 ) -> list[ItemEntrega]:
     """Paso 2: confirma una entrega nueva (cantidad_pendiente absoluta) o
     aplica una actualizacion incremental (entregado_hoy, sumado/restado
@@ -390,6 +391,13 @@ async def aplicar_actualizacion_items(
                     entrega_id,
                     evidencia_url,
                     hash_evidencia,
+                )
+
+            if firma_url:
+                await conn.execute(
+                    "update entregas set firma_url = $2, actualizado_at = now() where id = $1::uuid",
+                    entrega_id,
+                    firma_url,
                 )
 
             items_actualizados = await _items_de_entrega(conn, entrega_id)

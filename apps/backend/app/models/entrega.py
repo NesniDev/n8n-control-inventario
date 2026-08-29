@@ -146,3 +146,7 @@ class ActualizarItemsRequest(BaseModel):
     sede_id: str
     evidencia_url: str | None = None
     hash_evidencia: str | None = None
+    # Firma del cliente (dibujada en pantalla) -- solo viene cuando se
+    # confirmaron cantidades desde el movil (no en "Guardar nota" ni en
+    # correcciones del dashboard, ver App.tsx).
+    firma_url: str | None = None
