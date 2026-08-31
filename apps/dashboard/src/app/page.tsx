@@ -262,6 +262,16 @@ function FilaRevision({
             >
               Ver foto original ↗
             </a>
+            {entrega.firma_url ? (
+              <a
+                href={entrega.firma_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-orange-400 hover:underline"
+              >
+                Ver firma ↗
+              </a>
+            ) : null}
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs text-neutral-500">

@@ -31,6 +31,11 @@ export interface Entrega {
   operador_id: string;
   confianza_ia: Record<string, number>;
   evidencia_url: string;
+  // Firma del cliente al confirmar la entrega desde el movil (paso 2) --
+  // ausente cuando el guardado fue "Guardar nota" (sin cambio de
+  // cantidades, no es un evento de entrega) o en entregas anteriores a esta
+  // funcionalidad.
+  firma_url?: string | null;
   capturado_at: string;
 }
 

@@ -154,6 +154,29 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
 }
 
 /**
+ * Sube la firma del cliente (dibujada con el dedo, ver <Signature> en
+ * App.tsx) al mismo bucket que la evidencia, en su propio subpath. A
+ * diferencia de subirEvidencia, recibe un data URI base64 ya en memoria
+ * (react-native-signature-canvas entrega el PNG asi, no un uri de archivo).
+ * upsert: true porque el path es por entregaId, no por hash de contenido --
+ * una re-firma pisa la anterior, no hace falta dedup.
+ */
+export async function subirFirma(entregaId: string, base64Png: string): Promise<{ url: string }> {
+  const base64 = base64Png.replace(/^data:image\/png;base64,/, '');
+  const path = `firmas/${entregaId}.png`;
+  const { error } = await supabase.storage
+    .from(EVIDENCIA_BUCKET)
+    .upload(path, decode(base64), { contentType: 'image/png', upsert: true });
+
+  if (error) {
+    throw new Error(`No se pudo subir la firma: ${error.message}`);
+  }
+
+  const { data } = supabase.storage.from(EVIDENCIA_BUCKET).getPublicUrl(path);
+  return { url: data.publicUrl };
+}
+
+/**
  * Paso 1: identifica el documento (IA de vision) y devuelve sus productos --
  * creandolo si no existia. No hace falta mandar cantidades aca, eso se
  * confirma en el paso 2 (confirmarItems) una vez que el bodeguero ve la
@@ -224,7 +247,10 @@ export async function confirmarItems(
   operadorId: string,
   sedeId: string,
   evidenciaUrl: string,
-  hashEvidencia: string
+  hashEvidencia: string,
+  // URL publica de la firma del cliente -- solo viene cuando se confirmaron
+  // cantidades desde el movil (fase 'firma' en App.tsx), no en "Guardar nota".
+  firmaUrl?: string
 ): Promise<{ id: string; items: ItemEntrega[] }> {
   const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
     method: 'PATCH',
@@ -235,6 +261,7 @@ export async function confirmarItems(
       sede_id: sedeId,
       evidencia_url: evidenciaUrl,
       hash_evidencia: hashEvidencia,
+      firma_url: firmaUrl,
     }),
   });
 
