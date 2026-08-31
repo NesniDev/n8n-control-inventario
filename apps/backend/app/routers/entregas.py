@@ -116,6 +116,20 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             raise HTTPException(status_code=422, detail=f"No se pudo leer el traslado: {exc}") from exc
         concepto_traslado = (extraido_traslado.get("concepto") or "").strip()
         items_traslado = extraido_traslado.get("items") or []
+        await registrar_evento(
+            EventoLog.EXTRACCION_IA,
+            entidad_tipo="entrega",
+            entidad_id=payload.hash_evidencia,
+            actor_id=payload.operador_id,
+            sede_id=payload.sede_origen_id,
+            resultado="ok",
+            detalle={
+                "origen": "traslado",
+                "tipo": extraido_traslado.get("tipo"),
+                "indicativo_numero": extraido_traslado.get("indicativo_numero"),
+                "concepto": concepto_traslado,
+            },
+        )
 
     try:
         situacion, entrega_id, items, estado, tipo = await procesar_extraccion(

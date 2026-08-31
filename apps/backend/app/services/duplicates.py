@@ -6,6 +6,7 @@ puede haber dos "FEI 10254". Un documento puede traer varios productos
 pendiente en cualquier item, se devuelve para actualizar en vez de bloquear.
 """
 
+import re
 from datetime import datetime
 
 import asyncpg
@@ -71,12 +72,16 @@ def _concepto_referencia_factura(tipo: str, indicativo_numero: str, concepto_tra
 
     Substring normalizado (upper + strip) en vez de igualdad exacta: el
     concepto es texto libre, puede traer palabras alrededor (ej. "Traslado
-    por factura FEI-21542 a bodega central")."""
+    por factura FEI-21542 a bodega central"). Tambien se colapsan los
+    espacios pegados a un guion (tipico ruido de OCR: "FEI - 21542",
+    "FEI -21542") -- sigue exigiendo el guion en si, no se relaja a buscar
+    el numero suelto (eso ya se descarto por dar falsos positivos)."""
     numero = indicativo_numero.strip().upper()
     if not numero:
         return False
     identificador = f"{tipo.strip().upper()}-{numero}"
-    return identificador in concepto_traslado.strip().upper()
+    concepto_normalizado = re.sub(r"\s*-\s*", "-", concepto_traslado.strip().upper())
+    return identificador in concepto_normalizado
 
 
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
