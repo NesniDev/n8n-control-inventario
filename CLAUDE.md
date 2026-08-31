@@ -142,3 +142,7 @@ Backend and n8n run on a VPS (EasyPanel); the dashboard is meant for Vercel but 
 README's "Estado del scaffold" for the current-vs-pending checklist). The backend's EasyPanel service has
 `autoDeploy: false` — a push to `main` does **not** auto-deploy; deploys are triggered manually from the
 EasyPanel panel/API until the deploy webhook is wired up.
+
+Cada PR que toque `apps/backend` y valga la pena poder verificar sin entrar al panel debe bumpear
+`_BUILD_MARCADOR` en `app/main.py` (ver `GET /health`) -- es la única forma de confirmar desde afuera que
+un deploy tomó el commit esperado, dado que el Dockerfile no tiene acceso a `.git` en build time.
