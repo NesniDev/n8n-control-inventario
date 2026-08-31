@@ -47,6 +47,13 @@ export interface ResultadoEnvio {
   // FEI (factura) / TB (traslado) / RM3 / RM2 (remision).
   tipo: string;
   items: ItemEntrega[];
+  // Solo viene en la respuesta de buscarEntrega (GET /entregas/buscar, que
+  // hace select e.* e incluye toda la fila) -- ausente en la respuesta de
+  // procesarEntrega (POST /entregas/procesar, que arma el JSON a mano sin
+  // este campo). Presente solo si la entrega ya fue confirmada con firma
+  // (ver PATCH /entregas/{id}/items); ausente en un documento recien creado
+  // o confirmado con "Guardar nota".
+  firma_url?: string | null;
 }
 
 export interface ErrorEnvio {
