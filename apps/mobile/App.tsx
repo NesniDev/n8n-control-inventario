@@ -396,6 +396,10 @@ function PantallaCaptura({
   const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
   const [items, setItems] = useState<ItemFormulario[]>([]);
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
+  // Firma ya guardada de una entrega consultada por "Consultar factura" --
+  // solo viene de buscarEntrega (ver ResultadoEnvio.firma_url en api.ts),
+  // no del flujo normal de foto.
+  const [firmaUrlConsultada, setFirmaUrlConsultada] = useState<string | null>(null);
   // Firma del cliente (fase 'firma') -- data URI base64 que entrega
   // <Signature onOK>. Se manda a subirFirma recien al guardar (confirmar()).
   const [firmaBase64, setFirmaBase64] = useState<string | null>(null);
@@ -611,6 +615,7 @@ function PantallaCaptura({
         }))
       );
       setEvidenciaActual(null);
+      setFirmaUrlConsultada(resultado.firma_url ?? null);
       setFase('confirmando');
       setMensaje('');
     } catch (err: any) {
@@ -864,6 +869,7 @@ function PantallaCaptura({
     setEstadoFinal(null);
     setItems([]);
     setEvidenciaActual(null);
+    setFirmaUrlConsultada(null);
     setFirmaBase64(null);
     setErrorFirma(null);
     setIndicativoBusqueda('');
@@ -1225,6 +1231,14 @@ function PantallaCaptura({
                     ? 'Ya se entregó todo lo de este documento.'
                     : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
               </Text>
+              {firmaUrlConsultada ? (
+                <Pressable onPress={() => setFotoAmpliada(firmaUrlConsultada)}>
+                  <Image source={{ uri: firmaUrlConsultada }} style={styles.preview} resizeMode="contain" />
+                  <View style={styles.iconoAmpliar}>
+                    <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                  </View>
+                </Pressable>
+              ) : null}
             </View>
 
             {items.map((item) => {
@@ -1889,11 +1903,15 @@ const styles = StyleSheet.create({
   preview: { width: '100%', height: 300, borderRadius: 14, backgroundColor: NEUTRAL_800 },
   // <Signature> renderiza un WebView por dentro -- necesita una altura fija
   // explicita en el contenedor, un WebView no crece solo con el contenido.
+  // Alto generoso y sin overflow:hidden -- el WebView interno de
+  // react-native-signature-canvas pinta el pad + texto + footer con los
+  // botones "Borrar"/"Guardar firma"; si ese contenido no entraba en el
+  // alto anterior (320), overflow:hidden recortaba el footer entero,
+  // dejando el boton de guardar invisible (existia en el DOM, tapado).
   firmaContenedor: {
     width: '100%',
-    height: 320,
+    height: 460,
     borderRadius: 14,
-    overflow: 'hidden',
     marginTop: 10,
   },
   iconoAmpliar: {
