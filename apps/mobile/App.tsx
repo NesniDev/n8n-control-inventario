@@ -182,6 +182,15 @@ function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial
   return eventos;
 }
 
+// "FEI-152754" tal como aparece impreso en el documento -- se muestra al
+// operador para que detecte a tiempo un numero mal leido por la IA (ver
+// backend/duplicates._identificador, misma idea pero con guion en vez de
+// espacio). null si falta algun dato, para no mostrar un badge roto tipo "FEI-".
+const formatearIdentificador = (tipo: string, indicativoNumero: string): string | null => {
+  if (!tipo || !indicativoNumero) return null;
+  return `${tipo}-${indicativoNumero}`;
+};
+
 // Contenido icono+texto reusado en todos los botones -- iconos de
 // @expo/vector-icons en vez de emojis, mismo look consistente en toda la app.
 function ContenidoBoton({
@@ -381,7 +390,11 @@ function PantallaCaptura({
   // backend igual devolvio necesita_traslado -- significa que el concepto de
   // esa foto no menciona el numero de esta factura (ver
   // _concepto_referencia_factura en el backend), no que falte adjuntar una.
-  const [necesitaTraslado, setNecesitaTraslado] = useState<{ tipo: string; rechazado: boolean } | null>(null);
+  const [necesitaTraslado, setNecesitaTraslado] = useState<{
+    tipo: string;
+    indicativo_numero: string;
+    rechazado: boolean;
+  } | null>(null);
   const [fotoTraslado, setFotoTraslado] = useState<string | null>(null);
   const [fase, setFase] = useState<Fase>('captura');
   const [mensaje, setMensaje] = useState('');
@@ -394,6 +407,13 @@ function PantallaCaptura({
   const [entregaId, setEntregaId] = useState<string | null>(null);
   const [situacion, setSituacion] = useState<'nueva' | 'actualizable' | null>(null);
   const [estadoFinal, setEstadoFinal] = useState<EstadoFinal | null>(null);
+  // Identificador ("FEI-152754") que leyo la IA para la entrega actual --
+  // se muestra junto a "Evidencia" y en el header de confirmacion (ver
+  // formatearIdentificador).
+  const [documentoIdentificado, setDocumentoIdentificado] = useState<{
+    tipo: string;
+    indicativo_numero: string;
+  } | null>(null);
   const [items, setItems] = useState<ItemFormulario[]>([]);
   const [evidenciaActual, setEvidenciaActual] = useState<{ url: string; hash: string } | null>(null);
   // Firma ya guardada de una entrega consultada por "Consultar factura" --
@@ -442,6 +462,7 @@ function PantallaCaptura({
       // ese aviso ya no aplica (es de OTRO documento).
       setNecesitaTraslado(null);
       setFotoTraslado(null);
+      setDocumentoIdentificado(null);
       setFase('captura');
       setMensaje('');
     }
@@ -541,7 +562,11 @@ function PantallaCaptura({
 
       if (resultado.situacion === 'necesita_traslado') {
         const yaHabiaTraslado = !!trasladoUrl;
-        setNecesitaTraslado({ tipo: resultado.tipo, rechazado: yaHabiaTraslado });
+        setNecesitaTraslado({
+          tipo: resultado.tipo,
+          indicativo_numero: resultado.indicativo_numero,
+          rechazado: yaHabiaTraslado,
+        });
         if (yaHabiaTraslado) {
           // La foto que se mando no correspondia a esta factura -- se
           // limpia para obligar a elegir una nueva, no reintentar la misma.
@@ -556,6 +581,7 @@ function PantallaCaptura({
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
       setEstadoFinal(resultado.estado);
+      setDocumentoIdentificado({ tipo: resultado.tipo, indicativo_numero: resultado.indicativo_numero });
       setItems(
         resultado.items.map((item) => ({
           ...item,
@@ -599,6 +625,7 @@ function PantallaCaptura({
     try {
       const resultado = await buscarEntrega(tipoBusqueda, indicativo);
       setEntregaId(resultado.id);
+      setDocumentoIdentificado({ tipo: resultado.tipo, indicativo_numero: resultado.indicativo_numero });
       // GET /entregas/buscar siempre fuerza situacion "actualizable" del
       // lado del backend -- nunca devuelve necesita_traslado (esa situacion
       // solo sale de procesarEntrega, ver enviar()), pero el tipo es
@@ -867,6 +894,7 @@ function PantallaCaptura({
     setEntregaId(null);
     setSituacion(null);
     setEstadoFinal(null);
+    setDocumentoIdentificado(null);
     setItems([]);
     setEvidenciaActual(null);
     setFirmaUrlConsultada(null);
@@ -1008,7 +1036,14 @@ function PantallaCaptura({
         {fase === 'captura' ? (
           <>
             <View style={styles.tarjeta}>
-              <Text style={styles.etiquetaSeccion}>Evidencia</Text>
+              <View style={styles.filaConIcono}>
+                <Text style={styles.etiquetaSeccion}>Evidencia</Text>
+                {documentoIdentificado ? (
+                  <Text style={styles.badgeIdentificador}>
+                    {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
+                  </Text>
+                ) : null}
+              </View>
               {foto ? (
                 <Pressable onPress={() => setFotoAmpliada(foto)}>
                   <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
@@ -1033,7 +1068,10 @@ function PantallaCaptura({
                 <Text style={styles.previewSubtexto}>
                   {necesitaTraslado.rechazado
                     ? 'La foto del traslado no menciona el número de esta factura -- prueba con la correcta.'
-                    : `El tipo "${necesitaTraslado.tipo}" pertenece a otra sede -- para procesarlo desde acá, adjunta una foto del traslado.`}
+                    : `El documento "${
+                        formatearIdentificador(necesitaTraslado.tipo, necesitaTraslado.indicativo_numero) ??
+                        necesitaTraslado.tipo
+                      }" pertenece a otra sede -- para procesarlo desde acá, adjunta una foto del traslado.`}
                 </Text>
                 {fotoTraslado ? (
                   <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
@@ -1221,9 +1259,16 @@ function PantallaCaptura({
         {fase === 'confirmando' ? (
           <>
             <View style={styles.tarjeta}>
-              <Text style={styles.etiquetaSeccion}>
-                {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
-              </Text>
+              <View style={styles.filaConIcono}>
+                <Text style={styles.etiquetaSeccion}>
+                  {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
+                </Text>
+                {documentoIdentificado ? (
+                  <Text style={styles.badgeIdentificador}>
+                    {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
+                  </Text>
+                ) : null}
+              </View>
               <Text style={styles.previewSubtexto}>
                 {situacion === 'nueva'
                   ? 'Cargá cuánto quedó pendiente de cada producto.'
@@ -1809,6 +1854,16 @@ const styles = StyleSheet.create({
     fontFamily: FUENTE_DISPLAY_SEMI,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  badgeIdentificador: {
+    color: ACENTO,
+    fontSize: 12,
+    fontFamily: FUENTE_BODY_SEMI,
+    backgroundColor: 'rgba(200,99,31,0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   itemDescripcion: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_BOLD },
   inputDescripcion: {

@@ -46,6 +46,7 @@ export interface ResultadoEnvio {
   estado: 'procesada' | 'pendiente_revision';
   // FEI (factura) / TB (traslado) / RM3 / RM2 (remision).
   tipo: string;
+  indicativo_numero: string;
   items: ItemEntrega[];
   // Solo viene en la respuesta de buscarEntrega (GET /entregas/buscar, que
   // hace select e.* e incluye toda la fila) -- ausente en la respuesta de
