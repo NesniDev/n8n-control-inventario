@@ -132,7 +132,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
         )
 
     try:
-        situacion, entrega_id, items, estado, tipo = await procesar_extraccion(
+        situacion, entrega_id, items, estado, tipo, indicativo_numero = await procesar_extraccion(
             extraido,
             hash_evidencia=payload.hash_evidencia,
             sede_origen_id=payload.sede_origen_id,
@@ -182,6 +182,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             "situacion": situacion.value,
             "estado": estado.value,
             "tipo": tipo,
+            "indicativo_numero": indicativo_numero,
             "items": [item.model_dump() for item in items],
         },
     )

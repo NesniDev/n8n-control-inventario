@@ -129,7 +129,7 @@ async def procesar_extraccion(
     traslado_url: str | None = None,
     concepto_traslado: str | None = None,
     items_traslado: list[dict] | None = None,
-) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str]:
+) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
     - No existia -> intenta insertarla (items = lo que leyo la IA, con
@@ -259,7 +259,7 @@ async def procesar_extraccion(
                 )
                 for it in items_extraidos
             ]
-            return SituacionEntrega.NECESITA_TRASLADO, None, items_vista, estado, tipo
+            return SituacionEntrega.NECESITA_TRASLADO, None, items_vista, estado, tipo, indicativo_numero
         except asyncpg.UniqueViolationError as exc:
             # "entregas" tiene DOS unique: (tipo, indicativo_numero) -- la
             # barrera real -- y hash_evidencia -- evita reprocesar la misma
@@ -270,11 +270,13 @@ async def procesar_extraccion(
             # explotar con un TypeError en vez de responder algo coherente.
             if exc.constraint_name == "entregas_hash_evidencia_key":
                 fila = await conn.fetchrow(
-                    "select id, tipo from entregas where hash_evidencia = $1", hash_evidencia
+                    "select id, tipo, indicativo_numero from entregas where hash_evidencia = $1",
+                    hash_evidencia,
                 )
             else:
                 fila = await conn.fetchrow(
-                    "select id, tipo from entregas where tipo = $1 and indicativo_numero = $2",
+                    "select id, tipo, indicativo_numero from entregas"
+                    " where tipo = $1 and indicativo_numero = $2",
                     tipo,
                     indicativo_numero,
                 )
@@ -292,7 +294,14 @@ async def procesar_extraccion(
                     detalle={"tipo": tipo, "indicativo_numero": indicativo_numero},
                 )
                 raise EntregaDuplicada(identificador)
-            return SituacionEntrega.ACTUALIZABLE, str(fila["id"]), items, estado, fila["tipo"]
+            return (
+                SituacionEntrega.ACTUALIZABLE,
+                str(fila["id"]),
+                items,
+                estado,
+                fila["tipo"],
+                fila["indicativo_numero"],
+            )
         else:
             await registrar_evento(
                 EventoLog.ENTREGA_INSERTADA,
@@ -302,7 +311,7 @@ async def procesar_extraccion(
                 sede_id=sede_origen_id,
                 resultado="ok",
             )
-            return SituacionEntrega.NUEVA, str(entrega_id), items, estado, tipo
+            return SituacionEntrega.NUEVA, str(entrega_id), items, estado, tipo, indicativo_numero
 
 
 async def aplicar_actualizacion_items(
