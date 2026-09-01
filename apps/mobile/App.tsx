@@ -991,6 +991,19 @@ function PantallaCaptura({
       : items;
   const cantidadesValidas =
     situacion !== null && itemsConCambioCantidad.every((item) => valorValido(item, situacion));
+  // Distinto de documentoCompleto (que es sobre el estado YA guardado antes
+  // de esta pantalla) -- esto mira los valores tipeados ahora mismo: si se
+  // confirma tal cual estan, ¿algun item va a quedar con algo pendiente?
+  // Determina si hace falta pedir firma (solo en una entrega total) o
+  // alcanza con confirmar sin firma (entrega parcial, queda para otra
+  // visita).
+  const entregaSeCompletaAhora =
+    situacion !== null &&
+    items.every((item) => {
+      if (esBloqueado(item, situacion)) return true;
+      const valor = item.valor.trim();
+      return /^\d+$/.test(valor) && Number(valor) === valorTodoEntregado(item, situacion);
+    });
   // Si necesitaTraslado esta activo (el tipo leido pertenece a otra sede),
   // hace falta tambien la foto del traslado para poder reenviar.
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando && (!necesitaTraslado || !!fotoTraslado);
@@ -1638,7 +1651,7 @@ function PantallaCaptura({
 
             {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
 
-            {itemsConCambioCantidad.length > 0 ? (
+            {itemsConCambioCantidad.length > 0 && entregaSeCompletaAhora ? (
               <View style={styles.tarjeta}>
                 <Text style={styles.etiquetaSeccion}>Firma del cliente</Text>
                 <Text style={styles.previewSubtexto}>
@@ -1674,7 +1687,15 @@ function PantallaCaptura({
             ) : null}
 
             <View style={styles.acciones}>
-              {itemsAEnviar.length === 0 || itemsConCambioCantidad.length > 0 ? null : (
+              {itemsAEnviar.length === 0 ? null : itemsConCambioCantidad.length === 0 ? (
+                <Pressable
+                  disabled={cargando}
+                  style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+                  onPress={() => confirmar()}
+                >
+                  <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
+                </Pressable>
+              ) : !entregaSeCompletaAhora ? (
                 <Pressable
                   disabled={!puedeConfirmar}
                   style={({ pressed }) => [
@@ -1684,9 +1705,12 @@ function PantallaCaptura({
                   ]}
                   onPress={() => confirmar()}
                 >
-                  <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
+                  <ContenidoBoton
+                    icono="checkmark-circle-outline"
+                    texto={cargando ? 'Guardando...' : 'Confirmar cantidades'}
+                  />
                 </Pressable>
-              )}
+              ) : null /* entrega completa -- "Guardar firma" de la seccion de arriba es la unica accion */}
               <Pressable
                 disabled={cargando}
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
