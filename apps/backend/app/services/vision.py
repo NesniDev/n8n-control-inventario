@@ -165,6 +165,14 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
     try:
         response = await client.chat.completions.create(
             model=settings.vision_model,
+            # Sin esto, la MISMA foto podia leer indicativo_numero distinto
+            # entre llamadas (ej. "152754" -> "1352754" en un intento y
+            # "15327754" en otro, verificado en logs reales) -- rompia el
+            # match del traslado (_concepto_referencia_factura en
+            # duplicates.py) aunque el concepto se leyera perfecto. temperature=0
+            # es el estandar para extraccion/transcripcion, donde la misma
+            # entrada debe dar siempre la misma salida.
+            temperature=0,
             messages=[
                 {
                     "role": "user",
