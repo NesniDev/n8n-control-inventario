@@ -55,7 +55,7 @@ import PantallaLogin from './PantallaLogin';
 // obligatorio (ver Signature mas abajo). No aplica al camino "Guardar nota"
 // (itemsConCambioCantidad.length === 0), que no es un evento de entrega.
 // resultado: pantalla final (procesada / pendiente de revision / error).
-type Fase = 'captura' | 'buscar' | 'confirmando' | 'firma' | 'resultado';
+type Fase = 'captura' | 'buscar' | 'confirmando' | 'resultado';
 type EstadoFinal = 'procesada' | 'pendiente_revision' | 'error';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
@@ -955,12 +955,12 @@ function PantallaCaptura({
 
   // Boton de volver del header -- consistente en todas las pestañas menos
   // 'captura' (esa es la pantalla inicial, no hay a donde volver). En
-  // 'confirmando' Y 'firma' (la firma es un paso intermedio de la misma
-  // confirmacion todavia sin guardar) tiene que pasar por
-  // cancelarConfirmacion (deshace el insert de una entrega 'nueva' sin
-  // confirmar); en el resto alcanza con reiniciar.
+  // 'confirmando' (la firma ahora es inline dentro de esta misma fase,
+  // todavia sin guardar) tiene que pasar por cancelarConfirmacion (deshace
+  // el insert de una entrega 'nueva' sin confirmar); en el resto alcanza
+  // con reiniciar.
   const volverAtras = () => {
-    if (fase === 'confirmando' || fase === 'firma') {
+    if (fase === 'confirmando') {
       cancelarConfirmacion();
     } else {
       reiniciar();
@@ -1638,38 +1638,53 @@ function PantallaCaptura({
 
             {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
 
+            {itemsConCambioCantidad.length > 0 ? (
+              <View style={styles.tarjeta}>
+                <Text style={styles.etiquetaSeccion}>Firma del cliente</Text>
+                <Text style={styles.previewSubtexto}>
+                  Pedile al cliente que firme con el dedo para confirmar que recibió los productos.
+                </Text>
+                <View style={styles.firmaContenedor}>
+                  <Signature
+                    onOK={(firma) => {
+                      setErrorFirma(null);
+                      setFirmaBase64(firma);
+                      // Se llama con la firma en si (no el estado, todavia no
+                      // se actualizo -- ver comentario en confirmar()).
+                      confirmar(firma);
+                    }}
+                    onEmpty={() => setErrorFirma('Pedile al cliente que firme antes de continuar')}
+                    descriptionText="Firmá dentro del recuadro"
+                    clearText="Borrar"
+                    confirmText="Guardar firma"
+                    penColor={NEUTRAL_900}
+                    backgroundColor="#ffffff"
+                    webStyle={ESTILO_WEB_FIRMA}
+                  />
+                </View>
+                {errorFirma ? <Text style={styles.textoErrorInline}>{errorFirma}</Text> : null}
+              </View>
+            ) : null}
+
+            {cargando && itemsConCambioCantidad.length > 0 ? (
+              <View style={[styles.tarjeta, styles.estadoBox]}>
+                <ActivityIndicator color="#c8631f" />
+                <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.acciones}>
-              {itemsAEnviar.length === 0 ? null : (
+              {itemsAEnviar.length === 0 || itemsConCambioCantidad.length > 0 ? null : (
                 <Pressable
                   disabled={!puedeConfirmar}
                   style={({ pressed }) => [
-                    styles.boton,
-                    styles.botonPrimario,
+                    styles.boton, styles.botonPrimario,
                     !puedeConfirmar && styles.botonDeshabilitado,
                     pressed && puedeConfirmar && styles.botonPresionado,
                   ]}
-                  onPress={
-                    // Solo hay firma cuando de verdad se esta entregando algo
-                    // (itemsConCambioCantidad.length > 0) -- "Guardar nota" no
-                    // es un evento de entrega, sigue llamando confirmar directo.
-                    itemsConCambioCantidad.length === 0
-                      ? () => confirmar()
-                      : () => {
-                          setErrorFirma(null);
-                          setFase('firma');
-                        }
-                  }
+                  onPress={() => confirmar()}
                 >
-                  <ContenidoBoton
-                    icono={itemsConCambioCantidad.length === 0 ? 'document-text-outline' : 'checkmark-circle-outline'}
-                    texto={
-                      cargando
-                        ? 'Guardando...'
-                        : itemsConCambioCantidad.length === 0
-                          ? 'Guardar nota'
-                          : 'Confirmar cantidades'
-                    }
-                  />
+                  <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
                 </Pressable>
               )}
               <Pressable
@@ -1682,53 +1697,6 @@ function PantallaCaptura({
                   texto={itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}
                   color={NEUTRAL_400}
                 />
-              </Pressable>
-            </View>
-          </>
-        ) : null}
-
-        {fase === 'firma' ? (
-          <>
-            <View style={styles.tarjeta}>
-              <Text style={styles.etiquetaSeccion}>Firma del cliente</Text>
-              <Text style={styles.previewSubtexto}>
-                Pedile al cliente que firme con el dedo para confirmar que recibió los productos.
-              </Text>
-              <View style={styles.firmaContenedor}>
-                <Signature
-                  onOK={(firma) => {
-                    setErrorFirma(null);
-                    setFirmaBase64(firma);
-                    // Se llama con la firma en si (no el estado, todavia no
-                    // se actualizo -- ver comentario en confirmar()).
-                    confirmar(firma);
-                  }}
-                  onEmpty={() => setErrorFirma('Pedile al cliente que firme antes de continuar')}
-                  descriptionText="Firmá dentro del recuadro"
-                  clearText="Borrar"
-                  confirmText="Guardar firma"
-                  penColor={NEUTRAL_900}
-                  backgroundColor="#ffffff"
-                  webStyle={ESTILO_WEB_FIRMA}
-                />
-              </View>
-              {errorFirma ? <Text style={styles.textoErrorInline}>{errorFirma}</Text> : null}
-            </View>
-
-            {cargando ? (
-              <View style={[styles.tarjeta, styles.estadoBox]}>
-                <ActivityIndicator color="#c8631f" />
-                <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
-              </View>
-            ) : null}
-
-            <View style={styles.acciones}>
-              <Pressable
-                disabled={cargando}
-                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-                onPress={() => setFase('confirmando')}
-              >
-                <ContenidoBoton icono="chevron-back-outline" texto="Volver" color={NEUTRAL_400} />
               </Pressable>
             </View>
           </>
