@@ -62,7 +62,7 @@ async def excepcion_no_manejada(request: Request, exc: Exception) -> JSONRespons
 # a mano este string en cada cambio que valga la pena poder confirmar desde
 # afuera (ver GET /health) -- unica forma de verificar que un deploy en
 # EasyPanel realmente tomo el commit esperado sin entrar al panel.
-_BUILD_MARCADOR = "prompt-concepto-verificado-con-imagen-real"
+_BUILD_MARCADOR = "vision-temperature-cero"
 
 
 @app.get("/health")
