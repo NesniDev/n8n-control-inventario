@@ -48,6 +48,11 @@ export interface ResultadoEnvio {
   tipo: string;
   indicativo_numero: string;
   items: ItemEntrega[];
+  // Confianza por campo que devolvio la IA al leer tipo/indicativo_numero
+  // (ver marcar_estado_por_confianza en el backend). El movil la guarda para
+  // poder reenviarla en un reintento (ver procesarEntrega, campos
+  // _conocido/_conocida) sin tener que releer la factura con IA.
+  confianza: Record<string, number>;
   // Solo viene en la respuesta de buscarEntrega (GET /entregas/buscar, que
   // hace select e.* e incluye toda la fila) -- ausente en la respuesta de
   // procesarEntrega (POST /entregas/procesar, que arma el JSON a mano sin
@@ -200,6 +205,13 @@ export async function procesarEntrega(payload: {
   // primera llamada devolvio situacion 'necesita_traslado' (ver
   // ResultadoEnvio). Se sube igual que la evidencia (subirEvidencia).
   traslado_url?: string;
+  // Lectura previa de ESTA MISMA foto (reintento tras necesita_traslado) --
+  // si vienen los 4 completos, el backend NO vuelve a leer la factura con IA
+  // (evita que dos lecturas de la misma imagen no coincidan entre si).
+  tipo_conocido?: string;
+  indicativo_numero_conocido?: string;
+  items_conocidos?: { descripcion: string; cantidad: number }[];
+  confianza_conocida?: Record<string, number>;
 }): Promise<ResultadoEnvio> {
   const res = await fetch(`${API_BASE_URL}/entregas/procesar`, {
     method: 'POST',

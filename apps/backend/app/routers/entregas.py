@@ -57,41 +57,59 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
         resultado="ok",
     )
 
-    try:
-        extraido = await extraer_datos_guia(payload.evidencia_url)
-    except ExtraccionFallida as exc:
+    # Reintento sobre la misma foto (ej. tras necesita_traslado): si el
+    # cliente ya trae los 4 campos _conocido(s) de la primera lectura, se
+    # confia en ellos y no se vuelve a llamar a la IA -- evita que dos
+    # lecturas de la misma imagen no coincidan entre si (ver plan de este
+    # cambio: incidentes de tipo/indicativo_numero "flotando" entre llamadas).
+    if (
+        payload.tipo_conocido
+        and payload.indicativo_numero_conocido is not None
+        and payload.items_conocidos is not None
+        and payload.confianza_conocida
+    ):
+        extraido = {
+            "tipo": payload.tipo_conocido,
+            "indicativo_numero": payload.indicativo_numero_conocido,
+            "items": payload.items_conocidos,
+            "confianza": payload.confianza_conocida,
+        }
+    else:
+        try:
+            extraido = await extraer_datos_guia(payload.evidencia_url)
+        except ExtraccionFallida as exc:
+            await registrar_evento(
+                EventoLog.EXTRACCION_IA,
+                entidad_tipo="entrega",
+                entidad_id=payload.hash_evidencia,
+                actor_id=payload.operador_id,
+                sede_id=payload.sede_origen_id,
+                resultado="error",
+                detalle={"error": str(exc)},
+            )
+            # 422 y no 502: el proxy de EasyPanel (Traefik) intercepta cualquier
+            # respuesta 502/503/504 y la reemplaza por su propia pagina HTML de
+            # "Service is not reachable" -- pensando que el contenedor esta caido
+            # -- en vez de dejar pasar nuestro JSON con el detail real. Eso hacia
+            # que un fallo de IA (legitimo, ej. imagen ilegible) le llegara al
+            # movil como una respuesta no-JSON, mostrando el mensaje generico de
+            # "Error del servidor" en vez del motivo real. 422 no esta en esa
+            # lista y se propaga tal cual.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
         await registrar_evento(
             EventoLog.EXTRACCION_IA,
             entidad_tipo="entrega",
             entidad_id=payload.hash_evidencia,
             actor_id=payload.operador_id,
             sede_id=payload.sede_origen_id,
-            resultado="error",
-            detalle={"error": str(exc)},
+            resultado="ok",
+            detalle={
+                "tipo": extraido.get("tipo"),
+                "indicativo_numero": extraido.get("indicativo_numero"),
+                "cantidad_items": len(extraido.get("items") or []),
+            },
         )
-        # 422 y no 502: el proxy de EasyPanel (Traefik) intercepta cualquier
-        # respuesta 502/503/504 y la reemplaza por su propia pagina HTML de
-        # "Service is not reachable" -- pensando que el contenedor esta caido
-        # -- en vez de dejar pasar nuestro JSON con el detail real. Eso hacia
-        # que un fallo de IA (legitimo, ej. imagen ilegible) le llegara al
-        # movil como una respuesta no-JSON, mostrando el mensaje generico de
-        # "Error del servidor" en vez del motivo real. 422 no esta en esa
-        # lista y se propaga tal cual.
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    await registrar_evento(
-        EventoLog.EXTRACCION_IA,
-        entidad_tipo="entrega",
-        entidad_id=payload.hash_evidencia,
-        actor_id=payload.operador_id,
-        sede_id=payload.sede_origen_id,
-        resultado="ok",
-        detalle={
-            "tipo": extraido.get("tipo"),
-            "indicativo_numero": extraido.get("indicativo_numero"),
-            "cantidad_items": len(extraido.get("items") or []),
-        },
-    )
 
     await registrar_evento(
         EventoLog.CHEQUEO_DUPLICADO,
@@ -184,6 +202,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             "tipo": tipo,
             "indicativo_numero": indicativo_numero,
             "items": [item.model_dump() for item in items],
+            "confianza": extraido.get("confianza", {}),
         },
     )
 
