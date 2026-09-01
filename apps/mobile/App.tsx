@@ -394,6 +394,11 @@ function PantallaCaptura({
     tipo: string;
     indicativo_numero: string;
     rechazado: boolean;
+    // Lectura original de la factura (items + confianza), guardada para
+    // reenviarla como _conocido(s) en el reintento -- asi el backend no
+    // vuelve a leerla con IA (ver enviar()).
+    items: { descripcion: string; cantidad: number }[];
+    confianza: Record<string, number>;
   } | null>(null);
   const [fotoTraslado, setFotoTraslado] = useState<string | null>(null);
   const [fase, setFase] = useState<Fase>('captura');
@@ -530,9 +535,11 @@ function PantallaCaptura({
 
   // Paso 1: sube la foto y le pide al backend que identifique el documento.
   // Si ya se adjunto una foto de traslado (necesitaTraslado de un intento
-  // anterior), se sube y se reenvia junto con la evidencia -- el backend
-  // vuelve a leer la misma foto con IA (se acepta ese costo extra por
-  // simplicidad, ver plan) y esta vez si la registra.
+  // anterior), se sube y se reenvia junto con la evidencia -- pero la
+  // factura NO se vuelve a leer con IA: se reenvian tipo/indicativo_numero/
+  // items/confianza ya leidos la primera vez (ver payload mas abajo), asi el
+  // backend confia en esa lectura en vez de arriesgarse a que la IA lea algo
+  // distinto en el reintento (no es determinista).
   const enviar = async () => {
     if (!foto || !sedeSeleccionada) return;
     setCargando(true);
@@ -558,6 +565,17 @@ function PantallaCaptura({
         operador_id: empleado.id,
         capturado_at: new Date().toISOString(),
         traslado_url: trasladoUrl,
+        // Reintento sobre la misma foto (necesitaTraslado ya seteado de un
+        // intento anterior): se reenvia la lectura original en vez de dejar
+        // que el backend vuelva a leer la factura con IA.
+        ...(necesitaTraslado
+          ? {
+              tipo_conocido: necesitaTraslado.tipo,
+              indicativo_numero_conocido: necesitaTraslado.indicativo_numero,
+              items_conocidos: necesitaTraslado.items,
+              confianza_conocida: necesitaTraslado.confianza,
+            }
+          : {}),
       });
 
       if (resultado.situacion === 'necesita_traslado') {
@@ -566,6 +584,12 @@ function PantallaCaptura({
           tipo: resultado.tipo,
           indicativo_numero: resultado.indicativo_numero,
           rechazado: yaHabiaTraslado,
+          // El backend devuelve la misma lectura que recibio (propia o
+          // _conocida) -- se vuelve a guardar aca para que un segundo
+          // rechazo del traslado siga reenviando la lectura original, nunca
+          // una nueva de la IA.
+          items: resultado.items.map((i) => ({ descripcion: i.descripcion, cantidad: i.cantidad_entregada })),
+          confianza: resultado.confianza,
         });
         if (yaHabiaTraslado) {
           // La foto que se mando no correspondia a esta factura -- se

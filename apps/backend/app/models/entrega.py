@@ -77,6 +77,15 @@ class EntregaCreate(BaseModel):
     # se devuelve situacion "necesita_traslado" y el movil reintenta el mismo
     # POST agregando este campo.
     traslado_url: str | None = None
+    # Cuando el cliente ya tiene una lectura previa de ESTA MISMA foto (ej.
+    # reintento tras necesita_traslado, adjuntando el traslado) -- si vienen
+    # los 4 completos, el backend NO vuelve a llamar a la IA para leer la
+    # factura. Evita que dos lecturas de la misma imagen no coincidan entre si
+    # (ver incidentes de tipo/indicativo_numero "flotando" entre llamadas).
+    tipo_conocido: str | None = None
+    indicativo_numero_conocido: str | None = None
+    items_conocidos: list[dict] | None = None  # cada uno {"descripcion":, "cantidad":}
+    confianza_conocida: dict[str, float] | None = None
 
 
 class EntregaRevision(BaseModel):
