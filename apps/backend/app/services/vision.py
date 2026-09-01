@@ -165,14 +165,14 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
     try:
         response = await client.chat.completions.create(
             model=settings.vision_model,
-            # Sin esto, la MISMA foto podia leer indicativo_numero distinto
-            # entre llamadas (ej. "152754" -> "1352754" en un intento y
-            # "15327754" en otro, verificado en logs reales) -- rompia el
-            # match del traslado (_concepto_referencia_factura en
-            # duplicates.py) aunque el concepto se leyera perfecto. temperature=0
-            # es el estandar para extraccion/transcripcion, donde la misma
-            # entrada debe dar siempre la misma salida.
-            temperature=0,
+            # NO fijar temperature: se probo temperature=0 (buscando lecturas
+            # deterministicas, ver commit revertido) y el modelo configurado
+            # en VISION_MODEL lo rechaza con 400 ("Unsupported value:
+            # 'temperature' does not support 0 with this model. Only the
+            # default (1) value is supported.") -- rompia la extraccion por
+            # completo. Verificado en logs reales de produccion antes de
+            # revertir. Si se quiere determinismo, hay que resolverlo de otra
+            # forma (ver docs/architecture.md o el historial de este archivo).
             messages=[
                 {
                     "role": "user",
