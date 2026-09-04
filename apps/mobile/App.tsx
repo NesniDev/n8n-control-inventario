@@ -1385,7 +1385,14 @@ function PantallaCaptura({
               </Text>
               {firmaUrlConsultada ? (
                 <Pressable onPress={() => setFotoAmpliada(firmaUrlConsultada)}>
-                  <Image source={{ uri: firmaUrlConsultada }} style={styles.preview} resizeMode="contain" />
+                  {/* La firma se guarda con trazo sobre fondo transparente
+                      -- sin un fondo propio blanco, se pierde contra el
+                      fondo oscuro de la app. */}
+                  <Image
+                    source={{ uri: firmaUrlConsultada }}
+                    style={[styles.preview, { backgroundColor: '#ffffff' }]}
+                    resizeMode="contain"
+                  />
                   <View style={styles.iconoAmpliar}>
                     <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
                   </View>
@@ -1867,7 +1874,10 @@ const estilosVisorZoom = StyleSheet.create({
   fondo: { flex: 1, backgroundColor: '#000000f2', alignItems: 'center', justifyContent: 'center' },
   botonCerrar: { position: 'absolute', top: 54, right: 20, zIndex: 10, padding: 6 },
   area: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  imagen: { width: ANCHO_PANTALLA, height: ALTO_PANTALLA * 0.82 },
+  // backgroundColor blanco: sin efecto en fotos normales (son opacas), pero
+  // evita que una firma (trazo sobre fondo transparente) se pierda contra
+  // el fondo oscuro del visor.
+  imagen: { width: ANCHO_PANTALLA, height: ALTO_PANTALLA * 0.82, backgroundColor: '#ffffff' },
   ayuda: {
     position: 'absolute',
     bottom: 36,
