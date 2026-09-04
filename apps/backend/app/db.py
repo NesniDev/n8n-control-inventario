@@ -96,6 +96,12 @@ alter table entregas add column if not exists indicativo_numero text not null de
 -- Foto de respaldo cuando el tipo pertenece a otra sede (ej. FEI escaneado
 -- desde Polo Sur) -- ver _TIPO_SEDE_DUENA en app/services/duplicates.py.
 alter table entregas add column if not exists traslado_url text;
+-- Tipo/indicativo_numero PROPIOS del traslado (ej. TB 9-7980), distintos de
+-- los de la factura (tipo/indicativo_numero de arriba) -- se persisten para
+-- que buscar_entrega() encuentre la misma entrega buscando por el codigo del
+-- traslado, no solo por el de la factura (ver app/routers/entregas.py).
+alter table entregas add column if not exists traslado_tipo text;
+alter table entregas add column if not exists traslado_indicativo_numero text;
 -- Firma del cliente al confirmar la entrega (paso 2, PATCH /entregas/{id}/items)
 -- -- foto en si vive en Storage (bucket evidencia, subpath firmas/), aca solo
 -- la URL publica. Null si el guardado fue "Guardar nota" (sin cambio de

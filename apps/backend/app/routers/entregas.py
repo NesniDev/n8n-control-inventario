@@ -127,6 +127,8 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
     # debe destrabar la restriccion de sede.
     concepto_traslado = None
     items_traslado = None
+    traslado_tipo = None
+    traslado_indicativo_numero = None
     if payload.traslado_url:
         try:
             extraido_traslado = await extraer_datos_guia(payload.traslado_url)
@@ -134,6 +136,11 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             raise HTTPException(status_code=422, detail=f"No se pudo leer el traslado: {exc}") from exc
         concepto_traslado = (extraido_traslado.get("concepto") or "").strip()
         items_traslado = extraido_traslado.get("items") or []
+        # Codigo PROPIO del traslado (ej. TB 9-7980, distinto del de la
+        # factura) -- se persiste para que buscar_entrega lo encuentre
+        # tambien por este codigo (ver procesar_extraccion en duplicates.py).
+        traslado_tipo = (extraido_traslado.get("tipo") or "").strip().upper() or None
+        traslado_indicativo_numero = (extraido_traslado.get("indicativo_numero") or "").strip() or None
         await registrar_evento(
             EventoLog.EXTRACCION_IA,
             entidad_tipo="entrega",
@@ -161,6 +168,8 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             traslado_url=payload.traslado_url,
             concepto_traslado=concepto_traslado,
             items_traslado=items_traslado,
+            traslado_tipo=traslado_tipo,
+            traslado_indicativo_numero=traslado_indicativo_numero,
         )
     except EntregaDuplicada as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -332,7 +341,10 @@ async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
 
     pool = await get_pool()
     row = await pool.fetchrow(
-        _SELECT_ENTREGAS_BASE + " where e.tipo = $1 and e.indicativo_numero = $2 group by e.id, s.nombre",
+        _SELECT_ENTREGAS_BASE
+        + """ where (e.tipo = $1 and e.indicativo_numero = $2)
+           or (e.traslado_tipo = $1 and e.traslado_indicativo_numero = $2)
+        group by e.id, s.nombre""",
         tipo,
         indicativo_numero,
     )
