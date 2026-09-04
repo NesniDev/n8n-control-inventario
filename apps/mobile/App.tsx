@@ -1104,18 +1104,14 @@ function PantallaCaptura({
                 <Ionicons name="chevron-back" size={26} color={cargando ? NEUTRAL_500 : '#fff'} />
               </Pressable>
             ) : null}
-            {/* Sede + operador compactados en un solo recuadro -- la sede ya
-                llega elegida por props desde el login, no hace falta la
-                tarjeta aparte que habia antes. */}
+            {/* Solo la sede -- la sede ya llega elegida por props desde el
+                login. El nombre del operador se saco a pedido (queda
+                identificado igual por operador_id en cada request, solo no
+                se muestra en pantalla). */}
             <View style={styles.recuadroIdentidad}>
               <Ionicons name="location" size={14} color={ACENTO} />
               <Text style={styles.recuadroSedeTexto} numberOfLines={1}>
                 {sedeSeleccionada.nombre}
-              </Text>
-              <Text style={styles.recuadroDivisor}>·</Text>
-              <Ionicons name="person-outline" size={13} color={NEUTRAL_400} />
-              <Text style={styles.recuadroOperadorTexto} numberOfLines={1}>
-                {empleado.nombre}
               </Text>
             </View>
             <Pressable
@@ -1933,8 +1929,6 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   recuadroSedeTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_DISPLAY, flexShrink: 1 },
-  recuadroDivisor: { color: NEUTRAL_500, fontSize: 14 },
-  recuadroOperadorTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
   cerrarSesion: { color: '#f87171', fontSize: 12, fontFamily: FUENTE_BODY_SEMI, marginTop: 6 },
   cerrarSesionDeshabilitado: { color: NEUTRAL_500 },
   tarjeta: {
