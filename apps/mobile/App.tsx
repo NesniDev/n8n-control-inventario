@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import Signature from 'react-native-signature-canvas';
+import Signature, { type SignatureViewRef } from 'react-native-signature-canvas';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
 import {
@@ -329,6 +329,76 @@ function VisorFotoZoom({ uri, onCerrar }: { uri: string; onCerrar: () => void })
   );
 }
 
+// Modal a pantalla completa para la firma del cliente -- reemplaza la
+// tarjeta inline de altura fija que tenia antes (el WebView interno de
+// react-native-signature-canvas no crece solo con el contenido, y un alto
+// adivinado terminaba recortando su footer con Borrar/Guardar). El footer
+// HTML de ese WebView se oculta por CSS (ver ESTILO_WEB_FIRMA) y se maneja
+// todo con botones propios de React Native via el ref
+// (readSignature/clearSignature) -- esos SI son confiables sin importar
+// tamaño/densidad de pantalla.
+function VisorFirma({
+  onGuardar,
+  onCancelar,
+}: {
+  onGuardar: (firma: string) => void;
+  onCancelar: () => void;
+}) {
+  const firmaRef = useRef<SignatureViewRef | null>(null);
+  const [vacia, setVacia] = useState(false);
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onCancelar} statusBarTranslucent>
+      <SafeAreaView style={estilosFirma.fondo}>
+        <View style={estilosFirma.header}>
+          <Text style={estilosFirma.titulo}>Firma del cliente</Text>
+          <Pressable onPress={onCancelar} hitSlop={14}>
+            <Ionicons name="close" size={26} color={TEXTO_PRIMARIO} />
+          </Pressable>
+        </View>
+        <Text style={estilosFirma.subtitulo}>
+          Pedile al cliente que firme con el dedo para confirmar que recibió los productos.
+        </Text>
+        <View style={estilosFirma.canvas}>
+          <Signature
+            ref={firmaRef}
+            onOK={onGuardar}
+            onEmpty={() => setVacia(true)}
+            backgroundColor="#ffffff"
+            penColor={NEUTRAL_900}
+            // Footer propio del WebView oculto -- Borrar/Guardar los
+            // manejan los botones de RN de abajo via el ref, no depende
+            // de que el footer HTML calce en el alto disponible (eso es
+            // justo lo que fallaba antes).
+            webStyle={ESTILO_WEB_FIRMA}
+          />
+        </View>
+        {vacia ? <Text style={estilosFirma.error}>Pedile al cliente que firme antes de continuar</Text> : null}
+        <View style={estilosFirma.acciones}>
+          <Pressable
+            style={({ pressed }) => [estilosFirma.boton, pressed && styles.botonPresionado]}
+            onPress={() => {
+              setVacia(false);
+              firmaRef.current?.clearSignature();
+            }}
+          >
+            <ContenidoBoton icono="refresh-outline" texto="Borrar" color={NEUTRAL_400} />
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [estilosFirma.boton, estilosFirma.botonPrimario, pressed && styles.botonPresionado]}
+            onPress={() => {
+              setVacia(false);
+              firmaRef.current?.readSignature();
+            }}
+          >
+            <ContenidoBoton icono="checkmark-circle-outline" texto="Guardar firma" />
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 export default function App() {
   // Sede y empleado se resuelven juntos en el login (ver PantallaLogin) --
   // un solo estado evita un instante con empleado seteado y sede todavia no.
@@ -430,7 +500,8 @@ function PantallaCaptura({
   const [firmaBase64, setFirmaBase64] = useState<string | null>(null);
   // Mensaje cuando el cliente toca "Guardar firma" sin haber dibujado nada
   // (onEmpty de <Signature>) -- la firma es obligatoria, no se avanza.
-  const [errorFirma, setErrorFirma] = useState<string | null>(null);
+  // Controla el modal a pantalla completa de VisorFirma (ver mas abajo).
+  const [mostrandoFirma, setMostrandoFirma] = useState(false);
   // Ids de items con el editor de nota abierto (ver alternarNota).
   const [notasAbiertas, setNotasAbiertas] = useState<Set<string>>(new Set());
   // Ids de items con el editor del nombre del producto abierto -- la IA a
@@ -923,7 +994,6 @@ function PantallaCaptura({
     setEvidenciaActual(null);
     setFirmaUrlConsultada(null);
     setFirmaBase64(null);
-    setErrorFirma(null);
     setIndicativoBusqueda('');
     setNotasAbiertas(new Set());
     setDevolucionesAbiertas(new Set());
@@ -1651,34 +1721,6 @@ function PantallaCaptura({
 
             {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
 
-            {itemsConCambioCantidad.length > 0 && entregaSeCompletaAhora ? (
-              <View style={styles.tarjeta}>
-                <Text style={styles.etiquetaSeccion}>Firma del cliente</Text>
-                <Text style={styles.previewSubtexto}>
-                  Pedile al cliente que firme con el dedo para confirmar que recibió los productos.
-                </Text>
-                <View style={styles.firmaContenedor}>
-                  <Signature
-                    onOK={(firma) => {
-                      setErrorFirma(null);
-                      setFirmaBase64(firma);
-                      // Se llama con la firma en si (no el estado, todavia no
-                      // se actualizo -- ver comentario en confirmar()).
-                      confirmar(firma);
-                    }}
-                    onEmpty={() => setErrorFirma('Pedile al cliente que firme antes de continuar')}
-                    descriptionText="Firmá dentro del recuadro"
-                    clearText="Borrar"
-                    confirmText="Guardar firma"
-                    penColor={NEUTRAL_900}
-                    backgroundColor="#ffffff"
-                    webStyle={ESTILO_WEB_FIRMA}
-                  />
-                </View>
-                {errorFirma ? <Text style={styles.textoErrorInline}>{errorFirma}</Text> : null}
-              </View>
-            ) : null}
-
             {cargando && itemsConCambioCantidad.length > 0 ? (
               <View style={[styles.tarjeta, styles.estadoBox]}>
                 <ActivityIndicator color="#c8631f" />
@@ -1710,7 +1752,18 @@ function PantallaCaptura({
                     texto={cargando ? 'Guardando...' : 'Confirmar cantidades'}
                   />
                 </Pressable>
-              ) : null /* entrega completa -- "Guardar firma" de la seccion de arriba es la unica accion */}
+              ) : (
+                <Pressable
+                  disabled={cargando}
+                  style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+                  onPress={() => setMostrandoFirma(true)}
+                >
+                  <ContenidoBoton
+                    icono="create-outline"
+                    texto={cargando ? 'Guardando...' : 'Firmar y confirmar entrega'}
+                  />
+                </Pressable>
+              )}
               <Pressable
                 disabled={cargando}
                 style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
@@ -1753,6 +1806,18 @@ function PantallaCaptura({
       {fotoAmpliada ? (
         <VisorFotoZoom uri={fotoAmpliada} onCerrar={() => setFotoAmpliada(null)} />
       ) : null}
+      {mostrandoFirma ? (
+        <VisorFirma
+          onCancelar={() => setMostrandoFirma(false)}
+          onGuardar={(firma) => {
+            setMostrandoFirma(false);
+            setFirmaBase64(firma);
+            // Se llama con la firma en si (no el estado, todavia no se
+            // actualizo -- ver comentario en confirmar()).
+            confirmar(firma);
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1779,21 +1844,11 @@ const ESTILO_WEB_FIRMA = `
     border: 1px solid ${NEUTRAL_700};
     border-radius: 12px;
   }
-  .m-signature-pad--footer .description {
-    color: ${NEUTRAL_400};
-    font-family: Helvetica, sans-serif;
-  }
-  .m-signature-pad--footer .button {
-    border-radius: 8px;
-    font-family: Helvetica, sans-serif;
-    font-weight: 600;
-  }
-  .m-signature-pad--footer .button.save {
-    background-color: ${ACENTO};
-  }
-  .m-signature-pad--footer .button.clear {
-    background-color: ${NEUTRAL_700};
-  }
+  /* Footer propio del WebView (Borrar/Guardar) oculto -- esos botones los
+     reemplazan los Pressable de VisorFirma via el ref (readSignature /
+     clearSignature), que no dependen de que el footer HTML calce en el
+     alto disponible (eso era justo lo que fallaba antes). */
+  .m-signature-pad--footer { display: none; }
 `;
 
 // Space Grotesk para titulos/labels/numeros (caracter tecnico, va bien con
@@ -1820,6 +1875,29 @@ const estilosVisorZoom = StyleSheet.create({
     fontSize: 12,
     fontFamily: FUENTE_BODY_SEMI,
   },
+});
+
+const estilosFirma = StyleSheet.create({
+  fondo: { flex: 1, backgroundColor: NEUTRAL_900, padding: 20, gap: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  titulo: { color: TEXTO_PRIMARIO, fontSize: 18, fontFamily: FUENTE_DISPLAY },
+  subtitulo: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_MEDIA },
+  // Sin altura fija adivinada -- ocupa todo el espacio disponible del
+  // modal a pantalla completa (el problema anterior era justo un alto fijo
+  // insuficiente, ver comentario en VisorFirma).
+  canvas: { flex: 1, borderRadius: 14, overflow: 'hidden' },
+  error: { color: '#f87171', fontSize: 13, fontFamily: FUENTE_BODY_MEDIA },
+  acciones: { flexDirection: 'row', gap: 10 },
+  boton: {
+    flex: 1,
+    backgroundColor: NEUTRAL_800,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  botonPrimario: { backgroundColor: ACENTO, borderColor: ACENTO },
 });
 
 const styles = StyleSheet.create({
@@ -1972,19 +2050,6 @@ const styles = StyleSheet.create({
   chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_BOLD },
   chipSedeTextoActivo: { color: TEXTO_PRIMARIO },
   preview: { width: '100%', height: 300, borderRadius: 14, backgroundColor: NEUTRAL_800 },
-  // <Signature> renderiza un WebView por dentro -- necesita una altura fija
-  // explicita en el contenedor, un WebView no crece solo con el contenido.
-  // Alto generoso y sin overflow:hidden -- el WebView interno de
-  // react-native-signature-canvas pinta el pad + texto + footer con los
-  // botones "Borrar"/"Guardar firma"; si ese contenido no entraba en el
-  // alto anterior (320), overflow:hidden recortaba el footer entero,
-  // dejando el boton de guardar invisible (existia en el DOM, tapado).
-  firmaContenedor: {
-    width: '100%',
-    height: 460,
-    borderRadius: 14,
-    marginTop: 10,
-  },
   iconoAmpliar: {
     position: 'absolute',
     top: 10,
