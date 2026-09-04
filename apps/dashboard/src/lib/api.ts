@@ -36,6 +36,9 @@ export interface Entrega {
   // cantidades, no es un evento de entrega) o en entregas anteriores a esta
   // funcionalidad.
   firma_url?: string | null;
+  // Foto del traslado (documento adicional que a veces se adjunta junto a
+  // la evidencia principal) -- opcional, no todas las entregas lo traen.
+  traslado_url?: string | null;
   capturado_at: string;
 }
 
