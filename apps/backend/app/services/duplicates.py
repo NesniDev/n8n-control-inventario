@@ -129,6 +129,8 @@ async def procesar_extraccion(
     traslado_url: str | None = None,
     concepto_traslado: str | None = None,
     items_traslado: list[dict] | None = None,
+    traslado_tipo: str | None = None,
+    traslado_indicativo_numero: str | None = None,
 ) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str, str]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
@@ -171,8 +173,8 @@ async def procesar_extraccion(
                     insert into entregas (
                         tipo, indicativo_numero, hash_evidencia, sede_origen_id,
                         estado, confianza_ia, evidencia_url, operador_id, capturado_at,
-                        procesado_at, traslado_url
-                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
+                        procesado_at, traslado_url, traslado_tipo, traslado_indicativo_numero
+                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
                     returning id
                     """,
                     tipo,
@@ -185,6 +187,8 @@ async def procesar_extraccion(
                     operador_id,
                     capturado_at,
                     traslado_url,
+                    traslado_tipo,
+                    traslado_indicativo_numero,
                 )
 
                 # Si el tipo pertenece a otra sede, se deshace este insert
