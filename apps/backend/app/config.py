@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # Confianza minima por campo obligatorio antes de auto-aprobar una entrega.
     min_confidence: float = 0.75
 
+    # Protege los endpoints de borrado definitivo del dashboard (ver
+    # app/routers/entregas.py, _verificar_token_admin). None = borrado
+    # deshabilitado (falla cerrado) hasta que se configure explicitamente.
+    admin_delete_token: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

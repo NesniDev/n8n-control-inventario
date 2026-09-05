@@ -14,7 +14,7 @@ entrego hoy (actualizacion de una entrega con algo pendiente todavia).
 import csv
 import io
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import get_settings
@@ -42,6 +42,19 @@ from app.services.reportes import generar_reporte_mensual_xlsx
 from app.services.vision import ExtraccionFallida, extraer_datos_guia
 
 router = APIRouter(prefix="/entregas", tags=["entregas"])
+
+
+def _verificar_token_admin(x_admin_token: str | None = Header(default=None)) -> None:
+    """Protege los endpoints de borrado -- sin esto, cualquiera con la URL
+    del backend podria vaciar la base con un curl directo (no hay ningun
+    otro tipo de autenticacion en este proyecto). Falla cerrado: si el
+    operador no configuro ADMIN_DELETE_TOKEN, el borrado queda deshabilitado
+    en vez de quedar abierto por accidente."""
+    esperado = get_settings().admin_delete_token
+    if not esperado:
+        raise HTTPException(status_code=503, detail="Borrado deshabilitado: falta configurar ADMIN_DELETE_TOKEN")
+    if x_admin_token != esperado:
+        raise HTTPException(status_code=401, detail="Token de administrador invalido")
 
 
 @router.post("/procesar")
@@ -214,6 +227,67 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             "confianza": extraido.get("confianza", {}),
         },
     )
+
+
+@router.delete("/todas", dependencies=[Depends(_verificar_token_admin)])
+async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
+    """Equivalente al CLI scripts/limpiar_datos.py --si, pero disparable
+    desde el dashboard: borra TODAS las entregas (cascada a
+    entrega_items/devoluciones) y TODOS los logs. Accion total e
+    irreversible -- protegida por _verificar_token_admin. No toca el bucket
+    de Storage (evidencia) -- las fotos ya subidas quedan huerfanas, igual
+    que si se corriera solo la parte de base de datos de limpiar_datos.py.
+
+    Declarada ANTES de DELETE /{entrega_id} a proposito: FastAPI matchea
+    rutas en orden de declaracion, y "/todas" tiene la misma forma de un
+    solo segmento que "/{entrega_id}" -- si fuera despues, un DELETE a
+    /entregas/todas terminaria matcheando esa ruta con entrega_id="todas"."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        total_entregas = await conn.fetchval("select count(*) from entregas")
+        total_logs = await conn.fetchval("select count(*) from logs")
+        await conn.execute("delete from entregas")
+        await conn.execute("delete from logs")
+    # el propio evento se registra DESPUES de vaciar logs, para que quede
+    # como unica fila de auditoria de que la limpieza paso.
+    await registrar_evento(
+        EventoLog.LIMPIEZA_TOTAL,
+        entidad_tipo="sistema",
+        entidad_id="todas",
+        actor_id=actor_id,
+        sede_id="todas",
+        resultado="ok",
+        detalle={"entregas_borradas": total_entregas, "logs_borrados": total_logs},
+    )
+    return {"entregas_borradas": total_entregas, "logs_borrados": total_logs}
+
+
+@router.delete("/{entrega_id}/definitivo", dependencies=[Depends(_verificar_token_admin)])
+async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconocido") -> dict:
+    """Hard delete total de una entrega en pendiente_revision -- usado por el
+    boton 'Cancelar' del dashboard cuando un documento mal escaneado o
+    invalido no debe aprobarse ni corregirse, sino descartarse del todo.
+    A diferencia de DELETE /{entrega_id} (cancelar_entrega_no_confirmada),
+    no exige que los items esten sin confirmar. entrega_items/devoluciones
+    se van solos por 'on delete cascade'; logs no tiene FK, sobrevive."""
+    pool = await get_pool()
+    actual = await pool.fetchrow("select * from entregas where id = $1::uuid", entrega_id)
+    if actual is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    if actual["estado"] != EstadoEntrega.PENDIENTE_REVISION.value:
+        raise HTTPException(status_code=409, detail="Solo se puede eliminar una entrega pendiente de revision")
+
+    await pool.execute("delete from entregas where id = $1::uuid", entrega_id)
+    await registrar_evento(
+        EventoLog.ENTREGA_ELIMINADA,
+        entidad_tipo="entrega",
+        entidad_id=entrega_id,
+        actor_id=actor_id,
+        sede_id=actual["sede_origen_id"],
+        resultado="ok",
+        detalle={"tipo": actual["tipo"], "indicativo_numero": actual["indicativo_numero"]},
+    )
+    return {"eliminado": True}
 
 
 @router.delete("/{entrega_id}")
