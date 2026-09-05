@@ -29,3 +29,7 @@ Thumbs.db
 npm-debug.log*
 n8n/.env.n8n
 .n8n/
+
+# Cache local de herramientas (no son parte del proyecto)
+.atl/
+supabase/.temp/
