@@ -25,3 +25,10 @@ class EventoLog(StrEnum):
     # Se registro la devolucion de un producto ya entregado -- ver
     # app/services/devoluciones.py.
     DEVOLUCION_REGISTRADA = "devolucion_registrada"
+    # Borrado definitivo de una entrega en pendiente_revision desde el
+    # dashboard (boton "Cancelar" de la cola de revision) -- ver
+    # DELETE /entregas/{id}/definitivo en entregas.py.
+    ENTREGA_ELIMINADA = "entrega_eliminada"
+    # Borrado masivo de TODAS las entregas y logs, disparado desde el
+    # dashboard -- equivalente a scripts/limpiar_datos.py pero via HTTP.
+    LIMPIEZA_TOTAL = "limpieza_total"

@@ -113,6 +113,34 @@ export async function actualizarItems(
   return res.json();
 }
 
+// Borrado definitivo desde el dashboard (boton "Cancelar" de la cola de
+// revision) -- protegido por el header X-Admin-Token en el backend, ver
+// _verificar_token_admin en apps/backend/app/routers/entregas.py.
+export async function eliminarEntrega(id: string, adminToken: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/entregas/${id}/definitivo`, {
+    method: "DELETE",
+    headers: { "X-Admin-Token": adminToken },
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo eliminar la entrega (${res.status})`);
+  }
+}
+
+// "Zona de peligro" -- borra TODAS las entregas y logs. Misma proteccion de
+// token que eliminarEntrega.
+export async function eliminarTodasLasEntregas(
+  adminToken: string
+): Promise<{ entregas_borradas: number; logs_borrados: number }> {
+  const res = await fetch(`${API_BASE_URL}/entregas/todas`, {
+    method: "DELETE",
+    headers: { "X-Admin-Token": adminToken },
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo limpiar el sistema (${res.status})`);
+  }
+  return res.json();
+}
+
 // Descarga directa (no XHR) — el navegador la maneja como un archivo, no
 // necesita CORS de fetch.
 export const EXPORT_CSV_URL = `${API_BASE_URL}/entregas/export.csv`;

@@ -6,6 +6,8 @@ import {
   EXPORT_CSV_URL,
   EXPORT_XLSX_URL,
   actualizarItems,
+  eliminarEntrega,
+  eliminarTodasLasEntregas,
   fetchEntregas,
   fetchHistorialEntrega,
   fetchLogs,
@@ -172,9 +174,11 @@ function TarjetaResumen({
 
 function FilaRevision({
   entrega,
+  adminToken,
   onGuardado,
 }: {
   entrega: Entrega;
+  adminToken: string;
   onGuardado: () => void;
 }) {
   // string y no TipoDocumento: en la practica el tipo real no siempre es
@@ -238,6 +242,25 @@ function FilaRevision({
       onGuardado();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  // Borrado definitivo -- solo tiene sentido para pendiente_revision (el
+  // backend rechaza cualquier otro estado con 409); el boton de abajo ya se
+  // renderiza solo bajo esa condicion.
+  const cancelarDefinitivo = async () => {
+    if (!window.confirm("¿Eliminar por completo esta entrega? Esta acción no se puede deshacer.")) {
+      return;
+    }
+    setGuardando(true);
+    setError(null);
+    try {
+      await eliminarEntrega(entrega.id, adminToken);
+      onGuardado();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al eliminar");
     } finally {
       setGuardando(false);
     }
@@ -397,7 +420,7 @@ function FilaRevision({
             </p>
           ) : null}
           {error ? <p className="text-xs text-red-400">{error}</p> : null}
-          <div>
+          <div className="flex gap-2">
             <button
               onClick={guardar}
               disabled={guardando}
@@ -405,6 +428,16 @@ function FilaRevision({
             >
               {guardando ? "Guardando..." : "Guardar y aprobar"}
             </button>
+            {entrega.estado === "pendiente_revision" ? (
+              <button
+                onClick={cancelarDefinitivo}
+                disabled={guardando || !adminToken}
+                title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
+                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            ) : null}
           </div>
         </div>
       </td>
@@ -570,6 +603,77 @@ function ModalDetalleEntrega({
   );
 }
 
+const ADMIN_TOKEN_STORAGE_KEY = "despachos_admin_token";
+const PALABRA_CONFIRMACION_LIMPIEZA = "ELIMINAR TODO";
+
+// "Zona de peligro" -- borra TODAS las entregas y logs. Mismo patron visual
+// que ModalDetalleEntrega (overlay fijo + tarjeta centrada), pero exige
+// escribir una palabra exacta para habilitar el boton de confirmar.
+function ModalConfirmarLimpieza({
+  onConfirmar,
+  onCerrar,
+}: {
+  onConfirmar: () => Promise<void>;
+  onCerrar: () => void;
+}) {
+  const [palabra, setPalabra] = useState("");
+  const [limpiando, setLimpiando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const habilitado = palabra.trim() === PALABRA_CONFIRMACION_LIMPIEZA;
+
+  const confirmar = async () => {
+    setLimpiando(true);
+    setError(null);
+    try {
+      await onConfirmar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al limpiar");
+      setLimpiando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onCerrar}>
+      <div
+        className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-red-500/40 bg-neutral-900 p-5"
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-red-400">Eliminar TODOS los productos</h3>
+        <p className="text-sm text-neutral-400">
+          Esto borra permanentemente todas las entregas, sus productos y todo el historial de logs. No
+          se puede deshacer.
+        </p>
+        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          Escribí &quot;{PALABRA_CONFIRMACION_LIMPIEZA}&quot; para confirmar
+          <input
+            value={palabra}
+            onChange={(e) => setPalabra(e.target.value)}
+            disabled={limpiando}
+            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+          />
+        </label>
+        {error ? <p className="text-xs text-red-400">{error}</p> : null}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCerrar}
+            disabled={limpiando}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={confirmar}
+            disabled={!habilitado || limpiando}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
+          >
+            {limpiando ? "Eliminando..." : "Eliminar todo"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   // SWR dedupea llamadas concurrentes, reintenta ante error y revalida al
   // volver a la pestaña, ademas del polling — sin el useEffect/setInterval
@@ -593,6 +697,32 @@ export default function DashboardPage() {
   const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [enVivo, setEnVivo] = useState(false);
+
+  // Token de administrador para los endpoints de borrado (ver
+  // _verificar_token_admin en el backend) -- persistido en localStorage para
+  // no tener que pegarlo de nuevo en cada visita.
+  const [adminToken, setAdminToken] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, adminToken);
+    } catch {
+      // localStorage puede fallar (modo privado, storage lleno) -- no es
+      // critico, el token simplemente no persiste entre visitas.
+    }
+  }, [adminToken]);
+
+  const [limpiezaModalAbierta, setLimpiezaModalAbierta] = useState(false);
+  const [limpiezaResultado, setLimpiezaResultado] = useState<{
+    entregas_borradas: number;
+    logs_borrados: number;
+  } | null>(null);
 
   // Realtime de Supabase: cuando entra/cambia una fila, revalidamos al
   // instante en vez de esperar el proximo tick de polling (que sigue
@@ -696,6 +826,19 @@ export default function DashboardPage() {
           No se pudo conectar con el backend ({API_URL_HINT}): {error}
         </div>
       ) : null}
+
+      {/* Habilita "Cancelar" en la cola de revision y la zona de peligro de
+          abajo -- ver _verificar_token_admin en el backend. */}
+      <label className="flex max-w-xs flex-col gap-1 text-xs text-neutral-500">
+        Token de administrador
+        <input
+          type="password"
+          value={adminToken}
+          onChange={(e) => setAdminToken(e.target.value)}
+          placeholder="Requerido para borrar entregas"
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+        />
+      </label>
 
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
@@ -884,6 +1027,7 @@ export default function DashboardPage() {
                       <FilaRevision
                         key={`${e.id}-revision`}
                         entrega={e}
+                        adminToken={adminToken}
                         onGuardado={() => {
                           setEnRevision(null);
                           recargarEntregas();
@@ -920,8 +1064,47 @@ export default function DashboardPage() {
         </ul>
       </section>
 
+      <section className="flex flex-col gap-3 rounded-lg border border-red-500/30 p-4">
+        <div>
+          <h2 className="text-sm font-medium uppercase tracking-wide text-red-400">Zona de peligro</h2>
+          <p className="text-xs text-neutral-500">
+            Borra permanentemente todas las entregas, productos y logs del sistema. Pensado para
+            resetear datos de prueba -- no toca las fotos ya subidas a Storage.
+          </p>
+        </div>
+        <div>
+          <button
+            onClick={() => setLimpiezaModalAbierta(true)}
+            disabled={!adminToken}
+            title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
+            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            Eliminar TODOS los productos
+          </button>
+        </div>
+        {limpiezaResultado ? (
+          <p className="text-xs text-neutral-500">
+            Última limpieza: {limpiezaResultado.entregas_borradas} entregas y{" "}
+            {limpiezaResultado.logs_borrados} logs borrados.
+          </p>
+        ) : null}
+      </section>
+
       {entregaDetalle ? (
         <ModalDetalleEntrega entrega={entregaDetalle} onCerrar={() => setEntregaDetalle(null)} />
+      ) : null}
+
+      {limpiezaModalAbierta ? (
+        <ModalConfirmarLimpieza
+          onCerrar={() => setLimpiezaModalAbierta(false)}
+          onConfirmar={async () => {
+            const resultado = await eliminarTodasLasEntregas(adminToken);
+            setLimpiezaResultado(resultado);
+            setLimpiezaModalAbierta(false);
+            recargarEntregas();
+            recargarLogs();
+          }}
+        />
       ) : null}
     </main>
   );
