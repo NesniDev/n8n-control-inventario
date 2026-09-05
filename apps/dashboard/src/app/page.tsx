@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import { toast } from "sonner";
 import {
   EXPORT_CSV_URL,
   EXPORT_XLSX_URL,
@@ -172,6 +173,50 @@ function TarjetaResumen({
   );
 }
 
+// Modal de confirmacion generico -- mismo patron visual que ModalDetalleEntrega
+// y ModalConfirmarLimpieza (overlay fijo + tarjeta centrada), para acciones
+// destructivas puntuales que no ameritan el flujo de palabra exacta de la
+// limpieza total.
+function ModalConfirmar({
+  titulo,
+  mensaje,
+  textoConfirmar = "Confirmar",
+  onConfirmar,
+  onCerrar,
+}: {
+  titulo: string;
+  mensaje: string;
+  textoConfirmar?: string;
+  onConfirmar: () => void;
+  onCerrar: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onCerrar}>
+      <div
+        className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-neutral-800 bg-neutral-900 p-5"
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-neutral-100">{titulo}</h3>
+        <p className="text-sm text-neutral-400">{mensaje}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCerrar}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirmar}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
+          >
+            {textoConfirmar}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FilaRevision({
   entrega,
   adminToken,
@@ -188,7 +233,9 @@ function FilaRevision({
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
   const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
   const [guardando, setGuardando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Controla el modal de confirmacion del borrado definitivo (ver
+  // eliminarDefinitivamente mas abajo) -- reemplaza el window.confirm previo.
+  const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
   // Historial de logs de esta entrega -- un solo fetch, compartido por todos
   // sus productos (ver historialDeItem para el filtrado por producto).
   const [historial, setHistorial] = useState<LogEvent[] | null>(null);
@@ -224,7 +271,6 @@ function FilaRevision({
 
   const guardar = async () => {
     setGuardando(true);
-    setError(null);
     try {
       await revisarEntrega(entrega.id, { tipo, indicativo_numero: indicativoNumero });
       if (items.length > 0) {
@@ -239,9 +285,10 @@ function FilaRevision({
           "supervisor"
         );
       }
+      toast.success("Entrega guardada");
       onGuardado();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error(err instanceof Error ? err.message : "Error al guardar");
     } finally {
       setGuardando(false);
     }
@@ -249,18 +296,17 @@ function FilaRevision({
 
   // Borrado definitivo -- solo tiene sentido para pendiente_revision (el
   // backend rechaza cualquier otro estado con 409); el boton de abajo ya se
-  // renderiza solo bajo esa condicion.
-  const cancelarDefinitivo = async () => {
-    if (!window.confirm("¿Eliminar por completo esta entrega? Esta acción no se puede deshacer.")) {
-      return;
-    }
+  // renderiza solo bajo esa condicion. Se llama desde ModalConfirmar una vez
+  // que el usuario confirma ahi (ver el JSX mas abajo).
+  const eliminarDefinitivamente = async () => {
+    setConfirmandoBorrado(false);
     setGuardando(true);
-    setError(null);
     try {
       await eliminarEntrega(entrega.id, adminToken);
+      toast.success("Entrega eliminada");
       onGuardado();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al eliminar");
+      toast.error(err instanceof Error ? err.message : "Error al eliminar");
     } finally {
       setGuardando(false);
     }
@@ -419,7 +465,6 @@ function FilaRevision({
               la pendiente de algún producto si fue un error.
             </p>
           ) : null}
-          {error ? <p className="text-xs text-red-400">{error}</p> : null}
           <div className="flex gap-2">
             <button
               onClick={guardar}
@@ -430,7 +475,7 @@ function FilaRevision({
             </button>
             {entrega.estado === "pendiente_revision" ? (
               <button
-                onClick={cancelarDefinitivo}
+                onClick={() => setConfirmandoBorrado(true)}
                 disabled={guardando || !adminToken}
                 title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
                 className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
@@ -440,6 +485,15 @@ function FilaRevision({
             ) : null}
           </div>
         </div>
+        {confirmandoBorrado ? (
+          <ModalConfirmar
+            titulo="Eliminar entrega"
+            mensaje="¿Eliminar por completo esta entrega? Esta acción no se puede deshacer."
+            textoConfirmar="Eliminar"
+            onConfirmar={eliminarDefinitivamente}
+            onCerrar={() => setConfirmandoBorrado(false)}
+          />
+        ) : null}
       </td>
     </tr>
   );
@@ -627,7 +681,12 @@ function ModalConfirmarLimpieza({
     try {
       await onConfirmar();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al limpiar");
+      const mensaje = err instanceof Error ? err.message : "Error al limpiar";
+      // El error se mantiene visible DENTRO del modal (para que no se pierda
+      // mientras sigue abierto) y ademas se dispara un toast, en linea con
+      // el resto del feedback de esta pantalla.
+      setError(mensaje);
+      toast.error(mensaje);
       setLimpiando(false);
     }
   };
@@ -1101,6 +1160,9 @@ export default function DashboardPage() {
             const resultado = await eliminarTodasLasEntregas(adminToken);
             setLimpiezaResultado(resultado);
             setLimpiezaModalAbierta(false);
+            toast.success(
+              `Se eliminaron ${resultado.entregas_borradas} entregas y ${resultado.logs_borrados} logs`
+            );
             recargarEntregas();
             recargarLogs();
           }}
