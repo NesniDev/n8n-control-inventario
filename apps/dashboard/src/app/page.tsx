@@ -618,6 +618,197 @@ function FilaRevision({
   );
 }
 
+// Detalle visual de solo lectura para una entrega ya `procesada` sin nada
+// pendiente -- a diferencia de FilaRevision no se puede editar nada, es para
+// entender de un vistazo que paso con el documento (fotos como miniatura en
+// vez de links de texto, historial como linea de tiempo colapsable).
+function ModalDetalleEntrega({
+  entrega,
+  onCerrar,
+}: {
+  entrega: Entrega;
+  onCerrar: () => void;
+}) {
+  // historial === null es el estado "cargando" -- evita un setState
+  // sincronico al entrar al efecto (regla react-hooks/set-state-in-effect).
+  const [historial, setHistorial] = useState<LogEvent[] | null>(null);
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+  const cargandoHistorial = historial === null;
+
+  useEffect(() => {
+    let cancelado = false;
+    fetchHistorialEntrega(entrega.id)
+      .then((data) => {
+        if (!cancelado) setHistorial(data);
+      })
+      .catch(() => {
+        if (!cancelado) setHistorial([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [entrega.id]);
+
+  // Cerrar con Escape ademas del click en el fondo/la X.
+  useEffect(() => {
+    const alPresionarTecla = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") onCerrar();
+    };
+    document.addEventListener("keydown", alPresionarTecla);
+    return () => document.removeEventListener("keydown", alPresionarTecla);
+  }, [onCerrar]);
+
+  // describirEvento espera un mapa de entregas por id -- aca alcanza con la
+  // propia entrega del modal, ya que el historial es siempre de ella.
+  const entregasPorId = useMemo(() => new Map([[entrega.id, entrega]]), [entrega]);
+  const eventosHistorial = (historial ?? [])
+    .map((log) => ({ log, texto: describirEvento(log, entregasPorId) }))
+    .filter((x): x is { log: LogEvent; texto: string } => x.texto !== null);
+
+  // Fotos disponibles como miniatura -- solo las que la entrega realmente
+  // trae (traslado y firma son opcionales).
+  const fotos = [
+    { url: entrega.evidencia_url, etiqueta: "Foto" },
+    entrega.traslado_url ? { url: entrega.traslado_url, etiqueta: "Traslado" } : null,
+    entrega.firma_url ? { url: entrega.firma_url, etiqueta: "Firma" } : null,
+  ].filter((f): f is { url: string; etiqueta: string } => f !== null);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      onClick={onCerrar}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-5"
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-neutral-100">
+              {entrega.tipo} {entrega.indicativo_numero}
+            </h3>
+            <span
+              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[entrega.estado]}`}
+            >
+              {ESTADO_LABEL[entrega.estado]}
+            </span>
+          </div>
+          <button onClick={onCerrar} className="text-neutral-500 hover:text-neutral-300" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+
+        {/* Datos clave en tarjetas, no en una lista de texto -- de un vistazo
+            se entiende quien/donde/cuando sin tener que leer renglon por
+            renglon. */}
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            <span className="block text-xs text-neutral-500">Sede</span>
+            <span className="text-neutral-200">{entrega.sede_origen_nombre ?? entrega.sede_origen_id}</span>
+          </div>
+          <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            <span className="block text-xs text-neutral-500">Operador</span>
+            <span className="text-neutral-200">{entrega.operador_id}</span>
+          </div>
+          <div className="col-span-2 rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            <span className="block text-xs text-neutral-500">Capturado</span>
+            <span className="text-neutral-200">
+              {entrega.capturado_at ? new Date(entrega.capturado_at).toLocaleString() : "—"}
+            </span>
+          </div>
+        </div>
+
+        {/* Miniaturas en vez de links de texto -- se entiende de un vistazo
+            que evidencia hay sin tener que abrir cada una. */}
+        {fotos.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Evidencia</span>
+            <div className="grid grid-cols-3 gap-2">
+              {fotos.map((foto) => (
+                <a
+                  key={foto.url}
+                  href={foto.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex flex-col gap-1"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- fotos
+                      vienen de Supabase Storage, no del dominio de Next. */}
+                  <img
+                    src={foto.url}
+                    alt={foto.etiqueta}
+                    className="h-24 w-full rounded-md border border-neutral-800 object-cover transition group-hover:border-orange-400/60"
+                  />
+                  <span className="text-center text-xs text-neutral-500 group-hover:text-orange-400">
+                    {foto.etiqueta} ↗
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Productos</span>
+          {entrega.items.length === 0 ? (
+            <p className="text-xs text-neutral-600">Sin productos registrados.</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-neutral-800 rounded-md border border-neutral-800">
+              {entrega.items.map((item) => (
+                <li key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <span className="text-neutral-300">{item.descripcion}</span>
+                  <span className="flex shrink-0 items-center gap-1 text-emerald-400">
+                    ✓ {item.cantidad_entregada}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Historial colapsado por defecto -- interactivo, no obliga a leerlo
+            si solo se vino a ver las fotos. Linea de tiempo con puntos en vez
+            de filas planas de texto. */}
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => setHistorialAbierto((v) => !v)}
+            className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+          >
+            <span>Historial {historial ? `(${eventosHistorial.length})` : ""}</span>
+            <span>{historialAbierto ? "▲" : "▼"}</span>
+          </button>
+          {historialAbierto ? (
+            <div className="flex flex-col gap-3 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-xs">
+              {cargandoHistorial ? (
+                <span className="text-neutral-500">Cargando...</span>
+              ) : eventosHistorial.length === 0 ? (
+                <span className="text-neutral-500">Sin cambios registrados todavía.</span>
+              ) : (
+                eventosHistorial.map(({ log, texto }, i) => (
+                  <div key={log.id} className="flex gap-2">
+                    <div className="flex flex-col items-center">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-orange-400" />
+                      {i < eventosHistorial.length - 1 ? (
+                        <span className="w-px flex-1 bg-neutral-800" />
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col gap-0.5 pb-2">
+                      <span className="font-mono text-neutral-600">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </span>
+                      <span className="text-neutral-300">{texto}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ADMIN_TOKEN_STORAGE_KEY = "despachos_admin_token";
 const PALABRA_CONFIRMACION_LIMPIEZA = "ELIMINAR TODO";
 
@@ -719,6 +910,11 @@ export default function DashboardPage() {
   const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
     "todas"
   );
+  // Entrega mostrada en el detalle visual de solo lectura (ver
+  // ModalDetalleEntrega mas abajo) -- solo se abre para entregas ya
+  // `procesada` sin nada pendiente, donde no tiene sentido el flujo
+  // editable de FilaRevision.
+  const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [enVivo, setEnVivo] = useState(false);
 
@@ -1045,12 +1241,20 @@ export default function DashboardPage() {
                 </tr>
               ) : null}
               {entregasFiltradas?.map((e) => {
+                // Una entrega totalmente procesada (sin nada pendiente) ya no
+                // se corrige a mano de rutina -- abre el detalle visual de
+                // solo lectura en vez del flujo editable de FilaRevision.
+                const puedeEditar = e.estado === "pendiente_revision" || tienePendiente(e);
                 return (
                   <>
                     <tr
                       key={e.id}
                       className="cursor-pointer"
-                      onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
+                      onClick={() =>
+                        puedeEditar
+                          ? setEnRevision(enRevision === e.id ? null : e.id)
+                          : setEntregaDetalle(e)
+                      }
                     >
                       <td className="px-4 py-2 font-mono text-neutral-300">{e.tipo || "—"}</td>
                       <td className="px-4 py-2 font-mono text-neutral-300">
@@ -1073,7 +1277,7 @@ export default function DashboardPage() {
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
                         >
-                          {ESTADO_LABEL[e.estado]} · editar ↕
+                          {ESTADO_LABEL[e.estado]} · {puedeEditar ? "editar ↕" : "ver detalle"}
                         </span>
                       </td>
                       <td className="px-4 py-2 text-neutral-500">
@@ -1169,6 +1373,10 @@ export default function DashboardPage() {
           </p>
         ) : null}
       </section>
+
+      {entregaDetalle ? (
+        <ModalDetalleEntrega entrega={entregaDetalle} onCerrar={() => setEntregaDetalle(null)} />
+      ) : null}
 
       {limpiezaModalAbierta ? (
         <ModalConfirmarLimpieza
