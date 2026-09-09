@@ -207,10 +207,9 @@ function TarjetaResumen({
   );
 }
 
-// Modal de confirmacion generico -- mismo patron visual que ModalDetalleEntrega
-// y ModalConfirmarLimpieza (overlay fijo + tarjeta centrada), para acciones
-// destructivas puntuales que no ameritan el flujo de palabra exacta de la
-// limpieza total.
+// Modal de confirmacion generico -- mismo patron visual que ModalConfirmarLimpieza
+// (overlay fijo + tarjeta centrada), para acciones destructivas puntuales que
+// no ameritan el flujo de palabra exacta de la limpieza total.
 function ModalConfirmar({
   titulo,
   mensaje,
@@ -421,10 +420,9 @@ function FilaRevision({
               <input
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value.toUpperCase())}
-                disabled={sinPendiente}
                 list="tipos-documento-sugeridos"
                 placeholder="FEI, EDP, TB u otro"
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
               />
               {/* Sugerencia rapida de los tipos conocidos -- el input igual
                   acepta cualquier otro valor, el datalist no restringe. */}
@@ -439,8 +437,7 @@ function FilaRevision({
               <input
                 value={indicativoNumero}
                 onChange={(e) => setIndicativoNumero(e.target.value)}
-                disabled={sinPendiente}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
               />
             </label>
           </div>
@@ -621,169 +618,11 @@ function FilaRevision({
   );
 }
 
-// Modal de solo lectura para una entrega ya `procesada` sin nada pendiente
-// -- a diferencia de FilaRevision no se puede editar nada, solo consultar
-// productos, evidencia e historial.
-function ModalDetalleEntrega({
-  entrega,
-  onCerrar,
-}: {
-  entrega: Entrega;
-  onCerrar: () => void;
-}) {
-  // historial === null es el estado "cargando" -- evita un setState
-  // sincronico al entrar al efecto (regla react-hooks/set-state-in-effect).
-  const [historial, setHistorial] = useState<LogEvent[] | null>(null);
-  const cargandoHistorial = historial === null;
-
-  useEffect(() => {
-    let cancelado = false;
-    fetchHistorialEntrega(entrega.id)
-      .then((data) => {
-        if (!cancelado) setHistorial(data);
-      })
-      .catch(() => {
-        if (!cancelado) setHistorial([]);
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, [entrega.id]);
-
-  // Cerrar con Escape ademas del click en el fondo/la X.
-  useEffect(() => {
-    const alPresionarTecla = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") onCerrar();
-    };
-    document.addEventListener("keydown", alPresionarTecla);
-    return () => document.removeEventListener("keydown", alPresionarTecla);
-  }, [onCerrar]);
-
-  // describirEvento espera un mapa de entregas por id -- aca alcanza con la
-  // propia entrega del modal, ya que el historial es siempre de ella.
-  const entregasPorId = useMemo(() => new Map([[entrega.id, entrega]]), [entrega]);
-  const eventosHistorial = (historial ?? [])
-    .map((log) => ({ log, texto: describirEvento(log, entregasPorId) }))
-    .filter((x): x is { log: LogEvent; texto: string } => x.texto !== null);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-      onClick={onCerrar}
-    >
-      <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-5"
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold text-neutral-100">
-              {entrega.tipo} {entrega.indicativo_numero}
-            </h3>
-            <span
-              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[entrega.estado]}`}
-            >
-              {ESTADO_LABEL[entrega.estado]}
-            </span>
-          </div>
-          <button onClick={onCerrar} className="text-neutral-500 hover:text-neutral-300" aria-label="Cerrar">
-            ✕
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-1 text-sm text-neutral-400">
-          <span>Sede: {entrega.sede_origen_nombre ?? entrega.sede_origen_id}</span>
-          <span>
-            Capturado: {entrega.capturado_at ? new Date(entrega.capturado_at).toLocaleString() : "—"}
-          </span>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Productos</span>
-          {entrega.items.length === 0 ? (
-            <p className="text-xs text-neutral-600">Sin productos registrados.</p>
-          ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="text-neutral-500">
-                <tr>
-                  <th className="py-1 pr-2 font-medium">Descripción</th>
-                  <th className="py-1 pr-2 font-medium">Entregado</th>
-                  <th className="py-1 font-medium">Pendiente</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-800">
-                {entrega.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="py-1 pr-2 text-neutral-300">{item.descripcion}</td>
-                    <td className="py-1 pr-2 text-neutral-300">{item.cantidad_entregada}</td>
-                    <td className="py-1 text-neutral-300">{item.cantidad_pendiente}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-3 text-xs">
-          <a
-            href={entrega.evidencia_url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-orange-400 hover:underline"
-          >
-            Ver foto original ↗
-          </a>
-          {entrega.traslado_url ? (
-            <a
-              href={entrega.traslado_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-orange-400 hover:underline"
-            >
-              Ver traslado ↗
-            </a>
-          ) : null}
-          {entrega.firma_url ? (
-            <a
-              href={entrega.firma_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-orange-400 hover:underline"
-            >
-              Ver firma ↗
-            </a>
-          ) : null}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Historial</span>
-          <div className="flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2 text-xs">
-            {cargandoHistorial ? (
-              <span className="text-neutral-500">Cargando...</span>
-            ) : eventosHistorial.length === 0 ? (
-              <span className="text-neutral-500">Sin cambios registrados todavía.</span>
-            ) : (
-              eventosHistorial.map(({ log, texto }) => (
-                <div key={log.id} className="flex gap-2 text-neutral-400">
-                  <span className="shrink-0 font-mono text-neutral-600">
-                    {new Date(log.timestamp).toLocaleString()}
-                  </span>
-                  <span>{texto}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const ADMIN_TOKEN_STORAGE_KEY = "despachos_admin_token";
 const PALABRA_CONFIRMACION_LIMPIEZA = "ELIMINAR TODO";
 
 // "Zona de peligro" -- borra TODAS las entregas y logs. Mismo patron visual
-// que ModalDetalleEntrega (overlay fijo + tarjeta centrada), pero exige
+// que los otros modales (overlay fijo + tarjeta centrada), pero exige
 // escribir una palabra exacta para habilitar el boton de confirmar.
 function ModalConfirmarLimpieza({
   onConfirmar,
@@ -880,10 +719,6 @@ export default function DashboardPage() {
   const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
     "todas"
   );
-  // Entrega mostrada en el modal de solo lectura (ver ModalDetalleEntrega) --
-  // solo se abre para entregas ya `procesada` sin nada pendiente, donde no
-  // tiene sentido el flujo de revision de FilaRevision.
-  const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [enVivo, setEnVivo] = useState(false);
 
@@ -1210,18 +1045,12 @@ export default function DashboardPage() {
                 </tr>
               ) : null}
               {entregasFiltradas?.map((e) => {
-                const puedeActualizar = e.items.some((item) => item.cantidad_pendiente > 0);
-                const puedeAbrir = e.estado === "pendiente_revision" || puedeActualizar;
                 return (
                   <>
                     <tr
                       key={e.id}
                       className="cursor-pointer"
-                      onClick={() =>
-                        puedeAbrir
-                          ? setEnRevision(enRevision === e.id ? null : e.id)
-                          : setEntregaDetalle(e)
-                      }
+                      onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
                     >
                       <td className="px-4 py-2 font-mono text-neutral-300">{e.tipo || "—"}</td>
                       <td className="px-4 py-2 font-mono text-neutral-300">
@@ -1244,8 +1073,7 @@ export default function DashboardPage() {
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
                         >
-                          {ESTADO_LABEL[e.estado]}
-                          {puedeAbrir ? " · revisar ↕" : ""}
+                          {ESTADO_LABEL[e.estado]} · editar ↕
                         </span>
                       </td>
                       <td className="px-4 py-2 text-neutral-500">
@@ -1341,10 +1169,6 @@ export default function DashboardPage() {
           </p>
         ) : null}
       </section>
-
-      {entregaDetalle ? (
-        <ModalDetalleEntrega entrega={entregaDetalle} onCerrar={() => setEntregaDetalle(null)} />
-      ) : null}
 
       {limpiezaModalAbierta ? (
         <ModalConfirmarLimpieza
