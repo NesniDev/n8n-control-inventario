@@ -22,18 +22,6 @@ import {
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
-const ESTADO_LABEL: Record<Entrega["estado"], string> = {
-  procesada: "Procesada",
-  pendiente_revision: "Pendiente de revisión",
-  duplicado_bloqueado: "Duplicado bloqueado",
-};
-
-const ESTADO_CLASS: Record<Entrega["estado"], string> = {
-  procesada: "bg-emerald-500/15 text-emerald-400",
-  pendiente_revision: "bg-amber-500/15 text-amber-400",
-  duplicado_bloqueado: "bg-red-500/15 text-red-400",
-};
-
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
 // el backend); TB/RM3/RM2 no tienen sede dueña -- sugerencia rápida del
 // datalist, no una restricción real (se puede escribir cualquier otro tipo).
@@ -52,6 +40,23 @@ function esHoy(fechaIso: string | null | undefined): boolean {
 
 function tienePendiente(entrega: Entrega): boolean {
   return entrega.items.some((item) => item.cantidad_pendiente > 0);
+}
+
+// Etiqueta/color que se muestra al usuario -- no es 1:1 con el estado real
+// en la DB: "procesada" se separa visualmente en "Procesada" (nada
+// pendiente) y "Pendiente" (sin terminar), para que se entienda de un
+// vistazo si falta algo sin tener que abrir la fila.
+function estadoVisual(entrega: Entrega): { etiqueta: string; clase: string } {
+  if (entrega.estado === "pendiente_revision") {
+    return { etiqueta: "Pendiente de revisión", clase: "bg-amber-500/15 text-amber-400" };
+  }
+  if (entrega.estado === "duplicado_bloqueado") {
+    return { etiqueta: "Duplicado bloqueado", clase: "bg-red-500/15 text-red-400" };
+  }
+  if (tienePendiente(entrega)) {
+    return { etiqueta: "Pendiente", clase: "bg-amber-500/15 text-amber-400" };
+  }
+  return { etiqueta: "Procesada", clase: "bg-emerald-500/15 text-emerald-400" };
 }
 
 // Convierte un ISO del backend al formato que espera <input type="datetime-local">
@@ -688,9 +693,9 @@ function ModalDetalleEntrega({
               {entrega.tipo} {entrega.indicativo_numero}
             </h3>
             <span
-              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[entrega.estado]}`}
+              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(entrega).clase}`}
             >
-              {ESTADO_LABEL[entrega.estado]}
+              {estadoVisual(entrega).etiqueta}
             </span>
           </div>
           <button onClick={onCerrar} className="text-neutral-500 hover:text-neutral-300" aria-label="Cerrar">
@@ -1275,9 +1280,9 @@ export default function DashboardPage() {
                       <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_pendiente")}</td>
                       <td className="px-4 py-2">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_CLASS[e.estado]}`}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(e).clase}`}
                         >
-                          {ESTADO_LABEL[e.estado]} · {puedeEditar ? "editar ↕" : "ver detalle"}
+                          {estadoVisual(e).etiqueta} · {puedeEditar ? "editar ↕" : "ver detalle"}
                         </span>
                       </td>
                       <td className="px-4 py-2 text-neutral-500">
