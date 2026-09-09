@@ -12,10 +12,12 @@ import {
   fetchEntregas,
   fetchHistorialEntrega,
   fetchLogs,
+  fetchSedes,
   revisarEntrega,
   type Entrega,
   type ItemEntrega,
   type LogEvent,
+  type Sede,
   type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -50,6 +52,28 @@ function esHoy(fechaIso: string | null | undefined): boolean {
 
 function tienePendiente(entrega: Entrega): boolean {
   return entrega.items.some((item) => item.cantidad_pendiente > 0);
+}
+
+// Convierte un ISO del backend al formato que espera <input type="datetime-local">
+// ("YYYY-MM-DDTHH:mm"), en la hora LOCAL del navegador (no UTC) -- Date ya
+// hace esa conversion al leer los campos con get* en vez de getUTC*.
+function isoADatetimeLocal(fechaIso: string | null | undefined): string {
+  if (!fechaIso) return "";
+  const fecha = new Date(fechaIso);
+  if (Number.isNaN(fecha.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${fecha.getFullYear()}-${pad(fecha.getMonth() + 1)}-${pad(fecha.getDate())}T${pad(
+    fecha.getHours()
+  )}:${pad(fecha.getMinutes())}`;
+}
+
+// Camino inverso: el valor de datetime-local no trae timezone -- new Date()
+// lo interpreta en la hora local del navegador, que es lo que queremos.
+function datetimeLocalAIso(valor: string): string | undefined {
+  if (!valor) return undefined;
+  const fecha = new Date(valor);
+  if (Number.isNaN(fecha.getTime())) return undefined;
+  return fecha.toISOString();
 }
 
 interface EventoHistorial {
@@ -158,18 +182,28 @@ function TarjetaResumen({
   valor,
   tono,
   detalle,
+  onClick,
 }: {
   titulo: string;
   valor: number | string;
   tono: Tono;
   detalle?: string;
+  // Cuando viene, la tarjeta funciona como filtro rapido (ver filtroEstado
+  // en DashboardPage) -- ademas del buscador de texto libre.
+  onClick?: () => void;
 }) {
+  const Contenedor = onClick ? "button" : "div";
   return (
-    <div className={`flex flex-col gap-1 rounded-lg border ${TONO_CLASE[tono]} bg-neutral-900/60 p-4`}>
+    <Contenedor
+      onClick={onClick}
+      className={`flex flex-col gap-1 rounded-lg border text-left ${TONO_CLASE[tono]} bg-neutral-900/60 p-4 ${
+        onClick ? "cursor-pointer transition hover:bg-neutral-900" : ""
+      }`}
+    >
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">{titulo}</span>
       <span className={`text-2xl font-semibold ${TONO_TEXTO[tono]}`}>{valor}</span>
       {detalle ? <span className="text-xs text-neutral-500">{detalle}</span> : null}
-    </div>
+    </Contenedor>
   );
 }
 
@@ -220,10 +254,14 @@ function ModalConfirmar({
 function FilaRevision({
   entrega,
   adminToken,
+  sedes,
   onGuardado,
 }: {
   entrega: Entrega;
   adminToken: string;
+  // Para el selector de sede origen -- solo se usa cuando la entrega esta
+  // pendiente_revision (ver el bloque de campos ampliados mas abajo).
+  sedes: Sede[] | undefined;
   onGuardado: () => void;
 }) {
   // string y no TipoDocumento: en la practica el tipo real no siempre es
@@ -232,6 +270,16 @@ function FilaRevision({
   const [tipo, setTipo] = useState(entrega.tipo);
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
   const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
+  // Campos de cabecera ampliados -- solo editables cuando la entrega esta
+  // pendiente_revision (ver el bloque condicional en el JSX). Se excluyen
+  // deliberadamente evidencia/firma/traslado_url por pedido explicito.
+  const [sedeOrigenId, setSedeOrigenId] = useState(entrega.sede_origen_id);
+  const [operadorId, setOperadorId] = useState(entrega.operador_id);
+  const [capturadoAt, setCapturadoAt] = useState(() => isoADatetimeLocal(entrega.capturado_at));
+  const [trasladoTipo, setTrasladoTipo] = useState(entrega.traslado_tipo ?? "");
+  const [trasladoIndicativoNumero, setTrasladoIndicativoNumero] = useState(
+    entrega.traslado_indicativo_numero ?? ""
+  );
   const [guardando, setGuardando] = useState(false);
   // Controla el modal de confirmacion del borrado definitivo (ver
   // eliminarDefinitivamente mas abajo) -- reemplaza el window.confirm previo.
@@ -272,7 +320,22 @@ function FilaRevision({
   const guardar = async () => {
     setGuardando(true);
     try {
-      await revisarEntrega(entrega.id, { tipo, indicativo_numero: indicativoNumero });
+      // sede_origen_id/operador_id/capturado_at/traslado_* solo tienen
+      // sentido corregirlos en pendiente_revision (ver bloque condicional
+      // del JSX) -- para el resto de las entregas (conPendiente) se manda
+      // solo lo de siempre.
+      const camposRevision: Parameters<typeof revisarEntrega>[1] = {
+        tipo,
+        indicativo_numero: indicativoNumero,
+      };
+      if (entrega.estado === "pendiente_revision") {
+        camposRevision.sede_origen_id = sedeOrigenId || undefined;
+        camposRevision.operador_id = operadorId || undefined;
+        camposRevision.capturado_at = datetimeLocalAIso(capturadoAt);
+        camposRevision.traslado_tipo = trasladoTipo || undefined;
+        camposRevision.traslado_indicativo_numero = trasladoIndicativoNumero || undefined;
+      }
+      await revisarEntrega(entrega.id, camposRevision);
       if (items.length > 0) {
         await actualizarItems(
           entrega.id,
@@ -381,6 +444,65 @@ function FilaRevision({
               />
             </label>
           </div>
+
+          {entrega.estado === "pendiente_revision" ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Sede origen
+                <select
+                  value={sedeOrigenId}
+                  onChange={(e) => setSedeOrigenId(e.target.value)}
+                  className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                >
+                  <option value={sedeOrigenId}>{entrega.sede_origen_nombre ?? sedeOrigenId}</option>
+                  {(sedes ?? [])
+                    .filter((s) => s.id !== sedeOrigenId)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nombre}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Operador
+                <input
+                  value={operadorId}
+                  onChange={(e) => setOperadorId(e.target.value)}
+                  className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                Fecha/hora de captura
+                <input
+                  type="datetime-local"
+                  value={capturadoAt}
+                  onChange={(e) => setCapturadoAt(e.target.value)}
+                  className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                  Traslado tipo
+                  <input
+                    value={trasladoTipo}
+                    onChange={(e) => setTrasladoTipo(e.target.value.toUpperCase())}
+                    placeholder="Opcional"
+                    className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                  Traslado N°
+                  <input
+                    value={trasladoIndicativoNumero}
+                    onChange={(e) => setTrasladoIndicativoNumero(e.target.value)}
+                    placeholder="Opcional"
+                    className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
@@ -748,8 +870,16 @@ export default function DashboardPage() {
     isLoading: logsCargando,
     mutate: recargarLogs,
   } = useSWR("logs", fetchLogs, { refreshInterval: 5000 });
+  // Para el selector de sede origen en la edicion ampliada de FilaRevision --
+  // no cambia seguido, no hace falta refreshInterval.
+  const { data: sedes } = useSWR("sedes", fetchSedes);
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
+  // Filtro por categoria, aparte del buscador de texto libre (ver
+  // entregasFiltradas mas abajo y las tarjetas/botones que lo setean).
+  const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
+    "todas"
+  );
   // Entrega mostrada en el modal de solo lectura (ver ModalDetalleEntrega) --
   // solo se abre para entregas ya `procesada` sin nada pendiente, donde no
   // tiene sentido el flujo de revision de FilaRevision.
@@ -824,7 +954,6 @@ export default function DashboardPage() {
     () => (entregas ?? []).filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision"),
     [entregas]
   );
-  const necesitanAtencion = useMemo(() => [...paraRevisar, ...conPendiente], [paraRevisar, conPendiente]);
   const devolucionesHoy = useMemo(
     () => (logs ?? []).filter((l) => l.evento === "devolucion_registrada" && esHoy(l.timestamp)),
     [logs]
@@ -847,10 +976,21 @@ export default function DashboardPage() {
       .slice(0, 25);
   }, [logs, entregasPorId]);
 
+  // Filtro por categoria (ver filtroEstado) -- se combina con AND junto al
+  // buscador de texto libre, aplicado despues.
+  const entregasPorEstado = useMemo(() => {
+    if (filtroEstado === "todas") return entregas;
+    if (filtroEstado === "revision") return entregas?.filter((e) => e.estado === "pendiente_revision");
+    if (filtroEstado === "pendiente") {
+      return entregas?.filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision");
+    }
+    return entregas?.filter((e) => e.estado === "procesada" && !tienePendiente(e));
+  }, [entregas, filtroEstado]);
+
   const termino = busqueda.trim().toLowerCase();
   const entregasFiltradas = !termino
-    ? entregas
-    : entregas?.filter((e) =>
+    ? entregasPorEstado
+    : entregasPorEstado?.filter((e) =>
         [e.tipo, e.indicativo_numero, e.sede_origen_nombre, e.operador_id, ...e.items.map((i) => i.descripcion)]
           .filter(Boolean)
           .some((campo) => campo!.toLowerCase().includes(termino))
@@ -910,16 +1050,18 @@ export default function DashboardPage() {
             detalle={porSedeHoy.length > 0 ? porSedeHoy.map(([sede, n]) => `${sede}: ${n}`).join(" · ") : "Todavía sin movimiento"}
           />
           <TarjetaResumen
-            titulo="Necesitan atención"
-            valor={necesitanAtencion.length}
-            tono={necesitanAtencion.length > 0 ? "atencion" : "bien"}
-            detalle={necesitanAtencion.length > 0 ? "Revisión o entrega sin terminar" : "Todo al día"}
-          />
-          <TarjetaResumen
-            titulo="Para revisar"
+            titulo="Para revisión"
             valor={paraRevisar.length}
             tono={paraRevisar.length > 0 ? "atencion" : "bien"}
             detalle="La IA no estaba segura del todo"
+            onClick={() => setFiltroEstado("revision")}
+          />
+          <TarjetaResumen
+            titulo="Sin terminar"
+            valor={conPendiente.length}
+            tono={conPendiente.length > 0 ? "atencion" : "bien"}
+            detalle="Entregas con algo pendiente"
+            onClick={() => setFiltroEstado("pendiente")}
           />
           <TarjetaResumen
             titulo="Devoluciones hoy"
@@ -931,30 +1073,54 @@ export default function DashboardPage() {
       </section>
 
       {/* Lo que hay que mirar -- separado de "todas las entregas" para no
-          tener que leer la tabla entera buscando que esta mal. */}
-      {necesitanAtencion.length > 0 ? (
-        <section className="flex flex-col gap-3">
+          tener que leer la tabla entera buscando que esta mal. Dos subgrupos
+          separados (en vez de la mezcla anterior) para distinguir revision
+          de la IA vs. entregas sin terminar. */}
+      {paraRevisar.length > 0 || conPendiente.length > 0 ? (
+        <section className="flex flex-col gap-4">
           <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
             Necesita tu atención
           </h2>
-          <div className="flex flex-col gap-2">
-            {necesitanAtencion.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
-              >
-                <span className="font-medium text-neutral-100">
-                  {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
-                </span>
-                <span className="text-xs font-medium text-amber-400">
-                  {e.estado === "pendiente_revision"
-                    ? "La IA no está segura — revisar"
-                    : `Faltan entregar ${sumar(e.items, "cantidad_pendiente")} unidades`}
-                </span>
-              </button>
-            ))}
-          </div>
+          {paraRevisar.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                En revisión
+              </h3>
+              {paraRevisar.map((e) => (
+                <button
+                  key={e.id}
+                  onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
+                >
+                  <span className="font-medium text-neutral-100">
+                    {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
+                  </span>
+                  <span className="text-xs font-medium text-amber-400">La IA no está segura — revisar</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {conPendiente.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                Sin terminar
+              </h3>
+              {conPendiente.map((e) => (
+                <button
+                  key={e.id}
+                  onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
+                >
+                  <span className="font-medium text-neutral-100">
+                    {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
+                  </span>
+                  <span className="text-xs font-medium text-amber-400">
+                    Faltan entregar {sumar(e.items, "cantidad_pendiente")} unidades
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -981,12 +1147,38 @@ export default function DashboardPage() {
             </a>
           </div>
         </div>
-        <input
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar por tipo, número, sede, operador o producto..."
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600"
-        />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por tipo, número, sede, operador o producto..."
+            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 sm:flex-1"
+          />
+          {/* Filtro por categoria, aparte del buscador -- se combina con AND
+              (ver entregasPorEstado/entregasFiltradas). */}
+          <div className="flex flex-wrap gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
+            {(
+              [
+                { valor: "todas", etiqueta: "Todas" },
+                { valor: "revision", etiqueta: "En revisión" },
+                { valor: "pendiente", etiqueta: "Sin terminar" },
+                { valor: "procesada", etiqueta: "Procesadas" },
+              ] as const
+            ).map((opcion) => (
+              <button
+                key={opcion.valor}
+                onClick={() => setFiltroEstado(opcion.valor)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                  filtroEstado === opcion.valor
+                    ? "bg-emerald-600 text-white"
+                    : "text-neutral-400 hover:bg-neutral-800"
+                }`}
+              >
+                {opcion.etiqueta}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
           <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="bg-neutral-900 text-neutral-500">
@@ -1087,6 +1279,7 @@ export default function DashboardPage() {
                         key={`${e.id}-revision`}
                         entrega={e}
                         adminToken={adminToken}
+                        sedes={sedes}
                         onGuardado={() => {
                           setEnRevision(null);
                           recargarEntregas();

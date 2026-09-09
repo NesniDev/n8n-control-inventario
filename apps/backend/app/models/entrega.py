@@ -91,13 +91,22 @@ class EntregaCreate(BaseModel):
 class EntregaRevision(BaseModel):
     """Payload para corregir/aprobar una entrega en 'pendiente_revision' desde
     el dashboard. Solo se envian los campos que un supervisor corrigio.
-    Las cantidades por producto se corrigen aparte, via PATCH /entregas/{id}/items."""
+    Las cantidades por producto se corrigen aparte, via PATCH /entregas/{id}/items.
+
+    Se excluyen deliberadamente evidencia_url, hash_evidencia, firma_url,
+    traslado_url, estado y confianza_ia -- no son campos que un supervisor
+    corrija a mano desde este formulario."""
 
     # str y no TipoDocumento: en la practica el tipo real del documento no
     # siempre es uno de los 4 conocidos -- el supervisor tiene que poder
     # escribir uno nuevo si no esta en la lista (ver dashboard).
     tipo: str | None = None
     indicativo_numero: str | None = None
+    sede_origen_id: str | None = None
+    operador_id: str | None = None
+    capturado_at: datetime | None = None
+    traslado_tipo: str | None = None
+    traslado_indicativo_numero: str | None = None
     revisado_por: str = "supervisor"
 
     @model_validator(mode="after")

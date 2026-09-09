@@ -39,7 +39,17 @@ export interface Entrega {
   // Foto del traslado (documento adicional que a veces se adjunta junto a
   // la evidencia principal) -- opcional, no todas las entregas lo traen.
   traslado_url?: string | null;
+  // Tipo/numero del documento de traslado (distinto del tipo/indicativo_numero
+  // del documento principal) -- solo presente cuando la entrega vino de un
+  // caso "necesita_traslado" (ver _TIPO_SEDE_DUENA en duplicates.py).
+  traslado_tipo: string | null;
+  traslado_indicativo_numero: string | null;
   capturado_at: string;
+}
+
+export interface Sede {
+  id: string;
+  nombre: string;
 }
 
 export interface LogEvent {
@@ -79,9 +89,21 @@ export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=150");
 export const fetchHistorialEntrega = (entregaId: string) =>
   getJson<LogEvent[]>(`/logs?entidad_id=${encodeURIComponent(entregaId)}&limit=200`);
 
+// Sedes activas -- se usan para el selector de "sede origen" al corregir una
+// entrega en revision manual (ver revisarEntrega).
+export const fetchSedes = () => getJson<Sede[]>("/sedes");
+
 export async function revisarEntrega(
   id: string,
-  campos: { tipo?: string; indicativo_numero?: string }
+  campos: {
+    tipo?: string;
+    indicativo_numero?: string;
+    sede_origen_id?: string;
+    operador_id?: string;
+    capturado_at?: string;
+    traslado_tipo?: string;
+    traslado_indicativo_numero?: string;
+  }
 ): Promise<Entrega> {
   const res = await fetch(`${API_BASE_URL}/entregas/${id}/revisar`, {
     method: "PATCH",

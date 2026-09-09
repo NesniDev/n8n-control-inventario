@@ -14,6 +14,7 @@ entrego hoy (actualizacion de una entrega con algo pendiente todavia).
 import csv
 import io
 
+import asyncpg
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -464,24 +465,44 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
     campos = {
         "tipo": payload.tipo.strip().upper() if payload.tipo else None,
         "indicativo_numero": payload.indicativo_numero,
+        "sede_origen_id": payload.sede_origen_id,
+        "operador_id": payload.operador_id,
+        "capturado_at": payload.capturado_at,
+        "traslado_tipo": payload.traslado_tipo,
+        "traslado_indicativo_numero": payload.traslado_indicativo_numero,
     }
     campos = {k: v for k, v in campos.items() if v is not None}
 
-    row = await pool.fetchrow(
-        """
-        update entregas
-        set tipo = coalesce($2, tipo),
-            indicativo_numero = coalesce($3, indicativo_numero),
-            estado = $4,
-            actualizado_at = now()
-        where id = $1::uuid
-        returning *
-        """,
-        entrega_id,
-        campos.get("tipo"),
-        campos.get("indicativo_numero"),
-        EstadoEntrega.PROCESADA.value,
-    )
+    try:
+        row = await pool.fetchrow(
+            """
+            update entregas
+            set tipo = coalesce($2, tipo),
+                indicativo_numero = coalesce($3, indicativo_numero),
+                sede_origen_id = coalesce($4, sede_origen_id),
+                operador_id = coalesce($5, operador_id),
+                capturado_at = coalesce($6, capturado_at),
+                traslado_tipo = coalesce($7, traslado_tipo),
+                traslado_indicativo_numero = coalesce($8, traslado_indicativo_numero),
+                estado = $9,
+                actualizado_at = now()
+            where id = $1::uuid
+            returning *
+            """,
+            entrega_id,
+            campos.get("tipo"),
+            campos.get("indicativo_numero"),
+            campos.get("sede_origen_id"),
+            campos.get("operador_id"),
+            campos.get("capturado_at"),
+            campos.get("traslado_tipo"),
+            campos.get("traslado_indicativo_numero"),
+            EstadoEntrega.PROCESADA.value,
+        )
+    except asyncpg.UniqueViolationError:
+        # entregas_tipo_indicativo_numero_key -- el supervisor corrigio
+        # tipo/indicativo_numero a una combinacion que ya existe en otra fila.
+        raise HTTPException(status_code=409, detail="Ya existe una entrega con ese tipo y número")
 
     await registrar_evento(
         EventoLog.REVISION_MANUAL_APROBADA,
