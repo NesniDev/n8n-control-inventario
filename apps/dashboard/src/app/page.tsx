@@ -42,6 +42,27 @@ function tienePendiente(entrega: Entrega): boolean {
   return entrega.items.some((item) => item.cantidad_pendiente > 0);
 }
 
+type Rango = "hoy" | "semana" | "mes" | "todo";
+
+// Ventanas MOVILES (ultimos N dias corridos), no semana/mes calendario --
+// mismo criterio que ya usa esHoy con toDateString(). No hay que igualar la
+// semana ISO que usa generar_turnos.py: es un concepto distinto, sin relacion
+// con este filtro de la tabla "Todas las entregas".
+function rangoAFechas(rango: Rango): { desde?: string; hasta?: string } {
+  const ahora = new Date();
+  if (rango === "hoy") {
+    const medianocheLocal = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+    return { desde: medianocheLocal.toISOString() };
+  }
+  if (rango === "semana") {
+    return { desde: new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString() };
+  }
+  if (rango === "mes") {
+    return { desde: new Date(ahora.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() };
+  }
+  return {};
+}
+
 // Etiqueta/color que se muestra al usuario -- no es 1:1 con el estado real
 // en la DB: "procesada" se separa visualmente en "Procesada" (nada
 // pendiente) y "Pendiente" (sin terminar), para que se entienda de un
@@ -897,7 +918,6 @@ export default function DashboardPage() {
   const {
     data: entregas,
     error: entregasError,
-    isLoading: entregasCargando,
     mutate: recargarEntregas,
   } = useSWR("entregas", fetchEntregas, { refreshInterval: 5000 });
   const {
@@ -908,6 +928,38 @@ export default function DashboardPage() {
   // Para el selector de sede origen en la edicion ampliada de FilaRevision --
   // no cambia seguido, no hace falta refreshInterval.
   const { data: sedes } = useSWR("sedes", fetchSedes);
+
+  // Filtro por rango de fechas y por sede de la seccion "Todas las entregas"
+  // -- fuente de datos SEPARADA de `entregas` (el hook base) para que "Cómo
+  // va hoy" y "Necesita tu atención" queden siempre fijos en hoy/todas las
+  // sedes, sin importar lo que se elija aca.
+  const [rango, setRango] = useState<Rango>("todo");
+  const [sedeFiltro, setSedeFiltro] = useState<string>("todas");
+  const [limiteTabla, setLimiteTabla] = useState(150);
+
+  // Reset del limite al cambiar cualquiera de los dos filtros -- se hace en
+  // los propios manejadores (cambiarRango/cambiarSedeFiltro) y no en un
+  // useEffect, para no disparar un setState sincronico dentro de un efecto
+  // (react-hooks/set-state-in-effect).
+  const cambiarRango = (nuevoRango: Rango) => {
+    setRango(nuevoRango);
+    setLimiteTabla(150);
+  };
+  const cambiarSedeFiltro = (nuevaSede: string) => {
+    setSedeFiltro(nuevaSede);
+    setLimiteTabla(150);
+  };
+
+  const { data: entregasTabla, isLoading: entregasTablaCargando } = useSWR(
+    ["entregas-tabla", rango, sedeFiltro, limiteTabla],
+    () =>
+      fetchEntregas({
+        sedeId: sedeFiltro === "todas" ? undefined : sedeFiltro,
+        ...rangoAFechas(rango),
+        limit: limiteTabla,
+      }),
+    { refreshInterval: 5000 }
+  );
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
   // Filtro por categoria, aparte del buscador de texto libre (ver
@@ -1013,15 +1065,16 @@ export default function DashboardPage() {
   }, [logs, entregasPorId]);
 
   // Filtro por categoria (ver filtroEstado) -- se combina con AND junto al
-  // buscador de texto libre, aplicado despues.
+  // buscador de texto libre, aplicado despues. Fuente: entregasTabla (hook
+  // separado del resumen, ver mas arriba), no `entregas`.
   const entregasPorEstado = useMemo(() => {
-    if (filtroEstado === "todas") return entregas;
-    if (filtroEstado === "revision") return entregas?.filter((e) => e.estado === "pendiente_revision");
+    if (filtroEstado === "todas") return entregasTabla;
+    if (filtroEstado === "revision") return entregasTabla?.filter((e) => e.estado === "pendiente_revision");
     if (filtroEstado === "pendiente") {
-      return entregas?.filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision");
+      return entregasTabla?.filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision");
     }
-    return entregas?.filter((e) => e.estado === "procesada" && !tienePendiente(e));
-  }, [entregas, filtroEstado]);
+    return entregasTabla?.filter((e) => e.estado === "procesada" && !tienePendiente(e));
+  }, [entregasTabla, filtroEstado]);
 
   const termino = busqueda.trim().toLowerCase();
   const entregasFiltradas = !termino
@@ -1214,6 +1267,45 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          {/* Filtro por rango de fechas -- ventana movil, no calendario (ver
+              rangoAFechas). Se combina con AND junto al resto de filtros de
+              esta tabla. */}
+          <div className="flex flex-wrap gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
+            {(
+              [
+                { valor: "hoy", etiqueta: "Hoy" },
+                { valor: "semana", etiqueta: "7 días" },
+                { valor: "mes", etiqueta: "30 días" },
+                { valor: "todo", etiqueta: "Todo" },
+              ] as const
+            ).map((opcion) => (
+              <button
+                key={opcion.valor}
+                onClick={() => cambiarRango(opcion.valor)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                  rango === opcion.valor
+                    ? "bg-emerald-600 text-white"
+                    : "text-neutral-400 hover:bg-neutral-800"
+                }`}
+              >
+                {opcion.etiqueta}
+              </button>
+            ))}
+          </div>
+          {/* Filtro por sede -- opt-in, no oculta que existen las demas
+              (default "todas"). */}
+          <select
+            value={sedeFiltro}
+            onChange={(e) => cambiarSedeFiltro(e.target.value)}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300"
+          >
+            <option value="todas">Todas las sedes</option>
+            {(sedes ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="overflow-x-auto rounded-lg border border-neutral-800">
           <table className="w-full min-w-[820px] text-left text-sm">
@@ -1231,14 +1323,14 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {!entregasCargando && entregas?.length === 0 ? (
+              {!entregasTablaCargando && entregasTabla?.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-6 text-center text-neutral-500">
                     Sin entregas todavía.
                   </td>
                 </tr>
               ) : null}
-              {!entregasCargando && termino && entregasFiltradas?.length === 0 ? (
+              {!entregasTablaCargando && termino && entregasFiltradas?.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-6 text-center text-neutral-500">
                     Sin resultados para &quot;{busqueda}&quot;.
@@ -1329,6 +1421,14 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
+        {entregasTabla?.length === limiteTabla ? (
+          <button
+            onClick={() => setLimiteTabla((l) => l + 150)}
+            className="self-center rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+          >
+            Cargar más
+          </button>
+        ) : null}
       </section>
 
       <section className="flex flex-col gap-3">

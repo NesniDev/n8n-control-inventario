@@ -13,6 +13,7 @@ entrego hoy (actualizacion de una entrega con algo pendiente todavia).
 
 import csv
 import io
+from datetime import datetime
 
 import asyncpg
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -376,20 +377,33 @@ _SELECT_ENTREGAS_BASE = """
 
 
 @router.get("")
-async def listar_entregas(sede_id: str | None = None, limit: int = 50) -> list[dict]:
+async def listar_entregas(
+    sede_id: str | None = None,
+    desde: datetime | None = None,
+    hasta: datetime | None = None,
+    limit: int = 50,
+) -> list[dict]:
     pool = await get_pool()
+    condiciones: list[str] = []
+    parametros: list[object] = []
+
     if sede_id:
-        rows = await pool.fetch(
-            _SELECT_ENTREGAS_BASE
-            + " where e.sede_origen_id = $1 group by e.id, s.nombre order by e.capturado_at desc limit $2",
-            sede_id,
-            limit,
-        )
-    else:
-        rows = await pool.fetch(
-            _SELECT_ENTREGAS_BASE + " group by e.id, s.nombre order by e.capturado_at desc limit $1",
-            limit,
-        )
+        parametros.append(sede_id)
+        condiciones.append(f"e.sede_origen_id = ${len(parametros)}")
+    if desde:
+        parametros.append(desde)
+        condiciones.append(f"e.capturado_at >= ${len(parametros)}")
+    if hasta:
+        parametros.append(hasta)
+        condiciones.append(f"e.capturado_at <= ${len(parametros)}")
+
+    where = f" where {' and '.join(condiciones)}" if condiciones else ""
+    parametros.append(limit)
+    rows = await pool.fetch(
+        _SELECT_ENTREGAS_BASE + where
+        + f" group by e.id, s.nombre order by e.capturado_at desc limit ${len(parametros)}",
+        *parametros,
+    )
 
     resultado = []
     for row in rows:

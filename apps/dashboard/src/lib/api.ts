@@ -78,10 +78,20 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 // Ventana mas grande que antes (era 50/30) para que el resumen del dia y el
-// feed de actividad -- calculados del lado del cliente filtrando por fecha,
-// no hay un filtro de rango de fechas en el backend todavia -- tengan un
-// universo representativo y no se corten a mitad del dia en una sede activa.
-export const fetchEntregas = () => getJson<Entrega[]>("/entregas?limit=150");
+// feed de actividad -- calculados del lado del cliente filtrando por fecha --
+// tengan un universo representativo y no se corten a mitad del dia en una
+// sede activa. Sin argumentos mantiene ese comportamiento (limit 150, sin
+// filtros); `sedeId`/`desde`/`hasta` habilitan el filtro por rango/sede de la
+// tabla "Todas las entregas" (ver rangoAFechas en page.tsx) sin tocar esta
+// llamada base.
+export const fetchEntregas = (opciones?: { sedeId?: string; desde?: string; hasta?: string; limit?: number }) => {
+  const params = new URLSearchParams();
+  if (opciones?.sedeId) params.set("sede_id", opciones.sedeId);
+  if (opciones?.desde) params.set("desde", opciones.desde);
+  if (opciones?.hasta) params.set("hasta", opciones.hasta);
+  params.set("limit", String(opciones?.limit ?? 150));
+  return getJson<Entrega[]>(`/entregas?${params.toString()}`);
+};
 export const fetchLogs = () => getJson<LogEvent[]>("/logs?limit=150");
 
 // Historial completo de una entrega (todos sus productos) -- el filtrado
