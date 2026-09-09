@@ -1282,7 +1282,7 @@ export default function DashboardPage() {
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(e).clase}`}
                         >
-                          {estadoVisual(e).etiqueta} · {puedeEditar ? "editar ↕" : "ver detalle"}
+                          {estadoVisual(e).etiqueta}
                         </span>
                       </td>
                       <td className="px-4 py-2 text-neutral-500">
