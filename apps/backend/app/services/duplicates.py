@@ -38,6 +38,19 @@ class CantidadInvalida(Exception):
     en esta entrega -- ver aplicar_actualizacion_items."""
 
 
+class ExtraccionIlegible(Exception):
+    """La confianza de tipo/indicativo_numero esta por debajo de
+    min_confidence_rechazo -- la foto es practicamente ilegible, no solo
+    "dudosa" (eso ya lo cubre pendiente_revision). Se dispara ANTES de
+    intentar el insert: a diferencia de una entrega de baja confianza, aca no
+    se crea ningun registro -- el operador repite la foto en el momento (ver
+    procesar_extraccion)."""
+
+    def __init__(self, identificador: str):
+        self.identificador = identificador
+        super().__init__(f"El documento {identificador} no se pudo leer -- foto poco clara.")
+
+
 class _NecesitaTraslado(Exception):
     """Uso interno de procesar_extraccion: se dispara DENTRO de la
     transaccion tentativa (asi el insert que ya se hizo se deshace solo) para
@@ -126,6 +139,7 @@ async def procesar_extraccion(
     capturado_at: datetime,
     evidencia_url: str,
     min_confidence: float,
+    min_confidence_rechazo: float,
     traslado_url: str | None = None,
     concepto_traslado: str | None = None,
     items_traslado: list[dict] | None = None,
@@ -153,6 +167,10 @@ async def procesar_extraccion(
     - Ya existia y le queda algo pendiente en cualquier item -> "actualizable",
       no se escribe nada todavia, se devuelven los items tal cual estan.
     - Ya existia y todo esta en pendiente=0 -> EntregaDuplicada (409).
+    - Confianza de tipo o indicativo_numero por debajo de min_confidence_rechazo
+      (foto practicamente ilegible) -> ExtraccionIlegible, ANTES de intentar el
+      insert -- no se crea ningun registro, a diferencia del caso de baja
+      confianza "normal" que igual persiste como pendiente_revision.
     """
     pool = await get_pool()
     # .upper() ademas de .strip(): "tipo" ya no esta atado al enum de 4
@@ -164,6 +182,13 @@ async def procesar_extraccion(
     identificador = _identificador(tipo, indicativo_numero)
     estado = marcar_estado_por_confianza(extraido.get("confianza", {}), min_confidence)
     items_extraidos = extraido.get("items") or []
+
+    confianza = extraido.get("confianza") or {}
+    if any(confianza.get(c, 0.0) < min_confidence_rechazo for c in ("tipo", "indicativo_numero")):
+        # Antes de tocar la base: una foto ilegible no debe dejar ningun
+        # registro, a diferencia del gate de mas arriba (marcar_estado_por_confianza)
+        # que igual persiste como pendiente_revision.
+        raise ExtraccionIlegible(identificador)
 
     async with pool.acquire() as conn:
         try:

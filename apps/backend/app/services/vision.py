@@ -88,7 +88,11 @@ _EXTRACTION_SCHEMA = {
 }
 
 _EXTRACTION_PROMPT = (
-    "Esta es una foto de un documento de despacho. El tipo es el codigo "
+    "Esta es una foto de un documento de despacho. La foto puede venir "
+    "rotada o al reves (90, 180 o 270 grados respecto de la orientacion de "
+    "lectura normal) -- antes de transcribir nada, fijate en la orientacion "
+    "del texto impreso y leelo como corresponde, sin asumir que la foto ya "
+    "viene derecha. El tipo es el codigo "
     "impreso junto al numero (ej. 'FEI 10254' -> tipo FEI, 'EDP 340' -> tipo "
     "EDP) -- puede ser, entre otros, FEI o FV1 (factura), EDP o EDV, TB "
     "(traslado entre bodegas), o RM3/RM2 (remision). Esta lista es solo "
@@ -127,7 +131,19 @@ _EXTRACTION_PROMPT = (
     "tambien un score de confianza entre 0 y 1 para items en conjunto (no "
     "uno por producto): que tan legibles estaban los nombres y cantidades "
     "de la lista completa -- baja si la letra es chica, borrosa, o el papel "
-    "esta doblado/manchado justo en esa zona."
+    "esta doblado/manchado justo en esa zona. "
+    "Algunas guias tienen correcciones a mano: un valor impreso tachado con "
+    "una cantidad o texto distinto escrito al lado o encima, a mano. IGNORA "
+    "SIEMPRE lo escrito a mano y las tachaduras -- transcribi UNICAMENTE el "
+    "valor original impreso, aunque este tachado. Esto aplica a tipo, "
+    "indicativo_numero, y tambien a la cantidad y descripcion de cada item. "
+    "A veces la descripcion de un producto no entra en un solo renglon de "
+    "DETALLE y su ultima palabra (tipicamente una unidad: KILOS, UND, CAJAS, "
+    "METROS) queda en el renglon de abajo, sin su propio valor de CANT. Eso "
+    "NO es un producto nuevo. Ejemplo: '1.00 | 75936  SAL BLANCA * 40 | "
+    "19,500.00' seguido de 'KILOS' solo en el renglon siguiente es UN SOLO "
+    "producto: 'SAL BLANCA * 40 KILOS', cantidad 1. No lo separes en dos "
+    "items."
 )
 
 

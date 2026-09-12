@@ -35,6 +35,7 @@ from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.duplicates import (
     CantidadInvalida,
     EntregaDuplicada,
+    ExtraccionIlegible,
     aplicar_actualizacion_items,
     cancelar_entrega_no_confirmada,
     procesar_extraccion,
@@ -180,6 +181,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             capturado_at=payload.capturado_at,
             evidencia_url=payload.evidencia_url,
             min_confidence=settings.min_confidence,
+            min_confidence_rechazo=settings.min_confidence_rechazo,
             traslado_url=payload.traslado_url,
             concepto_traslado=concepto_traslado,
             items_traslado=items_traslado,
@@ -188,6 +190,24 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
         )
     except EntregaDuplicada as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ExtraccionIlegible as exc:
+        await registrar_evento(
+            EventoLog.VALIDACION,
+            entidad_tipo="entrega",
+            entidad_id=payload.hash_evidencia,
+            actor_id=payload.operador_id,
+            sede_id=payload.sede_origen_id,
+            resultado="rechazada_ilegible",
+            detalle={"confianza": extraido.get("confianza", {})},
+        )
+        # 422 y no 502/503/504 -- misma trampa de Traefik que ExtraccionFallida
+        # (ver comentario mas arriba): el texto fijo "No se pudo leer el
+        # documento" es el discriminador que usa el movil para distinguir
+        # este caso de cualquier otro 422 (ver App.tsx, enviar()).
+        raise HTTPException(
+            status_code=422,
+            detail="No se pudo leer el documento (foto poco clara). Tomá otra foto e intentá de nuevo.",
+        ) from exc
 
     # necesita_traslado no inserto nada -- no hay entrega_id (None). Los logs
     # de aca abajo se atan a hash_evidencia, mismo identificador que ya se usa
