@@ -17,6 +17,11 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+// manipulateAsync es la API "legacy" de este paquete (SDK 57 la reemplazo por
+// una API contextual/orientada a objetos, ver ImageManipulator.manipulate) --
+// se usa igual aca por ser mas simple para un solo rotate() puntual, sin
+// necesidad de mantener un contexto de manipulacion vivo.
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import Signature, { type SignatureViewRef } from 'react-native-signature-canvas';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
@@ -44,6 +49,7 @@ import {
   type Sede,
 } from './api';
 import PantallaLogin from './PantallaLogin';
+import { mensajeError } from './errorMessages';
 
 // captura: tomar/elegir foto y mandarla (paso 1, identifica el documento).
 // buscar: consultar una factura ya registrada por su codigo, sin foto.
@@ -576,6 +582,20 @@ function PantallaCaptura({
     usarResultado(resultado);
   };
 
+  // Rota la foto ya tomada 90° en el momento -- cubre el caso de una guia
+  // fotografiada de costado o al reves, sin tener que volver a la camara
+  // (ver tambien el refuerzo de orientacion en el prompt de extraccion,
+  // vision.py, defensa en profundidad). Genera un archivo nuevo, no pisa el
+  // original.
+  const rotarFoto = async () => {
+    if (!foto) return;
+    const resultado = await manipulateAsync(foto, [{ rotate: 90 }], {
+      compress: 0.9,
+      format: SaveFormat.JPEG,
+    });
+    setFoto(resultado.uri);
+  };
+
   // Espejo de tomarFoto/elegirDeGaleria, pero para la foto de traslado --
   // solo aparecen cuando necesitaTraslado esta seteado (ver enviar()).
   const usarResultadoTraslado = (resultado: ImagePicker.ImagePickerResult) => {
@@ -602,6 +622,16 @@ function PantallaCaptura({
     }
     const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, exif: false });
     usarResultadoTraslado(resultado);
+  };
+
+  // Mismo tratamiento que rotarFoto, para la foto de traslado.
+  const rotarFotoTraslado = async () => {
+    if (!fotoTraslado) return;
+    const resultado = await manipulateAsync(fotoTraslado, [{ rotate: 90 }], {
+      compress: 0.9,
+      format: SaveFormat.JPEG,
+    });
+    setFotoTraslado(resultado.uri);
   };
 
   // Paso 1: sube la foto y le pide al backend que identifique el documento.
@@ -689,19 +719,32 @@ function PantallaCaptura({
       setFase('confirmando');
       setMensaje('');
     } catch (err: any) {
+      // Foto ilegible: el backend no llego a crear nada (ver ExtraccionIlegible
+      // en el backend) -- se queda en 'captura' para repetir la foto ahi mismo,
+      // a diferencia de cualquier otro error (que sigue a 'resultado').
+      if (err?.status === 422 && typeof err?.detail === 'string' && err.detail.startsWith('No se pudo leer el documento')) {
+        setCargando(false);
+        Alert.alert(
+          'Foto no procesable',
+          'No se pudo leer el documento. Tomá otra foto con mejor luz y encuadre.',
+          [{ text: 'Entendido' }]
+        );
+        return; // se queda en fase 'captura', foto sigue puesta, listo para repetir
+      }
+
       setFase('resultado');
       setEstadoFinal('error');
-      const mensajeError: string =
+      const textoError: string =
         err?.status === 409
           ? (err?.detail ?? 'Este documento ya fue entregado por completo — acción bloqueada.')
-          : (err?.detail ?? err?.message ?? 'Error al procesar la entrega.');
-      setMensaje(mensajeError);
+          : mensajeError(err, 'entrega');
+      setMensaje(textoError);
 
       if (err?.status === 409) {
         // Ya no queda nada pendiente: es la alerta mas importante del flujo
         // (evita doble despacho entre sedes) — un popup nativo no se puede
         // pasar por alto como el texto en pantalla.
-        Alert.alert('Nada pendiente', mensajeError, [{ text: 'Entendido' }]);
+        Alert.alert('Nada pendiente', textoError, [{ text: 'Entendido' }]);
       }
     } finally {
       setCargando(false);
@@ -743,7 +786,7 @@ function PantallaCaptura({
     } catch (err: any) {
       // No es un resultado terminal -- se queda en 'buscar' para reintentar
       // (codigo mal tipeado, documento que todavia no se registro, etc.).
-      setMensaje(err?.detail ?? err?.message ?? 'No se encontro ese documento.');
+      setMensaje(mensajeError(err, 'entrega'));
     } finally {
       setCargando(false);
     }
@@ -821,7 +864,7 @@ function PantallaCaptura({
           : 'Registrada, pero necesita revisión manual (baja confianza de la IA).'
       );
     } catch (err: any) {
-      setMensaje(err?.detail ?? err?.message ?? 'Error al guardar las cantidades.');
+      setMensaje(mensajeError(err, 'entrega'));
     } finally {
       setCargando(false);
     }
@@ -965,7 +1008,7 @@ function PantallaCaptura({
       setHistorial(null); // se acaba de sumar un evento nuevo -- refresca al reabrir
       setMensaje('Devolución registrada.');
     } catch (err: any) {
-      setMensaje(err?.detail ?? err?.message ?? 'Error al registrar la devolución.');
+      setMensaje(mensajeError(err, 'devolucion'));
     } finally {
       setCargando(false);
     }
@@ -1148,12 +1191,20 @@ function PantallaCaptura({
                 ) : null}
               </View>
               {foto ? (
-                <Pressable onPress={() => setFotoAmpliada(foto)}>
-                  <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
-                  <View style={styles.iconoAmpliar}>
-                    <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
-                  </View>
-                </Pressable>
+                <>
+                  <Pressable onPress={() => setFotoAmpliada(foto)}>
+                    <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
+                    <View style={styles.iconoAmpliar}>
+                      <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
+                    onPress={rotarFoto}
+                  >
+                    <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
+                  </Pressable>
+                </>
               ) : (
                 <View style={[styles.preview, styles.previewVacio]}>
                   <Ionicons name="camera-outline" size={40} color={NEUTRAL_400} />
@@ -1177,12 +1228,20 @@ function PantallaCaptura({
                       }" pertenece a otra sede -- para procesarlo desde acá, adjunta una foto del traslado.`}
                 </Text>
                 {fotoTraslado ? (
-                  <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
-                    <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
-                    <View style={styles.iconoAmpliar}>
-                      <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
-                    </View>
-                  </Pressable>
+                  <>
+                    <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
+                      <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
+                      <View style={styles.iconoAmpliar}>
+                        <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
+                      onPress={rotarFotoTraslado}
+                    >
+                      <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
+                    </Pressable>
+                  </>
                 ) : (
                   <View style={[styles.preview, styles.previewVacio]}>
                     <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />

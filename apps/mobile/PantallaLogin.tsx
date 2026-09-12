@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { fetchSedes, loginConPin, type Empleado, type Sede } from './api';
+import { mensajeError } from './errorMessages';
 
 // sede: elegir desde donde se va a despachar hoy (puede no ser la sede del
 // perfil del empleado, ej. cubriendo turno en otra). pin: el PIN identifica
@@ -39,7 +40,7 @@ export default function PantallaLogin({
     setErrorSedes(null);
     fetchSedes()
       .then(setSedes)
-      .catch((err) => setErrorSedes(err instanceof Error ? err.message : 'No se pudieron cargar las sedes'))
+      .catch((err) => setErrorSedes(mensajeError(err, 'sedes')))
       .finally(() => setCargandoSedes(false));
   };
 
@@ -70,7 +71,7 @@ export default function PantallaLogin({
       const empleado = await loginConPin(pin);
       onLogin(empleado, sedeElegida);
     } catch (err) {
-      setErrorLogin(err instanceof Error ? err.message : 'PIN incorrecto');
+      setErrorLogin(mensajeError(err, 'login'));
       setPin('');
     } finally {
       setCargandoLogin(false);
