@@ -29,6 +29,13 @@ export interface Entrega {
   items: ItemEntrega[];
   estado: "procesada" | "pendiente_revision" | "duplicado_bloqueado";
   operador_id: string;
+  // Nombre del empleado dueño de operador_id (join en el backend, ver
+  // _SELECT_ENTREGAS_BASE) -- quién facturó/capturó la foto original. Nunca
+  // se pisa después (aplicar_actualizacion_items no toca operador_id), así
+  // que sigue siendo válido aunque el bodeguero ya haya confirmado la
+  // entrega. Null si operador_id no matchea ningún empleado (ej. el
+  // "supervisor" fijo que manda revisarEntrega) — el fallback es el id crudo.
+  operador_nombre: string | null;
   confianza_ia: Record<string, number>;
   evidencia_url: string;
   // Firma del cliente al confirmar la entrega desde el movil (paso 2) --
@@ -45,11 +52,39 @@ export interface Entrega {
   traslado_tipo: string | null;
   traslado_indicativo_numero: string | null;
   capturado_at: string;
+  // Nota a nivel documento completo (distinta de ItemEntrega.nota, que es
+  // por producto) -- la escribe el bodeguero en PantallaConfirmando. Llega
+  // gratis por select e.* en el backend. Null si nunca se escribio.
+  nota_general: string | null;
 }
 
 export interface Sede {
   id: string;
   nombre: string;
+  codigo?: string;
+}
+
+// Rol completo del empleado (ver app/models/empleado.py RolEmpleado) -- el
+// login del panel FAIA necesita distinguir 'faia_viewer'/'supervisor'/'admin'
+// del resto para permitir o no el acceso (ver app/faia/page.tsx).
+export type RolEmpleado = "operador" | "supervisor" | "admin" | "punto_venta" | "faia_viewer";
+
+// Version liviana para el paso "elegir bodeguero" del login (ver GET
+// /empleados) -- alcanza con lo que se muestra en la lista, no trae datos de
+// PIN.
+export interface EmpleadoBasico {
+  id: string;
+  nombre: string;
+  rol: RolEmpleado;
+}
+
+// Empleado autenticado (respuesta de POST /auth/pin) -- ademas del id/nombre
+// trae sede_id y el rol completo, usado para el gate de acceso a FAIA.
+export interface Empleado {
+  id: string;
+  nombre: string;
+  sede_id: string;
+  rol: RolEmpleado;
 }
 
 export interface LogEvent {
@@ -100,8 +135,59 @@ export const fetchHistorialEntrega = (entregaId: string) =>
   getJson<LogEvent[]>(`/logs?entidad_id=${encodeURIComponent(entregaId)}&limit=200`);
 
 // Sedes activas -- se usan para el selector de "sede origen" al corregir una
-// entrega en revision manual (ver revisarEntrega).
+// entrega en revision manual (ver revisarEntrega), y como paso 1 del login
+// del panel FAIA (ver app/faia/page.tsx).
 export const fetchSedes = () => getJson<Sede[]>("/sedes");
+
+// Bodegueros/empleados activos de una sede -- paso 2 del login del panel
+// FAIA (elegir quien esta usando el panel antes de pedir el PIN), mismo
+// patron que apps/mobile/api.ts.
+export const fetchEmpleados = (sedeId: string) =>
+  getJson<EmpleadoBasico[]>(`/empleados?sede_id=${encodeURIComponent(sedeId)}`);
+
+// Login por PIN (POST /auth/pin) -- el empleado ya se eligio en el paso
+// anterior, aca el PIN solo confirma esa identidad puntual. Devuelve 401 con
+// { detail: "PIN incorrecto" } si no matchea.
+export async function loginConPin(pin: string, empleadoId: string): Promise<Empleado> {
+  const res = await fetch(`${API_BASE_URL}/auth/pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin, empleado_id: empleadoId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `No se pudo iniciar sesión (${res.status})`);
+  }
+  return res.json();
+}
+
+// Documento marcado FAIA (es_faia = true) -- solo identificacion/foto, sin
+// cantidades ni items editables (ver GET /entregas/faia en el backend).
+export interface EntregaFaia {
+  id: string;
+  tipo: string;
+  indicativo_numero: string;
+  sede_origen_id: string;
+  sede_origen_nombre: string | null;
+  // Quien facturo (join en el backend con empleados.operador_id) -- null si
+  // no matchea ningun empleado.
+  operador_nombre: string | null;
+  evidencia_url: string;
+  capturado_at: string;
+}
+
+// Rol-gateado server-side (403 si el empleado no es faia_viewer/supervisor/
+// admin) -- el panel FAIA igual filtra antes de llamar, ver app/faia/page.tsx.
+export async function fetchEntregasFaia(empleadoId: string): Promise<EntregaFaia[]> {
+  const res = await fetch(`${API_BASE_URL}/entregas/faia?empleado_id=${encodeURIComponent(empleadoId)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `No se pudieron cargar los documentos FAIA (${res.status})`);
+  }
+  return res.json();
+}
 
 export async function revisarEntrega(
   id: string,
@@ -113,6 +199,11 @@ export async function revisarEntrega(
     capturado_at?: string;
     traslado_tipo?: string;
     traslado_indicativo_numero?: string;
+    // false = guarda las correcciones sin tocar el estado (para poder
+    // corregir un dato sin aprobar todavia, o para una entrega con items
+    // pendientes que ya esta "procesada" y no hay que forzar). Si se omite,
+    // el backend asume true (comportamiento historico: guarda y aprueba).
+    aprobar?: boolean;
   }
 ): Promise<Entrega> {
   const res = await fetch(`${API_BASE_URL}/entregas/${id}/revisar`, {
@@ -121,7 +212,7 @@ export async function revisarEntrega(
     body: JSON.stringify(campos),
   });
   if (!res.ok) {
-    throw new Error(`No se pudo aprobar la entrega (${res.status})`);
+    throw new Error(`No se pudo guardar la entrega (${res.status})`);
   }
   return res.json();
 }
@@ -132,12 +223,16 @@ export async function revisarEntrega(
 export async function actualizarItems(
   entregaId: string,
   items: { id: string; descripcion: string; cantidad_entregada: number; cantidad_pendiente: number }[],
-  revisadoPor: string
+  revisadoPor: string,
+  // Nota a nivel documento completo (distinta de la nota por item, que va
+  // arriba en `items`). undefined deja el valor actual sin tocar; "" SI
+  // borra la nota.
+  notaGeneral?: string
 ): Promise<{ id: string; items: ItemEntrega[] }> {
   const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items, operador_id: revisadoPor, sede_id: "dashboard" }),
+    body: JSON.stringify({ items, operador_id: revisadoPor, sede_id: "dashboard", nota_general: notaGeneral }),
   });
   if (!res.ok) {
     throw new Error(`No se pudieron actualizar los items (${res.status})`);
@@ -200,3 +295,43 @@ export const EXPORT_CSV_URL = `${API_BASE_URL}/entregas/export.csv`;
 // documento) -- para que los bodegueros le manden el control a un superior.
 // A diferencia de EXPORT_CSV_URL, es a nivel de documento, no de producto.
 export const EXPORT_XLSX_URL = `${API_BASE_URL}/entregas/export.xlsx`;
+
+// Catalogo codigo -> nombre de producto (ver apps/backend/app/services/productos.py)
+// -- se auto-completa al procesar/corregir facturas; esto es solo para
+// consultarlo y para completar/corregir a mano lo que la extraccion
+// automatica no pudo resolver.
+export interface Producto {
+  id: string;
+  codigo: string;
+  nombre: string;
+  creado_at: string;
+}
+
+export const fetchProductos = (buscar?: string) =>
+  getJson<Producto[]>(`/productos${buscar ? `?buscar=${encodeURIComponent(buscar)}` : ""}`);
+
+export async function crearProducto(datos: { codigo: string; nombre: string }): Promise<Producto> {
+  const res = await fetch(`${API_BASE_URL}/productos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(datos),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `No se pudo crear el producto (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function actualizarProducto(id: string, nombre: string): Promise<Producto> {
+  const res = await fetch(`${API_BASE_URL}/productos/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `No se pudo actualizar el producto (${res.status})`);
+  }
+  return res.json();
+}

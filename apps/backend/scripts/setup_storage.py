@@ -54,9 +54,22 @@ async def crear_policies(database_url: str) -> None:
             create policy "evidencia_anon_select" on storage.objects
                 for select to anon
                 using (bucket_id = '{BUCKET}');
+
+            -- subirFirma (apps/mobile/api.ts) sube con upsert:true para poder
+            -- re-firmar pisando la firma anterior -- cuando el archivo ya
+            -- existe, Storage lo resuelve como un UPDATE por debajo, no un
+            -- INSERT. Sin esta policy, esa segunda firma (o cualquier upsert
+            -- sobre un objeto existente) se rechaza con "new row violates
+            -- row-level-security policy" aunque el insert original si haya
+            -- andado -- exactamente el bug reportado.
+            drop policy if exists "evidencia_anon_update" on storage.objects;
+            create policy "evidencia_anon_update" on storage.objects
+                for update to anon
+                using (bucket_id = '{BUCKET}')
+                with check (bucket_id = '{BUCKET}');
             """
         )
-        print("[storage] policies de RLS aplicadas (anon insert/select sobre el bucket)")
+        print("[storage] policies de RLS aplicadas (anon insert/select/update sobre el bucket)")
     finally:
         await conn.close()
 

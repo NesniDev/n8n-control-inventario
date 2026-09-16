@@ -16,10 +16,12 @@ from app.models.entrega import (
     EstadoEntrega,
     ItemActualizacion,
     ItemEntrega,
+    RetiradoPor,
     SituacionEntrega,
 )
 from app.models.log import EventoLog
 from app.services.logging_service import registrar_evento
+from app.services.productos import sincronizar_producto
 
 
 def _identificador(tipo: str, indicativo_numero: str) -> str:
@@ -49,6 +51,50 @@ class ExtraccionIlegible(Exception):
     def __init__(self, identificador: str):
         self.identificador = identificador
         super().__init__(f"El documento {identificador} no se pudo leer -- foto poco clara.")
+
+
+class FacturacionRequerida(Exception):
+    """Rol 'punto_venta' con doble captura (ver docs/architecture.md): un
+    'operador' (bodega) fotografio un documento que TODAVIA no existe -- eso
+    haria que procesar_extraccion lo insertara como SituacionEntrega.NUEVA,
+    pero solo punto_venta/supervisor/admin pueden facturar por primera vez.
+    Se dispara ANTES de intentar el insert (mismo momento que
+    ExtraccionIlegible) -- no se crea ningun registro, el operador espera a
+    que punto_venta facture y despues re-fotografia (ese segundo escaneo si
+    entra, porque el documento ya existe y el resultado natural es
+    "actualizable")."""
+
+    def __init__(self, identificador: str):
+        self.identificador = identificador
+        super().__init__(
+            f"El documento {identificador} debe ser facturado primero por punto de venta."
+        )
+
+
+class RolNoAutorizado(Exception):
+    """'faia_viewer' es de solo lectura (ve fotos marcadas FAIA via
+    GET /entregas/faia, ver app/routers/entregas.py) -- no tiene que poder
+    fotografiar/crear ni confirmar ninguna entrega, a diferencia de
+    'operador' que solo tiene restringido crear una NUEVA (ver
+    FacturacionRequerida). Se dispara antes de tocar la base, tanto en
+    procesar_extraccion como en aplicar_actualizacion_items."""
+
+    def __init__(self):
+        super().__init__("Este usuario no tiene permiso para procesar ni confirmar entregas.")
+
+
+class FacturaYaRegistrada(Exception):
+    """Espejo de FacturacionRequerida: 'punto_venta' puede CREAR un documento
+    nuevo, pero no re-tocar uno que ya existe (esa segunda foto es del
+    bodeguero, que la ve como "actualizable" -- ver FacturacionRequerida). No
+    importa si a la factura le queda algo pendiente o no: para punto_venta
+    "ya existe" siempre es un rechazo, asi una factura solo se factura una
+    vez. Se dispara ANTES de intentar el insert, mismo momento que
+    FacturacionRequerida."""
+
+    def __init__(self, identificador: str):
+        self.identificador = identificador
+        super().__init__(f"La factura {identificador} ya fue registrada.")
 
 
 class _NecesitaTraslado(Exception):
@@ -145,7 +191,7 @@ async def procesar_extraccion(
     items_traslado: list[dict] | None = None,
     traslado_tipo: str | None = None,
     traslado_indicativo_numero: str | None = None,
-) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str, str]:
+) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str, str, bool, str | None, str | None]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
     - No existia -> intenta insertarla (items = lo que leyo la IA, con
@@ -191,6 +237,42 @@ async def procesar_extraccion(
         raise ExtraccionIlegible(identificador)
 
     async with pool.acquire() as conn:
+        # Gate de rol, antes de tocar la base (mismo momento que
+        # ExtraccionIlegible/FacturacionRequerida mas abajo). 'faia_viewer' es
+        # de solo lectura -- no puede fotografiar/procesar NADA, ni nueva ni
+        # actualizable (ver RolNoAutorizado). 'operador' (bodega) si puede,
+        # salvo crear un documento que punto_venta todavia no facturo (ver
+        # FacturacionRequerida un poco mas abajo, que solo aplica cuando el
+        # documento no existe todavia).
+        fila_empleado = await conn.fetchrow(
+            "select rol from empleados where id::text = $1", operador_id
+        )
+        if fila_empleado is not None and fila_empleado["rol"] == "faia_viewer":
+            raise RolNoAutorizado()
+
+        # Rol "punto_venta" con doble captura: si el documento TODAVIA no
+        # existe, este insert seria SituacionEntrega.NUEVA -- un 'operador'
+        # (bodega) no puede crear un documento nuevo, solo re-fotografiar uno
+        # que punto_venta ya facturo (ese caso ya no entra aca porque
+        # "existe" da true). Se chequea ANTES de insertar -- no insertar y
+        # despues borrar -- con un select liviano fuera de la transaccion de
+        # insert; la barrera real contra duplicados sigue siendo el unique
+        # constraint mas abajo, esto es solo el gate de rol.
+        existe = await conn.fetchval(
+            "select 1 from entregas where tipo = $1 and indicativo_numero = $2",
+            tipo,
+            indicativo_numero,
+        )
+        if not existe and fila_empleado is not None and fila_empleado["rol"] == "operador":
+            raise FacturacionRequerida(identificador)
+        # Espejo del gate de arriba: punto_venta puede CREAR (esto no la
+        # bloquea) pero no re-tocar un documento que ya existe -- no importa
+        # si le queda pendiente o no, esa segunda foto es tarea del
+        # bodeguero (ver FacturaYaRegistrada). Asi una factura se factura
+        # una sola vez.
+        if existe and fila_empleado is not None and fila_empleado["rol"] == "punto_venta":
+            raise FacturaYaRegistrada(identificador)
+
         try:
             async with conn.transaction():
                 entrega_id = await conn.fetchval(
@@ -262,6 +344,7 @@ async def procesar_extraccion(
                         descripcion,
                         cantidad,
                     )
+                    await sincronizar_producto(conn, descripcion)
                     items.append(
                         ItemEntrega(
                             id=str(item_id),
@@ -288,7 +371,8 @@ async def procesar_extraccion(
                 )
                 for it in items_extraidos
             ]
-            return SituacionEntrega.NECESITA_TRASLADO, None, items_vista, estado, tipo, indicativo_numero
+            # No se inserto nada -- no hay flag FAIA, nota general ni firma que preservar.
+            return SituacionEntrega.NECESITA_TRASLADO, None, items_vista, estado, tipo, indicativo_numero, False, None, None
         except asyncpg.UniqueViolationError as exc:
             # "entregas" tiene DOS unique: (tipo, indicativo_numero) -- la
             # barrera real -- y hash_evidencia -- evita reprocesar la misma
@@ -299,12 +383,13 @@ async def procesar_extraccion(
             # explotar con un TypeError en vez de responder algo coherente.
             if exc.constraint_name == "entregas_hash_evidencia_key":
                 fila = await conn.fetchrow(
-                    "select id, tipo, indicativo_numero from entregas where hash_evidencia = $1",
+                    "select id, tipo, indicativo_numero, es_faia, nota_general, firma_url from entregas"
+                    " where hash_evidencia = $1",
                     hash_evidencia,
                 )
             else:
                 fila = await conn.fetchrow(
-                    "select id, tipo, indicativo_numero from entregas"
+                    "select id, tipo, indicativo_numero, es_faia, nota_general, firma_url from entregas"
                     " where tipo = $1 and indicativo_numero = $2",
                     tipo,
                     indicativo_numero,
@@ -330,6 +415,13 @@ async def procesar_extraccion(
                 estado,
                 fila["tipo"],
                 fila["indicativo_numero"],
+                # Documento ya existente -- se preservan el flag FAIA, la
+                # nota general y la firma que ya tenia (ver
+                # PATCH /entregas/{id}/items), nunca se reinician por
+                # re-fotografiar o re-confirmar.
+                fila["es_faia"],
+                fila["nota_general"],
+                fila["firma_url"],
             )
         else:
             await registrar_evento(
@@ -340,7 +432,8 @@ async def procesar_extraccion(
                 sede_id=sede_origen_id,
                 resultado="ok",
             )
-            return SituacionEntrega.NUEVA, str(entrega_id), items, estado, tipo, indicativo_numero
+            # Recien insertada -- default de columna, todavia no hay nada que preservar.
+            return SituacionEntrega.NUEVA, str(entrega_id), items, estado, tipo, indicativo_numero, False, None, None
 
 
 async def aplicar_actualizacion_items(
@@ -352,6 +445,9 @@ async def aplicar_actualizacion_items(
     evidencia_url: str | None = None,
     hash_evidencia: str | None = None,
     firma_url: str | None = None,
+    es_faia: bool | None = None,
+    nota_general: str | None = None,
+    retirado_por: RetiradoPor | None = None,
 ) -> list[ItemEntrega]:
     """Paso 2: confirma una entrega nueva (cantidad_pendiente absoluta) o
     aplica una actualizacion incremental (entregado_hoy, sumado/restado
@@ -359,6 +455,24 @@ async def aplicar_actualizacion_items(
     se pisan). Cualquier sede puede llamar esto, no solo la que la creo."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # 'faia_viewer' es de solo lectura -- no puede confirmar ninguna
+        # entrega (ver RolNoAutorizado en procesar_extraccion). 'punto_venta'
+        # nunca confirma CANTIDADES (eso es tarea del bodeguero, ver
+        # FacturaYaRegistrada), pero SI puede marcar/desmarcar es_faia sobre
+        # el documento que acaba de facturar (switch en el modal de
+        # PantallaCapturaFoto) -- por eso se lo bloquea solo cuando `items`
+        # trae algo, no de forma incondicional como a faia_viewer. None (id
+        # desconocido, ej. el "supervisor" fijo que manda el dashboard en vez
+        # de un empleado_id real) nunca bloquea -- mismo criterio que el
+        # resto de los chequeos de rol en este modulo.
+        fila_empleado = await conn.fetchrow(
+            "select rol from empleados where id::text = $1", operador_id
+        )
+        if fila_empleado is not None and fila_empleado["rol"] == "faia_viewer":
+            raise RolNoAutorizado()
+        if fila_empleado is not None and fila_empleado["rol"] == "punto_venta" and items:
+            raise RolNoAutorizado()
+
         async with conn.transaction():
             for item in items:
                 if item.entregado_hoy is not None:
@@ -402,6 +516,8 @@ async def aplicar_actualizacion_items(
                             f"'{actual['descripcion']}' tiene {actual['cantidad_pendiente']} pendiente, "
                             f"no se puede entregar {item.entregado_hoy}."
                         )
+                    if item.descripcion is not None:
+                        await sincronizar_producto(conn, item.descripcion)
                 else:
                     # Valores absolutos -- confirmar una entrega nueva desde
                     # el movil (solo cantidad_pendiente), o correccion manual
@@ -423,6 +539,8 @@ async def aplicar_actualizacion_items(
                         entrega_id,
                         item.nota,
                     )
+                    if item.descripcion is not None:
+                        await sincronizar_producto(conn, item.descripcion)
 
             if evidencia_url and hash_evidencia:
                 await conn.execute(
@@ -441,6 +559,47 @@ async def aplicar_actualizacion_items(
                     "update entregas set firma_url = $2, actualizado_at = now() where id = $1::uuid",
                     entrega_id,
                     firma_url,
+                )
+
+            if es_faia is not None:
+                # None significa "no tocar" (correccion parcial desde el
+                # dashboard sin marcar/desmarcar FAIA) -- distinto de False.
+                # Solo punto_venta puede CAMBIAR el flag -- lo hace desde el
+                # modal de PantallaCapturaFoto, con `items` vacio (si viniera
+                # con items, ya se rechazo mas arriba). Si el valor pedido es
+                # igual al que ya tenia no es una modificacion real (el
+                # bodeguero siempre reenvia el valor tal cual lo recibio,
+                # nunca lo puede tocar del lado mobile) -- eso se deja pasar
+                # sin chequear rol. Si difiere y quien llama no es
+                # punto_venta, se ignora el cambio en vez de rechazar todo el
+                # request (no hay que romperle la confirmacion de cantidades
+                # por esto).
+                fila_actual = await conn.fetchrow(
+                    "select es_faia from entregas where id = $1::uuid", entrega_id
+                )
+                valor_actual = fila_actual["es_faia"] if fila_actual is not None else False
+                if es_faia != valor_actual:
+                    # Reusa el fila_empleado ya resuelto al principio de la
+                    # funcion (mismo operador_id) en vez de repetir la consulta.
+                    permitido = fila_empleado is not None and fila_empleado["rol"] == "punto_venta"
+                else:
+                    permitido = True
+                if permitido:
+                    await conn.execute(
+                        "update entregas set es_faia = $2, actualizado_at = now() where id = $1::uuid",
+                        entrega_id,
+                        es_faia,
+                    )
+
+            if nota_general is not None:
+                # None significa "no tocar" -- "" (vacio) SI borra la nota,
+                # a diferencia de es_faia no hay chequeo de rol: el cliente
+                # mobile solo expone este campo en Confirmando (bodeguero),
+                # a donde punto_venta ya no llega (ver PantallaCapturaFoto).
+                await conn.execute(
+                    "update entregas set nota_general = $2, actualizado_at = now() where id = $1::uuid",
+                    entrega_id,
+                    nota_general,
                 )
 
             items_actualizados = await _items_de_entrega(conn, entrega_id)
@@ -462,6 +621,10 @@ async def aplicar_actualizacion_items(
                 for i in items_actualizados
             ],
             "evidencia_url": evidencia_url,
+            # Solo presente cuando esta visita se firmo (ver RetiradoPor) --
+            # no hay columna ni tabla nueva, el historial de quien retiro
+            # cada visita se arma leyendo estos eventos (ver GET /logs).
+            "retirado_por": retirado_por.model_dump() if retirado_por else None,
         },
     )
     return items_actualizados

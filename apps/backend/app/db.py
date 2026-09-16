@@ -49,6 +49,21 @@ create table if not exists empleados (
 alter table empleados add column if not exists pin_hash text;
 alter table empleados add column if not exists pin_salt text;
 
+-- Roles agregados despues del primer deploy: 'punto_venta' factura primero
+-- (crea la entrega como "nueva"), el bodeguero ('operador') solo puede
+-- re-fotografiar un documento que punto_venta ya facturo -- ver
+-- FacturacionRequerida en duplicates.py. 'faia_viewer' es de solo lectura,
+-- ve las fotos marcadas es_faia (GET /entregas/faia), no crea ni confirma
+-- nada. El check constraint no es CREATE TABLE IF NOT EXISTS, asi que para
+-- ampliar la lista de valores permitidos sobre una base ya existente se
+-- dropea y se recrea con el nombre por default de Postgres para un check
+-- inline (<tabla>_<columna>_check) -- mismo tipo de ajuste que el drop del
+-- check de "tipo" en entregas, pero aca hace falta reponerlo con la lista
+-- ampliada en vez de sacarlo del todo.
+alter table empleados drop constraint if exists empleados_rol_check;
+alter table empleados add constraint empleados_rol_check
+    check (rol in ('operador', 'supervisor', 'admin', 'punto_venta', 'faia_viewer'));
+
 create table if not exists entregas (
     id uuid primary key default gen_random_uuid(),
     tipo text not null default 'FEI',
@@ -107,6 +122,17 @@ alter table entregas add column if not exists traslado_indicativo_numero text;
 -- la URL publica. Null si el guardado fue "Guardar nota" (sin cambio de
 -- cantidades, no es un evento de entrega -- ver aplicar_actualizacion_items).
 alter table entregas add column if not exists firma_url text;
+-- Marca a nivel documento (no por item) para el flujo FAIA -- ver rol
+-- 'faia_viewer' y GET /entregas/faia. Se carga en el paso 2
+-- (PATCH /entregas/{id}/items, ver ActualizarItemsRequest.es_faia), no la
+-- pone la IA.
+alter table entregas add column if not exists es_faia boolean not null default false;
+-- Nota a nivel documento (no por item -- esa ya existe en entrega_items.nota)
+-- -- la escribe el bodeguero en PantallaConfirmando (ver
+-- ActualizarItemsRequest.nota_general), separada visualmente de las notas
+-- por producto. Nullable (a diferencia de es_faia, no tiene "default"
+-- razonable -- ausencia de nota no es lo mismo que nota vacia a proposito).
+alter table entregas add column if not exists nota_general text;
 -- Migracion a items por entrega (un documento puede traer varios productos):
 -- cantidad_entregada/cantidad_pendiente/detalle (si existian de una version
 -- anterior) se mudan a entrega_items.
@@ -205,6 +231,17 @@ create table if not exists devoluciones (
 
 create index if not exists idx_devoluciones_entrega on devoluciones (entrega_id);
 
+-- Catalogo codigo -> nombre de producto, deducido de entrega_items.descripcion (ver
+-- app/services/productos.py) -- se auto-completa a medida que se procesan/corrigen
+-- facturas, sin backfill de lo historico. unique(codigo) es lo que garantiza "sin que
+-- se repitan" (el insert usa on conflict do nothing).
+create table if not exists productos (
+    id uuid primary key default gen_random_uuid(),
+    codigo text not null unique,
+    nombre text not null,
+    creado_at timestamptz not null default now()
+);
+
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban
 -- agregadas o si la publicacion no existe (p.ej. Postgres self-hosted sin
@@ -226,6 +263,10 @@ begin
         end;
         begin
             alter publication supabase_realtime add table devoluciones;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table productos;
         exception when duplicate_object then null;
         end;
     end if;

@@ -53,13 +53,21 @@ export interface ResultadoEnvio {
   // poder reenviarla en un reintento (ver procesarEntrega, campos
   // _conocido/_conocida) sin tener que releer la factura con IA.
   confianza: Record<string, number>;
-  // Solo viene en la respuesta de buscarEntrega (GET /entregas/buscar, que
-  // hace select e.* e incluye toda la fila) -- ausente en la respuesta de
-  // procesarEntrega (POST /entregas/procesar, que arma el JSON a mano sin
-  // este campo). Presente solo si la entrega ya fue confirmada con firma
-  // (ver PATCH /entregas/{id}/items); ausente en un documento recien creado
-  // o confirmado con "Guardar nota".
+  // Presente en los dos endpoints (procesarEntrega tambien lo arma a mano,
+  // ver procesar_extraccion en el backend) -- null en un documento recien
+  // creado o confirmado sin firma ("Guardar nota"/"Confirmar cantidades").
   firma_url?: string | null;
+  // Flag a nivel documento (no por item). Presente en ambos endpoints --
+  // procesarEntrega lo arma a mano (False en nueva/necesita_traslado, o el
+  // valor ya guardado si el documento ya existia), buscarEntrega lo trae
+  // via select e.* -- asi el movil precarga el switch de PantallaConfirmando
+  // con el valor real en vez de asumir false y pisarlo en una reconfirmacion.
+  es_faia: boolean;
+  // Nota a nivel documento completo (distinta de ItemEntrega.nota, que es
+  // por producto) -- mismo criterio que es_faia: presente en ambos
+  // endpoints, se precarga en Confirmando para no pisar una nota ya escrita
+  // en una visita anterior. null si nunca se escribio.
+  nota_general: string | null;
 }
 
 export interface ErrorEnvio {
@@ -101,20 +109,47 @@ export async function fetchSedes(): Promise<Sede[]> {
   return res.json();
 }
 
+// Ver app/models/empleado.py RolEmpleado -- punto_venta factura primero
+// (PantallaCapturaFoto/Confirmando, mismo flujo que operador pero sin el
+// switch "Es FAIA", ver PantallaConfirmando); faia_viewer no usa esta app
+// (solo el panel /faia del dashboard), se lista por completitud del tipo.
+export type RolEmpleado = 'operador' | 'supervisor' | 'admin' | 'punto_venta' | 'faia_viewer';
+
 export interface Empleado {
   id: string;
   nombre: string;
   sede_id: string;
-  rol: 'operador' | 'supervisor' | 'admin';
+  rol: RolEmpleado;
 }
 
-/** Login sin correo/contrasena: solo un PIN de 4 a 6 digitos -- identifica
- * al empleado (ver POST /auth/pin en el backend). */
-export async function loginConPin(pin: string): Promise<Empleado> {
+// Version liviana de Empleado para el paso "elegir bodeguero" -- alcanza con
+// lo que se muestra en la lista, no hace falta sede_id (ya se eligio la sede).
+export interface EmpleadoBasico {
+  id: string;
+  nombre: string;
+  rol: RolEmpleado;
+}
+
+/** Bodegueros activos de una sede, para el paso intermedio del login (elegir
+ * quien esta usando el telefono antes de pedir el PIN). Ver GET /empleados
+ * en el backend -- ya filtra por sede y ya viene sin datos de PIN. */
+export async function fetchEmpleados(sedeId: string): Promise<EmpleadoBasico[]> {
+  const params = new URLSearchParams({ sede_id: sedeId });
+  const res = await fetch(`${API_BASE_URL}/empleados?${params}`);
+  if (!res.ok) {
+    throw new Error(`No se pudieron cargar los bodegueros (${res.status})`);
+  }
+  return res.json();
+}
+
+/** Login sin correo/contrasena: el bodeguero ya se elige en el paso anterior
+ * (ver PantallaLogin) -- el PIN solo confirma esa identidad puntual (ver
+ * POST /auth/pin en el backend). */
+export async function loginConPin(pin: string, empleadoId: string): Promise<Empleado> {
   const res = await fetch(`${API_BASE_URL}/auth/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin }),
+    body: JSON.stringify({ pin, empleado_id: empleadoId }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -270,7 +305,19 @@ export async function confirmarItems(
   hashEvidencia: string,
   // URL publica de la firma del cliente -- solo viene cuando se confirmaron
   // cantidades desde el movil (fase 'firma' en App.tsx), no en "Guardar nota".
-  firmaUrl?: string
+  firmaUrl?: string,
+  // Flag a nivel documento (no por item) -- ver el switch "Es FAIA" en
+  // PantallaConfirmando. undefined/null deja el valor actual sin tocar.
+  esFaia?: boolean,
+  // Nota a nivel documento completo (distinta de nota por item, arriba en
+  // `items`) -- ver el editor "Nota general" en PantallaConfirmando.
+  // undefined deja el valor actual sin tocar; "" SI la borra.
+  notaGeneral?: string,
+  // Datos de quien retira esta visita puntual -- solo tiene sentido junto a
+  // firmaUrl (alguien presente para firmar), ver el formulario previo a
+  // VisorFirma en PantallaConfirmando. No es una columna: queda en el
+  // detalle del evento de esta confirmacion (ver logs en el backend).
+  retiradoPor?: { nombre: string; telefono: string }
 ): Promise<{ id: string; items: ItemEntrega[] }> {
   const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
     method: 'PATCH',
@@ -282,6 +329,9 @@ export async function confirmarItems(
       evidencia_url: evidenciaUrl,
       hash_evidencia: hashEvidencia,
       firma_url: firmaUrl,
+      es_faia: esFaia,
+      nota_general: notaGeneral,
+      retirado_por: retiradoPor,
     }),
   });
 

@@ -36,6 +36,9 @@ from app.services.duplicates import (
     CantidadInvalida,
     EntregaDuplicada,
     ExtraccionIlegible,
+    FacturacionRequerida,
+    FacturaYaRegistrada,
+    RolNoAutorizado,
     aplicar_actualizacion_items,
     cancelar_entrega_no_confirmada,
     procesar_extraccion,
@@ -173,7 +176,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
         )
 
     try:
-        situacion, entrega_id, items, estado, tipo, indicativo_numero = await procesar_extraccion(
+        situacion, entrega_id, items, estado, tipo, indicativo_numero, es_faia, nota_general, firma_url_actual = await procesar_extraccion(
             extraido,
             hash_evidencia=payload.hash_evidencia,
             sede_origen_id=payload.sede_origen_id,
@@ -190,6 +193,45 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
         )
     except EntregaDuplicada as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except FacturaYaRegistrada as exc:
+        await registrar_evento(
+            EventoLog.VALIDACION,
+            entidad_tipo="entrega",
+            entidad_id=payload.hash_evidencia,
+            actor_id=payload.operador_id,
+            sede_id=payload.sede_origen_id,
+            resultado="rechazada_ya_registrada",
+            detalle={"tipo": extraido.get("tipo"), "indicativo_numero": extraido.get("indicativo_numero")},
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except FacturacionRequerida as exc:
+        await registrar_evento(
+            EventoLog.VALIDACION,
+            entidad_tipo="entrega",
+            entidad_id=payload.hash_evidencia,
+            actor_id=payload.operador_id,
+            sede_id=payload.sede_origen_id,
+            resultado="rechazada_falta_facturacion",
+            detalle={"tipo": extraido.get("tipo"), "indicativo_numero": extraido.get("indicativo_numero")},
+        )
+        # 422 y no 409/403 -- misma trampa de Traefik que ExtraccionIlegible
+        # (ver comentario mas arriba): un codigo distinto de 502/503/504 se
+        # propaga tal cual al movil.
+        raise HTTPException(
+            status_code=422,
+            detail="Este pedido debe ser facturado primero por punto de venta",
+        ) from exc
+    except RolNoAutorizado as exc:
+        await registrar_evento(
+            EventoLog.VALIDACION,
+            entidad_tipo="entrega",
+            entidad_id=payload.hash_evidencia,
+            actor_id=payload.operador_id,
+            sede_id=payload.sede_origen_id,
+            resultado="rechazada_rol_no_autorizado",
+            detalle={"tipo": extraido.get("tipo"), "indicativo_numero": extraido.get("indicativo_numero")},
+        )
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ExtraccionIlegible as exc:
         await registrar_evento(
             EventoLog.VALIDACION,
@@ -247,6 +289,14 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             "indicativo_numero": indicativo_numero,
             "items": [item.model_dump() for item in items],
             "confianza": extraido.get("confianza", {}),
+            # Documento ya existente conserva su flag FAIA, su nota general y
+            # su firma (ver procesar_extraccion); el movil las usa para
+            # precargar el switch/la nota/mostrar la ultima firma en
+            # PantallaConfirmando en vez de asumir vacio -- antes esto solo
+            # llegaba via GET /entregas/buscar, no re-fotografiando.
+            "es_faia": es_faia,
+            "nota_general": nota_general,
+            "firma_url": firma_url_actual,
         },
     )
 
@@ -344,12 +394,17 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
             evidencia_url=payload.evidencia_url,
             hash_evidencia=payload.hash_evidencia,
             firma_url=payload.firma_url,
+            es_faia=payload.es_faia,
+            nota_general=payload.nota_general,
+            retirado_por=payload.retirado_por,
         )
     except CantidadInvalida as exc:
         # 422 y no 502/503/504: el proxy de EasyPanel (Traefik) intercepta esos
         # tres codigos y los reemplaza por su propia pagina, tapando el detail
         # real (ver la misma nota en ExtraccionFallida, entregas.py).
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RolNoAutorizado as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     return {"id": entrega_id, "items": [item.model_dump() for item in items]}
 
@@ -377,7 +432,7 @@ async def crear_devolucion(entrega_id: str, payload: DevolucionCreate) -> dict:
 
 
 _SELECT_ENTREGAS_BASE = """
-    select e.*, s.nombre as sede_origen_nombre,
+    select e.*, s.nombre as sede_origen_nombre, op.nombre as operador_nombre,
         coalesce(
             json_agg(
                 json_build_object(
@@ -392,6 +447,13 @@ _SELECT_ENTREGAS_BASE = """
         ) as items
     from entregas e
     left join sedes s on s.id::text = e.sede_origen_id
+    -- Quien facturo/capturo la foto original (ver operador_id en el insert
+    -- de procesar_extraccion) -- nunca se pisa despues (aplicar_actualizacion_items
+    -- no toca esta columna), asi que sigue siendo un registro valido incluso
+    -- despues de que el bodeguero confirme la entrega. Null si el
+    -- operador_id no matchea ningun empleado (ej. el "supervisor" fijo que
+    -- manda el dashboard en revisarEntrega) -- el frontend cae al id crudo.
+    left join empleados op on op.id::text = e.operador_id
     left join entrega_items i on i.entrega_id = e.id
 """
 
@@ -421,7 +483,7 @@ async def listar_entregas(
     parametros.append(limit)
     rows = await pool.fetch(
         _SELECT_ENTREGAS_BASE + where
-        + f" group by e.id, s.nombre order by e.capturado_at desc limit ${len(parametros)}",
+        + f" group by e.id, s.nombre, op.nombre order by e.capturado_at desc limit ${len(parametros)}",
         *parametros,
     )
 
@@ -453,7 +515,7 @@ async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
         _SELECT_ENTREGAS_BASE
         + """ where (e.tipo = $1 and e.indicativo_numero = $2)
            or (e.traslado_tipo = $1 and e.traslado_indicativo_numero = $2)
-        group by e.id, s.nombre""",
+        group by e.id, s.nombre, op.nombre""",
         tipo,
         indicativo_numero,
     )
@@ -467,6 +529,38 @@ async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
     # que ya existe para el flujo de re-escaneo.
     resultado["situacion"] = "actualizable"
     return resultado
+
+
+@router.get("/faia")
+async def listar_entregas_faia(empleado_id: str) -> list[dict]:
+    """Vista de solo lectura de documentos marcados FAIA (es_faia = true --
+    campo a nivel documento, ver ActualizarItemsRequest.es_faia). Solo
+    fotos/identificacion, sin cantidades ni items editables. Reservada a
+    'faia_viewer', y tambien accesible para 'supervisor'/'admin' (mismo
+    criterio que el resto del dashboard)."""
+    pool = await get_pool()
+    empleado = await pool.fetchrow(
+        "select rol from empleados where id::text = $1", empleado_id
+    )
+    if empleado is None or empleado["rol"] not in ("faia_viewer", "supervisor", "admin"):
+        raise HTTPException(status_code=403, detail="No autorizado para ver documentos FAIA")
+
+    rows = await pool.fetch(
+        """
+        select e.id, e.tipo, e.indicativo_numero, e.sede_origen_id,
+            s.nombre as sede_origen_nombre, op.nombre as operador_nombre,
+            e.evidencia_url, e.capturado_at
+        from entregas e
+        left join sedes s on s.id::text = e.sede_origen_id
+        -- Quien facturo (mismo criterio que _SELECT_ENTREGAS_BASE) -- nunca
+        -- se pisa despues, asi que sigue siendo valido aunque el bodeguero ya
+        -- haya confirmado la entrega.
+        left join empleados op on op.id::text = e.operador_id
+        where e.es_faia = true
+        order by e.capturado_at desc
+        """
+    )
+    return [{**dict(r), "id": str(r["id"])} for r in rows]
 
 
 _EXPORT_COLUMNAS = [
@@ -487,10 +581,13 @@ _EXPORT_COLUMNAS = [
 
 @router.patch("/{entrega_id}/revisar")
 async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
-    """Corrige tipo/indicativo_numero y aprueba una entrega que estaba en
-    'pendiente_revision', dejandola como 'procesada'. Usado por el boton de
-    revision manual del dashboard. Las cantidades por producto se corrigen
-    aparte via PATCH /entregas/{id}/items."""
+    """Corrige tipo/indicativo_numero de una entrega. Con payload.aprobar=True
+    (default) ademas la aprueba, dejandola como 'procesada' -- comportamiento
+    historico, usado por el boton "Aprobar" del dashboard para pendiente_revision.
+    Con aprobar=False guarda las correcciones sin tocar el estado -- usado por
+    el boton "Guardar" (separado de "Aprobar" para pendiente_revision, y el
+    unico botón para una entrega con items pendientes que ya esta 'procesada').
+    Las cantidades por producto se corrigen aparte via PATCH /entregas/{id}/items."""
     pool = await get_pool()
     actual = await pool.fetchrow("select * from entregas where id = $1::uuid", entrega_id)
     if actual is None:
@@ -507,6 +604,9 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
     }
     campos = {k: v for k, v in campos.items() if v is not None}
 
+    # None en el coalesce de estado = "no tocar" (guardar sin aprobar).
+    nuevo_estado = EstadoEntrega.PROCESADA.value if payload.aprobar else None
+
     try:
         row = await pool.fetchrow(
             """
@@ -518,7 +618,7 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
                 capturado_at = coalesce($6, capturado_at),
                 traslado_tipo = coalesce($7, traslado_tipo),
                 traslado_indicativo_numero = coalesce($8, traslado_indicativo_numero),
-                estado = $9,
+                estado = coalesce($9, estado),
                 actualizado_at = now()
             where id = $1::uuid
             returning *
@@ -531,7 +631,7 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
             campos.get("capturado_at"),
             campos.get("traslado_tipo"),
             campos.get("traslado_indicativo_numero"),
-            EstadoEntrega.PROCESADA.value,
+            nuevo_estado,
         )
     except asyncpg.UniqueViolationError:
         # entregas_tipo_indicativo_numero_key -- el supervisor corrigio
@@ -544,7 +644,9 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
         entidad_id=entrega_id,
         actor_id=payload.revisado_por,
         sede_id=actual["sede_origen_id"],
-        resultado="ok",
+        # Distingue en el log si esto aprobo la entrega o solo guardo
+        # correcciones dejandola como estaba (ver payload.aprobar).
+        resultado="ok" if payload.aprobar else "guardado_sin_aprobar",
         detalle={"campos_corregidos": list(campos.keys())},
     )
 

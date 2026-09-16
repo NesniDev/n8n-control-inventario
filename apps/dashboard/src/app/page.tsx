@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { toast } from "sonner";
 import {
@@ -133,9 +134,14 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
         | undefined;
       const encontrado = items?.find((i) => i.id === itemId);
       if (encontrado) {
+        // retirado_por es del documento completo, no por item -- se agrega
+        // al texto de todos los items confirmados en esa misma visita (ver
+        // RetiradoPor en el backend, solo presente si esa visita se firmo).
+        const retiradoPor = log.detalle?.retirado_por as { nombre: string; telefono: string } | null | undefined;
+        const sufijoRetira = retiradoPor ? ` · Retirado por ${retiradoPor.nombre} (${retiradoPor.telefono})` : "";
         eventos.push({
           fecha: log.timestamp,
-          texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}`,
+          texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}${sufijoRetira}`,
         });
       }
     } else if (log.evento === "devolucion_registrada" && (log.detalle as { item_id?: string })?.item_id === itemId) {
@@ -165,11 +171,16 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
     case "entrega_insertada":
       return `Nueva entrega registrada${doc ? ` — ${doc}` : ""} en ${sede}.`;
     case "entrega_actualizada": {
-      const detalle = log.detalle as { items?: { cantidad_pendiente: number }[] } | undefined;
+      const detalle = log.detalle as
+        | { items?: { cantidad_pendiente: number }[]; retirado_por?: { nombre: string; telefono: string } | null }
+        | undefined;
       const pendiente = detalle?.items?.reduce((total, i) => total + (i.cantidad_pendiente ?? 0), 0);
+      const retiro = detalle?.retirado_por
+        ? ` Retiró ${detalle.retirado_por.nombre} (${detalle.retirado_por.telefono}).`
+        : "";
       return `Se confirmaron cantidades${doc ? ` de ${doc}` : ""}${
         pendiente !== undefined ? ` — quedan ${pendiente} pendientes` : ""
-      }.`;
+      }.${retiro}`;
     }
     case "devolucion_registrada": {
       const detalle = log.detalle as { cantidad?: number; motivo?: string; resolucion?: string } | undefined;
@@ -305,6 +316,9 @@ function FilaRevision({
   const [tipo, setTipo] = useState(entrega.tipo);
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
   const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
+  // Nota a nivel documento completo (distinta de la nota por producto, que
+  // vive en cada item de la lista de abajo) -- su propia seccion en el JSX.
+  const [notaGeneral, setNotaGeneral] = useState(entrega.nota_general ?? "");
   // Campos de cabecera ampliados -- solo editables cuando la entrega esta
   // pendiente_revision (ver el bloque condicional en el JSX). Se excluyen
   // deliberadamente evidencia/firma/traslado_url por pedido explicito.
@@ -352,7 +366,13 @@ function FilaRevision({
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...cambios } : item)));
   };
 
-  const guardar = async () => {
+  // aprobar=false: guarda las correcciones (cabecera + items) sin tocar el
+  // estado -- para poder corregir un dato en pendiente_revision sin
+  // aprobarla todavia, o para una entrega con items pendientes que ya esta
+  // "procesada" (nunca tiene sentido forzarle el estado). aprobar=true:
+  // ademas la deja como "procesada" -- solo se ofrece para pendiente_revision
+  // (ver botones mas abajo).
+  const guardar = async (aprobar: boolean) => {
     setGuardando(true);
     try {
       // sede_origen_id/operador_id/capturado_at/traslado_* solo tienen
@@ -362,6 +382,7 @@ function FilaRevision({
       const camposRevision: Parameters<typeof revisarEntrega>[1] = {
         tipo,
         indicativo_numero: indicativoNumero,
+        aprobar,
       };
       if (entrega.estado === "pendiente_revision") {
         camposRevision.sede_origen_id = sedeOrigenId || undefined;
@@ -371,7 +392,11 @@ function FilaRevision({
         camposRevision.traslado_indicativo_numero = trasladoIndicativoNumero || undefined;
       }
       await revisarEntrega(entrega.id, camposRevision);
-      if (items.length > 0) {
+      // Tambien dispara si SOLO cambio la nota general (items vacio no
+      // rompe nada del lado del backend, ver aplicar_actualizacion_items) --
+      // si no, guardar una nota general sin tocar cantidades no haria nada.
+      const notaGeneralCambio = notaGeneral.trim() !== (entrega.nota_general ?? "").trim();
+      if (items.length > 0 || notaGeneralCambio) {
         await actualizarItems(
           entrega.id,
           items.map((item) => ({
@@ -380,10 +405,11 @@ function FilaRevision({
             cantidad_entregada: item.cantidad_entregada,
             cantidad_pendiente: item.cantidad_pendiente,
           })),
-          "supervisor"
+          "supervisor",
+          notaGeneralCambio ? notaGeneral : undefined
         );
       }
-      toast.success("Entrega guardada");
+      toast.success(aprobar ? "Entrega aprobada" : "Entrega guardada");
       onGuardado();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al guardar");
@@ -549,6 +575,22 @@ function FilaRevision({
             </div>
           ) : null}
 
+          {/* Nota a nivel documento completo -- su propia caja, separada de
+              la lista de productos de abajo (cada uno tiene su propia nota
+              por item, que es un campo distinto). */}
+          <div className="flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              Nota general de la factura
+              <textarea
+                value={notaGeneral}
+                onChange={(e) => setNotaGeneral(e.target.value)}
+                placeholder="Observación general sobre todo el documento (opcional)"
+                rows={2}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+              />
+            </label>
+          </div>
+
           <div className="flex flex-col gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
               Productos
@@ -634,12 +676,21 @@ function FilaRevision({
           ) : null}
           <div className="flex gap-2">
             <button
-              onClick={guardar}
+              onClick={() => guardar(false)}
               disabled={guardando}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
             >
-              {guardando ? "Guardando..." : "Guardar y aprobar"}
+              {guardando ? "Guardando..." : "Guardar"}
             </button>
+            {entrega.estado === "pendiente_revision" ? (
+              <button
+                onClick={() => guardar(true)}
+                disabled={guardando}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {guardando ? "Guardando..." : "Aprobar"}
+              </button>
+            ) : null}
             {/* Dos caminos distintos segun el estado (ver cancelarPedido) --
                 pendiente_revision usa el borrado definitivo de siempre;
                 procesada-con-pendiente-sin-tocar usa el camino nuevo, sin
@@ -760,7 +811,7 @@ function ModalDetalleEntrega({
           </div>
           <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
             <span className="block text-xs text-neutral-500">Operador</span>
-            <span className="text-neutral-200">{entrega.operador_id}</span>
+            <span className="text-neutral-200">{entrega.operador_nombre ?? entrega.operador_id}</span>
           </div>
           <div className="col-span-2 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             <span className="block text-xs text-neutral-500">Capturado</span>
@@ -769,6 +820,16 @@ function ModalDetalleEntrega({
             </span>
           </div>
         </div>
+
+        {/* Nota a nivel documento completo (distinta de la nota por
+            producto, que se ve mas abajo dentro de cada item) -- en su
+            propia seccion para no confundirla con esas. */}
+        {entrega.nota_general?.trim() ? (
+          <div className="flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2 text-sm">
+            <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Nota general</span>
+            <span className="whitespace-pre-wrap text-neutral-200">{entrega.nota_general}</span>
+          </div>
+        ) : null}
 
         {/* Miniaturas en vez de links de texto -- se entiende de un vistazo
             que evidencia hay sin tener que abrir cada una. */}
@@ -1129,7 +1190,15 @@ export default function DashboardPage() {
             {enVivo ? "En vivo" : "Conectando..."}
           </span>
         </div>
-        <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
+          <Link
+            href="/productos"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+          >
+            Catálogo de productos
+          </Link>
+        </div>
         <p className="text-sm text-neutral-400">
           Así viene el negocio hoy, en las dos sedes — se actualiza solo, sin recargar la página.
         </p>

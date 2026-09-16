@@ -7,6 +7,13 @@ class RolEmpleado(StrEnum):
     OPERADOR = "operador"
     SUPERVISOR = "supervisor"
     ADMIN = "admin"
+    # Factura primero (crea la entrega como "nueva"); el bodeguero
+    # ('operador') solo puede re-fotografiar un documento que punto_venta ya
+    # facturo -- ver FacturacionRequerida en app/services/duplicates.py.
+    PUNTO_VENTA = "punto_venta"
+    # Solo lectura: ve las fotos marcadas es_faia (GET /entregas/faia), no
+    # crea ni confirma nada.
+    FAIA_VIEWER = "faia_viewer"
 
 
 def _validar_pin(pin: str) -> str:
@@ -29,6 +36,7 @@ class EmpleadoCreate(BaseModel):
 
 class PinLogin(BaseModel):
     pin: str
+    empleado_id: str
 
     @field_validator("pin")
     @classmethod

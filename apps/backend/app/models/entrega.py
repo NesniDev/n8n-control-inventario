@@ -108,6 +108,13 @@ class EntregaRevision(BaseModel):
     traslado_tipo: str | None = None
     traslado_indicativo_numero: str | None = None
     revisado_por: str = "supervisor"
+    # True (default, compatibilidad con el comportamiento previo): corrige los
+    # campos Y aprueba, dejando estado="procesada". False: guarda las
+    # correcciones sin tocar el estado -- para una entrega pendiente_revision
+    # que el supervisor quiere corregir pero todavia no esta listo para
+    # aprobar, o una entrega con items pendientes (ver tienePendiente en el
+    # dashboard) que de por si ya esta "procesada" y no tiene sentido forzarla.
+    aprobar: bool = True
 
     @model_validator(mode="after")
     def _validar_tipo(self) -> "EntregaRevision":
@@ -153,6 +160,16 @@ class ItemActualizacion(BaseModel):
         return self
 
 
+class RetiradoPor(BaseModel):
+    """Datos de la persona que retira, capturados junto con la firma (ver
+    ActualizarItemsRequest.retirado_por) -- solo tiene sentido si alguien esta
+    fisicamente presente para firmar, por eso viaja pegado a firma_url y no
+    por separado."""
+
+    nombre: str
+    telefono: str
+
+
 class ActualizarItemsRequest(BaseModel):
     """Payload del paso 2 -- confirmar una entrega nueva o aplicar una
     actualizacion incremental. evidencia_url/hash_evidencia son de la foto de
@@ -168,3 +185,15 @@ class ActualizarItemsRequest(BaseModel):
     # confirmaron cantidades desde el movil (no en "Guardar nota" ni en
     # correcciones del dashboard, ver App.tsx).
     firma_url: str | None = None
+    # Nombre/documento de quien retira esta visita puntual -- solo viene junto
+    # con firma_url (ver RetiradoPor). No se guarda como columna: queda en el
+    # detalle del evento ENTREGA_ACTUALIZADA de logs, para tener historial de
+    # quien retiro cada visita sin necesitar una tabla nueva.
+    retirado_por: RetiradoPor | None = None
+    # Marca a nivel documento para el flujo FAIA (ver rol faia_viewer y
+    # GET /entregas/faia) -- None significa "no tocar", no "false".
+    es_faia: bool | None = None
+    # Nota a nivel documento completo (distinta de ItemActualizacion.nota,
+    # que es por producto) -- la escribe el bodeguero en PantallaConfirmando.
+    # None significa "no tocar"; "" (string vacio) borra la nota existente.
+    nota_general: str | None = None
