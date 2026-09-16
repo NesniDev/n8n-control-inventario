@@ -158,6 +158,25 @@ export async function eliminarEntrega(id: string, adminToken: string): Promise<v
   }
 }
 
+// DELETE /entregas/{id} (sin token -- el backend no lo pide, lo usa tambien
+// el mobile) -- distinto de eliminarEntrega/definitivo: borra una entrega
+// que NO este en pendiente_revision, siempre que ningun item haya tenido
+// todavia una entrega parcial (cantidad_pendiente === cantidad_entregada en
+// todos, ver cancelar_entrega_no_confirmada en el backend). Idempotente: si
+// no aplica, no rompe nada, solo devuelve cancelado:false.
+export async function cancelarEntrega(id: string): Promise<{ cancelado: boolean }> {
+  // operador_id/sede_id son opcionales en el backend (default "desconocido"),
+  // pero se mandan explicitos para que el log de auditoria (actor_id) diga
+  // "supervisor"/"dashboard" en vez de eso -- mismo criterio que actualizarItems.
+  const res = await fetch(`${API_BASE_URL}/entregas/${id}?operador_id=supervisor&sede_id=dashboard`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo cancelar el pedido (${res.status})`);
+  }
+  return res.json();
+}
+
 // "Zona de peligro" -- borra TODAS las entregas y logs. Misma proteccion de
 // token que eliminarEntrega.
 export async function eliminarTodasLasEntregas(

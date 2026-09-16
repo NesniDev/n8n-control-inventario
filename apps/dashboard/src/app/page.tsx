@@ -7,6 +7,7 @@ import {
   EXPORT_CSV_URL,
   EXPORT_XLSX_URL,
   actualizarItems,
+  cancelarEntrega,
   eliminarEntrega,
   eliminarTodasLasEntregas,
   fetchEntregas,
@@ -40,6 +41,15 @@ function esHoy(fechaIso: string | null | undefined): boolean {
 
 function tienePendiente(entrega: Entrega): boolean {
   return entrega.items.some((item) => item.cantidad_pendiente > 0);
+}
+
+// Ningun item tuvo todavia una entrega parcial -- mismo criterio que usa
+// cancelar_entrega_no_confirmada en el backend (cantidad_pendiente ===
+// cantidad_entregada en todos, tal como quedaron al insertarse). Se calcula
+// sobre `entrega` (los datos ya guardados), no sobre el estado editado a
+// mano en FilaRevision -- decide si el boton "Cancelar" puede aparecer.
+function sinEntregaParcial(entrega: Entrega): boolean {
+  return entrega.items.every((item) => item.cantidad_pendiente === item.cantidad_entregada);
 }
 
 type Rango = "hoy" | "semana" | "mes" | "todo";
@@ -382,19 +392,31 @@ function FilaRevision({
     }
   };
 
-  // Borrado definitivo -- solo tiene sentido para pendiente_revision (el
-  // backend rechaza cualquier otro estado con 409); el boton de abajo ya se
-  // renderiza solo bajo esa condicion. Se llama desde ModalConfirmar una vez
-  // que el usuario confirma ahi (ver el JSX mas abajo).
-  const eliminarDefinitivamente = async () => {
+  // Cancelar/eliminar el pedido -- dos caminos segun el estado, el boton de
+  // abajo ya se renderiza solo cuando alguno de los dos aplica (ver el JSX
+  // mas abajo). Se llama desde ModalConfirmar una vez que el usuario
+  // confirma ahi.
+  const puedeCancelarPorRevision = entrega.estado === "pendiente_revision";
+  const puedeCancelarSinTocar = !puedeCancelarPorRevision && tienePendiente(entrega) && sinEntregaParcial(entrega);
+  const cancelarPedido = async () => {
     setConfirmandoBorrado(false);
     setGuardando(true);
     try {
-      await eliminarEntrega(entrega.id, adminToken);
-      toast.success("Entrega eliminada");
+      if (puedeCancelarPorRevision) {
+        // Borrado definitivo -- el backend rechaza cualquier otro estado
+        // con 409 (ver /definitivo en entregas.py), por eso este camino
+        // solo se toma cuando puedeCancelarPorRevision ya lo confirmo.
+        await eliminarEntrega(entrega.id, adminToken);
+      } else {
+        // Sin token -- el backend no lo pide para este camino (tambien lo
+        // usa el mobile). Idempotente: si de verdad ya tuvo una entrega
+        // parcial, no borra nada en vez de fallar (ver cancelarEntrega).
+        await cancelarEntrega(entrega.id);
+      }
+      toast.success("Pedido cancelado");
       onGuardado();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al eliminar");
+      toast.error(err instanceof Error ? err.message : "Error al cancelar");
     } finally {
       setGuardando(false);
     }
@@ -618,7 +640,11 @@ function FilaRevision({
             >
               {guardando ? "Guardando..." : "Guardar y aprobar"}
             </button>
-            {entrega.estado === "pendiente_revision" ? (
+            {/* Dos caminos distintos segun el estado (ver cancelarPedido) --
+                pendiente_revision usa el borrado definitivo de siempre;
+                procesada-con-pendiente-sin-tocar usa el camino nuevo, sin
+                token. El boton se ve igual en los dos casos. */}
+            {puedeCancelarPorRevision || puedeCancelarSinTocar ? (
               <button
                 onClick={() => setConfirmandoBorrado(true)}
                 disabled={guardando || !adminToken}
@@ -632,10 +658,10 @@ function FilaRevision({
         </div>
         {confirmandoBorrado ? (
           <ModalConfirmar
-            titulo="Eliminar entrega"
-            mensaje="¿Eliminar por completo esta entrega? Esta acción no se puede deshacer."
-            textoConfirmar="Eliminar"
-            onConfirmar={eliminarDefinitivamente}
+            titulo="Cancelar pedido"
+            mensaje="¿Cancelar por completo este pedido? Esta acción no se puede deshacer."
+            textoConfirmar="Cancelar pedido"
+            onConfirmar={cancelarPedido}
             onCerrar={() => setConfirmandoBorrado(false)}
           />
         ) : null}
