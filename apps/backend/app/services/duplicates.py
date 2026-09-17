@@ -486,12 +486,32 @@ async def aplicar_actualizacion_items(
                     # greatest(0, ...), que dejaba pendiente en 0 pero sumaba
                     # el delta completo a cantidad_entregada igual, rompiendo
                     # la cuenta (entregada + pendiente ya no daba el total).
+                    #
+                    # El CASE sobre "actualizado_at > creado_at" (mismo campo
+                    # calculado que expone _items_de_entrega como
+                    # "confirmado") distingue la PRIMERA confirmacion real de
+                    # las siguientes. En el insert (procesar_extraccion),
+                    # cantidad_entregada se siembra igual a cantidad_pendiente
+                    # (= lo que leyo la IA, no lo entregado de verdad) porque
+                    # se asume que quien crea el documento es quien lo va a
+                    # confirmar enseguida por la rama absoluta (situacion
+                    # 'nueva'). Con el rol punto_venta eso ya no es cierto: el
+                    # documento existe antes de que bodega lo fotografie, asi
+                    # que la primera confirmacion real de bodega SIEMPRE le
+                    # llega a esta rama (situacion 'actualizable'), nunca a la
+                    # absoluta. Sin este CASE, esa primera confirmacion
+                    # sumaba el delta sobre el seed en vez de reemplazarlo
+                    # (ej. bodega entrega 2, se veia "Entregado: 4" porque ya
+                    # traia 2 del seed de punto_venta).
                     fila = await conn.fetchrow(
                         """
                         update entrega_items
                         set descripcion = coalesce($4, descripcion),
                             nota = coalesce($5, nota),
-                            cantidad_entregada = cantidad_entregada + $2,
+                            cantidad_entregada = case
+                                when actualizado_at > creado_at then cantidad_entregada + $2
+                                else $2
+                            end,
                             cantidad_pendiente = cantidad_pendiente - $2,
                             actualizado_at = now()
                         where id = $1::uuid and entrega_id = $3::uuid and cantidad_pendiente >= $2
