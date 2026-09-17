@@ -433,6 +433,7 @@ async def crear_devolucion(entrega_id: str, payload: DevolucionCreate) -> dict:
 
 _SELECT_ENTREGAS_BASE = """
     select e.*, s.nombre as sede_origen_nombre, op.nombre as operador_nombre,
+        op.rol as operador_rol,
         coalesce(
             json_agg(
                 json_build_object(

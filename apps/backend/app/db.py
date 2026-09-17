@@ -133,6 +133,15 @@ alter table entregas add column if not exists es_faia boolean not null default f
 -- por producto. Nullable (a diferencia de es_faia, no tiene "default"
 -- razonable -- ausencia de nota no es lo mismo que nota vacia a proposito).
 alter table entregas add column if not exists nota_general text;
+-- Foto tal como quedo en el insert original (ver procesar_extraccion) --
+-- nunca se pisa despues, a diferencia de evidencia_url (que aplicar_actualizacion_items
+-- SI actualiza cuando bodega vuelve a fotografiar al confirmar). Mismo
+-- criterio de inmutabilidad que operador_id: permite mostrar por separado
+-- "la foto de quien facturo" (ej. punto_venta) de "la foto de quien
+-- confirmo" (ej. bodega) sin perder ninguna de las dos. Null en filas
+-- existentes de antes de esta columna -- esas fotos originales ya se
+-- perdieron (se pisaron), no hay forma de recuperarlas retroactivamente.
+alter table entregas add column if not exists evidencia_creacion_url text;
 -- Migracion a items por entrega (un documento puede traer varios productos):
 -- cantidad_entregada/cantidad_pendiente/detalle (si existian de una version
 -- anterior) se mudan a entrega_items.

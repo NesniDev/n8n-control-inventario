@@ -36,8 +36,18 @@ export interface Entrega {
   // entrega. Null si operador_id no matchea ningún empleado (ej. el
   // "supervisor" fijo que manda revisarEntrega) — el fallback es el id crudo.
   operador_nombre: string | null;
+  // Rol del empleado dueño de operador_id (mismo join que operador_nombre) --
+  // distingue si quien creó/facturó el documento fue "punto_venta" o
+  // "operador" (bodega), para etiquetar evidencia_creacion_url en la UI.
+  operador_rol: string | null;
   confianza_ia: Record<string, number>;
   evidencia_url: string;
+  // Foto tal como quedó en la creación del documento -- nunca se pisa
+  // después (ver evidencia_creacion_url en apps/backend/app/db.py), a
+  // diferencia de evidencia_url (que sí se actualiza cuando bodega vuelve a
+  // fotografiar al confirmar). Null en documentos creados antes de esta
+  // columna, o cuando coincide con evidencia_url (nadie la reemplazó).
+  evidencia_creacion_url: string | null;
   // Firma del cliente al confirmar la entrega desde el movil (paso 2) --
   // ausente cuando el guardado fue "Guardar nota" (sin cambio de
   // cantidades, no es un evento de entrega) o en entregas anteriores a esta

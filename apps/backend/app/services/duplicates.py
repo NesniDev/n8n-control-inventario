@@ -279,9 +279,10 @@ async def procesar_extraccion(
                     """
                     insert into entregas (
                         tipo, indicativo_numero, hash_evidencia, sede_origen_id,
-                        estado, confianza_ia, evidencia_url, operador_id, capturado_at,
+                        estado, confianza_ia, evidencia_url, evidencia_creacion_url,
+                        operador_id, capturado_at,
                         procesado_at, traslado_url, traslado_tipo, traslado_indicativo_numero
-                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
+                    ) values ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, now(), $10, $11, $12)
                     returning id
                     """,
                     tipo,

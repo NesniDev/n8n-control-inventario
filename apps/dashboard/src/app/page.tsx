@@ -769,9 +769,21 @@ function ModalDetalleEntrega({
     .filter((x): x is { log: LogEvent; texto: string } => x.texto !== null);
 
   // Fotos disponibles como miniatura -- solo las que la entrega realmente
-  // trae (traslado y firma son opcionales).
+  // trae (traslado y firma son opcionales). Si evidencia_creacion_url existe
+  // y es DISTINTA de evidencia_url, alguien (tipicamente bodega) volvio a
+  // fotografiar al confirmar -- mostramos las dos por separado, etiquetando
+  // la original segun quien la tomo (operador_rol). Si son iguales (nadie la
+  // reemplazo, ej. flujo de un solo operador) no se duplica la miniatura.
+  const huboRefoto =
+    entrega.evidencia_creacion_url != null && entrega.evidencia_creacion_url !== entrega.evidencia_url;
   const fotos = [
-    { url: entrega.evidencia_url, etiqueta: "Foto" },
+    huboRefoto
+      ? {
+          url: entrega.evidencia_creacion_url as string,
+          etiqueta: entrega.operador_rol === "punto_venta" ? "Punto de venta" : "Foto inicial",
+        }
+      : null,
+    { url: entrega.evidencia_url, etiqueta: huboRefoto ? "Bodega" : "Foto" },
     entrega.traslado_url ? { url: entrega.traslado_url, etiqueta: "Traslado" } : null,
     entrega.firma_url ? { url: entrega.firma_url, etiqueta: "Firma" } : null,
   ].filter((f): f is { url: string; etiqueta: string } => f !== null);
