@@ -484,7 +484,7 @@ async def listar_entregas(
     parametros.append(limit)
     rows = await pool.fetch(
         _SELECT_ENTREGAS_BASE + where
-        + f" group by e.id, s.nombre, op.nombre order by e.capturado_at desc limit ${len(parametros)}",
+        + f" group by e.id, s.nombre, op.nombre, op.rol order by e.capturado_at desc limit ${len(parametros)}",
         *parametros,
     )
 
@@ -516,7 +516,7 @@ async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
         _SELECT_ENTREGAS_BASE
         + """ where (e.tipo = $1 and e.indicativo_numero = $2)
            or (e.traslado_tipo = $1 and e.traslado_indicativo_numero = $2)
-        group by e.id, s.nombre, op.nombre""",
+        group by e.id, s.nombre, op.nombre, op.rol""",
         tipo,
         indicativo_numero,
     )
