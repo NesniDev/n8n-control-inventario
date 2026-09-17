@@ -335,10 +335,16 @@ async def procesar_extraccion(
                 for it in items_extraidos:
                     cantidad = max(0, int(it.get("cantidad") or 0))
                     descripcion = str(it.get("descripcion") or "")
+                    # cantidad_entregada arranca en 0, NO en cantidad: todavia
+                    # nadie entrego nada de verdad, solo se leyo el documento
+                    # (ver el fix de "Entregado" -- antes esto mostraba el
+                    # total leido como si ya estuviera entregado). La rama
+                    # absoluta de aplicar_actualizacion_items se encarga de
+                    # derivarla sola cuando de verdad se confirma.
                     item_id = await conn.fetchval(
                         """
                         insert into entrega_items (entrega_id, descripcion, cantidad_entregada, cantidad_pendiente)
-                        values ($1, $2, $3, $3)
+                        values ($1, $2, 0, $3)
                         returning id
                         """,
                         entrega_id,
@@ -350,7 +356,7 @@ async def procesar_extraccion(
                         ItemEntrega(
                             id=str(item_id),
                             descripcion=descripcion,
-                            cantidad_entregada=cantidad,
+                            cantidad_entregada=0,
                             cantidad_pendiente=cantidad,
                             # Recien insertado, todavia nadie lo confirmo --
                             # ver el comentario en ItemEntrega.confirmado.
@@ -491,19 +497,19 @@ async def aplicar_actualizacion_items(
                     # El CASE sobre "actualizado_at > creado_at" (mismo campo
                     # calculado que expone _items_de_entrega como
                     # "confirmado") distingue la PRIMERA confirmacion real de
-                    # las siguientes. En el insert (procesar_extraccion),
-                    # cantidad_entregada se siembra igual a cantidad_pendiente
-                    # (= lo que leyo la IA, no lo entregado de verdad) porque
-                    # se asume que quien crea el documento es quien lo va a
-                    # confirmar enseguida por la rama absoluta (situacion
-                    # 'nueva'). Con el rol punto_venta eso ya no es cierto: el
-                    # documento existe antes de que bodega lo fotografie, asi
-                    # que la primera confirmacion real de bodega SIEMPRE le
-                    # llega a esta rama (situacion 'actualizable'), nunca a la
-                    # absoluta. Sin este CASE, esa primera confirmacion
-                    # sumaba el delta sobre el seed en vez de reemplazarlo
-                    # (ej. bodega entrega 2, se veia "Entregado: 4" porque ya
-                    # traia 2 del seed de punto_venta).
+                    # las siguientes. Con el rol punto_venta, el documento
+                    # existe antes de que bodega lo fotografie, asi que la
+                    # primera confirmacion real de bodega SIEMPRE le llega a
+                    # esta rama (situacion 'actualizable'), nunca a la
+                    # absoluta ('nueva'). Sin este CASE, esa primera
+                    # confirmacion sumaria el delta sobre lo que ya hubiera en
+                    # cantidad_entregada en vez de fijarlo (ej. bodega entrega
+                    # 2, se veia "Entregado: 4" si algo mas ya la habia
+                    # tocado). Con el seed en 0 (ver el insert mas abajo,
+                    # antes en procesar_extraccion) esto ya no duplica en la
+                    # practica, pero se deja el CASE por las dudas de una
+                    # carrera entre sedes u otro camino que deje algo
+                    # sembrado ahi antes de la primera confirmacion real.
                     fila = await conn.fetchrow(
                         """
                         update entrega_items
@@ -541,13 +547,36 @@ async def aplicar_actualizacion_items(
                         await sincronizar_producto(conn, item.descripcion)
                 else:
                     # Valores absolutos -- confirmar una entrega nueva desde
-                    # el movil (solo cantidad_pendiente), o correccion manual
-                    # desde el dashboard (cualquier combinacion de campos).
+                    # el movil (solo cantidad_pendiente, situacion 'nueva'),
+                    # o correccion manual desde el dashboard (cualquier
+                    # combinacion de campos, incluida una correccion EXPLICITA
+                    # de cantidad_entregada). cantidad_entregada arranca en 0
+                    # (ver el insert en procesar_extraccion) -- si el movil
+                    # solo manda cantidad_pendiente (sin corregir
+                    # cantidad_entregada a mano), hay que DERIVAR cuanto se
+                    # entrego de verdad a partir de cuanto bajo lo pendiente,
+                    # si no "Entregado" se quedaria en 0 para siempre. Si en
+                    # cambio SI viene una correccion explicita ($3), esa gana
+                    # siempre (ej. dashboard corrigiendo un numero mal
+                    # tipeado) -- no se sobreescribe con la derivacion.
+                    #
+                    # Limite conocido: el movil tambien reusa cantidad_entregada
+                    # para "corregir la cantidad leida por la IA" (pantalla
+                    # 'nueva', boton "Cantidad leida") -- si esa correccion Y
+                    # una entrega parcial pasan en la MISMA visita, gana la
+                    # correccion de lectura, no el delta real entregado. Esto
+                    # ya pasaba antes de este cambio (cantidad_entregada
+                    # tampoco reflejaba lo entregado en ese caso), no es una
+                    # regresion nueva.
                     await conn.execute(
                         """
                         update entrega_items
                         set descripcion = coalesce($2, descripcion),
-                            cantidad_entregada = coalesce($3, cantidad_entregada),
+                            cantidad_entregada = case
+                                when $3::int is not null then $3::int
+                                when $4::int is not null then cantidad_entregada + greatest(cantidad_pendiente - $4::int, 0)
+                                else cantidad_entregada
+                            end,
                             cantidad_pendiente = coalesce($4, cantidad_pendiente),
                             nota = coalesce($6, nota),
                             actualizado_at = now()
@@ -562,6 +591,20 @@ async def aplicar_actualizacion_items(
                     )
                     if item.descripcion is not None:
                         await sincronizar_producto(conn, item.descripcion)
+
+            if items:
+                # Quien confirmo cantidades reales en ESTA llamada -- a
+                # diferencia de operador_id (el creador, nunca se pisa), esto
+                # SI se actualiza cada vez, asi refleja quien esta con la
+                # factura ahora (ver columna en app/db.py). punto_venta nunca
+                # llega aca con items no vacios (RolNoAutorizado mas arriba),
+                # asi que esto siempre es bodega o una correccion del
+                # dashboard (operador_id="supervisor", ver revisarEntrega).
+                await conn.execute(
+                    "update entregas set bodeguero_id = $2, actualizado_at = now() where id = $1::uuid",
+                    entrega_id,
+                    operador_id,
+                )
 
             if evidencia_url and hash_evidencia:
                 await conn.execute(
@@ -661,12 +704,17 @@ async def cancelar_entrega_no_confirmada(
     "cancelar" en la practica significa deshacer ese insert.
 
     Solo borra si TODAVIA nadie confirmo nada: cada item sigue con
-    cantidad_pendiente == cantidad_entregada, que es exactamente como queda
-    un item recien insertado por procesar_extraccion, antes de que
-    aplicar_actualizacion_items lo toque. Esto evita dos cosas: borrar una
-    entrega real que ya tenia historial (nunca deberia pasar, pero mejor
-    prevenir por las dudas), y una carrera rara donde otra sede ya la
-    actualizo mientras este bodeguero decidia cancelar.
+    actualizado_at == creado_at (mismo campo que expone _items_de_entrega
+    como "confirmado"), que es exactamente como queda un item recien
+    insertado por procesar_extraccion, antes de que
+    aplicar_actualizacion_items lo toque. NO se usa "cantidad_pendiente ==
+    cantidad_entregada" (equivalente antes de que cantidad_entregada
+    arrancara en 0 en vez de en cantidad, ver el insert de arriba) -- con el
+    seed en 0 esa igualdad ya nunca se cumple salvo que la cantidad leida sea
+    0, asi que dejaria de poder cancelarse cualquier entrega nueva. Esto
+    evita dos cosas: borrar una entrega real que ya tenia historial (nunca
+    deberia pasar, pero mejor prevenir por las dudas), y una carrera rara
+    donde otra sede ya la actualizo mientras este bodeguero decidia cancelar.
 
     Idempotente: si el id no existe o ya se confirmo algo, no hace nada y
     devuelve False -- cancelar nunca deberia ser un error para el movil.
@@ -679,7 +727,7 @@ async def cancelar_entrega_no_confirmada(
             where id = $1::uuid
               and not exists (
                   select 1 from entrega_items
-                  where entrega_id = $1::uuid and cantidad_pendiente <> cantidad_entregada
+                  where entrega_id = $1::uuid and actualizado_at > creado_at
               )
             """,
             entrega_id,

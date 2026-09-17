@@ -40,6 +40,14 @@ export interface Entrega {
   // distingue si quien creó/facturó el documento fue "punto_venta" o
   // "operador" (bodega), para etiquetar evidencia_creacion_url en la UI.
   operador_rol: string | null;
+  // Quién de bodega confirmó cantidades reales por última vez (join en el
+  // backend contra bodeguero_id, ver apps/backend/app/db.py) -- a diferencia
+  // de operador_id (el creador, inmutable), ESTE sí se actualiza en cada
+  // confirmación real, así que refleja quién está con la factura ahora. Null
+  // hasta que alguien de bodega la toque (ej. punto_venta facturó y todavía
+  // nadie confirmó) -- se muestra como "NE" en la UI.
+  bodeguero_id: string | null;
+  bodeguero_nombre: string | null;
   confianza_ia: Record<string, number>;
   evidencia_url: string;
   // Foto tal como quedó en la creación del documento -- nunca se pisa

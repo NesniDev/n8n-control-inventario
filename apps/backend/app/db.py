@@ -142,6 +142,13 @@ alter table entregas add column if not exists nota_general text;
 -- existentes de antes de esta columna -- esas fotos originales ya se
 -- perdieron (se pisaron), no hay forma de recuperarlas retroactivamente.
 alter table entregas add column if not exists evidencia_creacion_url text;
+-- Quien de bodega confirmo cantidades reales por ultima vez (ver
+-- aplicar_actualizacion_items) -- a diferencia de operador_id (el creador,
+-- inmutable), esta SI se actualiza en cada confirmacion con items reales, asi
+-- refleja quien esta con la factura ahora. Null hasta que alguien confirme
+-- algo de verdad (ej. punto_venta factura y todavia nadie de bodega la toco)
+-- -- el dashboard muestra "NE" en ese caso.
+alter table entregas add column if not exists bodeguero_id text;
 -- Migracion a items por entrega (un documento puede traer varios productos):
 -- cantidad_entregada/cantidad_pendiente/detalle (si existian de una version
 -- anterior) se mudan a entrega_items.

@@ -336,18 +336,31 @@ async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
 
 @router.delete("/{entrega_id}/definitivo", dependencies=[Depends(_verificar_token_admin)])
 async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconocido") -> dict:
-    """Hard delete total de una entrega en pendiente_revision -- usado por el
-    boton 'Cancelar' del dashboard cuando un documento mal escaneado o
-    invalido no debe aprobarse ni corregirse, sino descartarse del todo.
-    A diferencia de DELETE /{entrega_id} (cancelar_entrega_no_confirmada),
-    no exige que los items esten sin confirmar. entrega_items/devoluciones
-    se van solos por 'on delete cascade'; logs no tiene FK, sobrevive."""
+    """Hard delete total de una entrega -- usado por el boton 'Cancelar' del
+    dashboard cuando un documento mal escaneado o invalido (o una prueba) no
+    debe aprobarse ni corregirse, sino descartarse del todo, INCLUSO si ya
+    tiene algo parcialmente entregado (a diferencia de DELETE /{entrega_id}
+    / cancelar_entrega_no_confirmada, que ese SI exige que nada este
+    confirmado -- ese otro endpoint lo comparte el movil, tocar su condicion
+    afectaria la cancelacion real de un bodeguero; este es exclusivo del
+    dashboard y ya pide token de administrador). Solo se protege una entrega
+    ya 100% completada (estado procesada, nada pendiente) -- borrar eso no
+    se pidio y sigue sin poder hacerse por aca. entrega_items/devoluciones se
+    van solos por 'on delete cascade'; logs no tiene FK, sobrevive."""
     pool = await get_pool()
     actual = await pool.fetchrow("select * from entregas where id = $1::uuid", entrega_id)
     if actual is None:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
     if actual["estado"] != EstadoEntrega.PENDIENTE_REVISION.value:
-        raise HTTPException(status_code=409, detail="Solo se puede eliminar una entrega pendiente de revision")
+        tiene_pendiente = await pool.fetchval(
+            "select exists(select 1 from entrega_items where entrega_id = $1::uuid and cantidad_pendiente > 0)",
+            entrega_id,
+        )
+        if not tiene_pendiente:
+            raise HTTPException(
+                status_code=409,
+                detail="Solo se puede eliminar una entrega pendiente de revision o con productos pendientes",
+            )
 
     await pool.execute("delete from entregas where id = $1::uuid", entrega_id)
     await registrar_evento(
@@ -433,7 +446,7 @@ async def crear_devolucion(entrega_id: str, payload: DevolucionCreate) -> dict:
 
 _SELECT_ENTREGAS_BASE = """
     select e.*, s.nombre as sede_origen_nombre, op.nombre as operador_nombre,
-        op.rol as operador_rol,
+        op.rol as operador_rol, bod.nombre as bodeguero_nombre,
         coalesce(
             json_agg(
                 json_build_object(
@@ -455,6 +468,10 @@ _SELECT_ENTREGAS_BASE = """
     -- operador_id no matchea ningun empleado (ej. el "supervisor" fijo que
     -- manda el dashboard en revisarEntrega) -- el frontend cae al id crudo.
     left join empleados op on op.id::text = e.operador_id
+    -- Quien confirmo cantidades reales por ultima vez (ver bodeguero_id en
+    -- app/db.py y aplicar_actualizacion_items) -- null hasta que alguien de
+    -- bodega toque la entrega (dashboard muestra "NE" en ese caso).
+    left join empleados bod on bod.id::text = e.bodeguero_id
     left join entrega_items i on i.entrega_id = e.id
 """
 
@@ -484,7 +501,7 @@ async def listar_entregas(
     parametros.append(limit)
     rows = await pool.fetch(
         _SELECT_ENTREGAS_BASE + where
-        + f" group by e.id, s.nombre, op.nombre, op.rol order by e.capturado_at desc limit ${len(parametros)}",
+        + f" group by e.id, s.nombre, op.nombre, op.rol, bod.nombre order by e.capturado_at desc limit ${len(parametros)}",
         *parametros,
     )
 
@@ -516,7 +533,7 @@ async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
         _SELECT_ENTREGAS_BASE
         + """ where (e.tipo = $1 and e.indicativo_numero = $2)
            or (e.traslado_tipo = $1 and e.traslado_indicativo_numero = $2)
-        group by e.id, s.nombre, op.nombre, op.rol""",
+        group by e.id, s.nombre, op.nombre, op.rol, bod.nombre""",
         tipo,
         indicativo_numero,
     )

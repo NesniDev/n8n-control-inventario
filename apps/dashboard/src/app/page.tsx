@@ -8,7 +8,6 @@ import {
   EXPORT_CSV_URL,
   EXPORT_XLSX_URL,
   actualizarItems,
-  cancelarEntrega,
   eliminarEntrega,
   eliminarTodasLasEntregas,
   fetchEntregas,
@@ -31,6 +30,11 @@ const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB", "RM3
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Cuantas entregas se muestran por grupo en "Necesita tu atención" antes de
+// pedir "Ver todas" -- con hasta 150 entregas cargadas, mostrar todo de una
+// es una pared de botones inmanejable.
+const LIMITE_ATENCION = 5;
+
 function sumar(items: ItemEntrega[], campo: "cantidad_entregada" | "cantidad_pendiente") {
   return items.reduce((total, item) => total + item[campo], 0);
 }
@@ -44,13 +48,13 @@ function tienePendiente(entrega: Entrega): boolean {
   return entrega.items.some((item) => item.cantidad_pendiente > 0);
 }
 
-// Ningun item tuvo todavia una entrega parcial -- mismo criterio que usa
-// cancelar_entrega_no_confirmada en el backend (cantidad_pendiente ===
-// cantidad_entregada en todos, tal como quedaron al insertarse). Se calcula
-// sobre `entrega` (los datos ya guardados), no sobre el estado editado a
-// mano en FilaRevision -- decide si el boton "Cancelar" puede aparecer.
-function sinEntregaParcial(entrega: Entrega): boolean {
-  return entrega.items.every((item) => item.cantidad_pendiente === item.cantidad_entregada);
+// "Sede " es solo una convencion humana al nombrar una sede (ver comentario
+// en apps/backend/app/services/duplicates.py sobre sedes.codigo vs nombre),
+// no una regla del sistema -- se saca el prefijo solo para mostrar, nunca se
+// toca el dato real en la base.
+function nombreSedeCorto(nombre: string | null): string | null {
+  if (!nombre) return nombre;
+  return nombre.replace(/^Sede\s+/i, "");
 }
 
 type Rango = "hoy" | "semana" | "mes" | "todo";
@@ -418,27 +422,23 @@ function FilaRevision({
     }
   };
 
-  // Cancelar/eliminar el pedido -- dos caminos segun el estado, el boton de
-  // abajo ya se renderiza solo cuando alguno de los dos aplica (ver el JSX
-  // mas abajo). Se llama desde ModalConfirmar una vez que el usuario
-  // confirma ahi.
-  const puedeCancelarPorRevision = entrega.estado === "pendiente_revision";
-  const puedeCancelarSinTocar = !puedeCancelarPorRevision && tienePendiente(entrega) && sinEntregaParcial(entrega);
+  // Cancelar/eliminar el pedido -- SIEMPRE via el borrado definitivo
+  // (con token de administrador), nunca via DELETE /entregas/{id} (el que
+  // comparte el movil para "cancelar sin confirmar" desde Confirmando): ese
+  // otro endpoint exige que nada este confirmado todavia, y aflojarlo
+  // dejaria que un bodeguero real borre sin querer una entrega con historial
+  // ya confirmado. Este boton es exclusivo del dashboard y borra aunque ya
+  // haya algo parcialmente entregado (para limpiar pruebas) -- el backend
+  // solo protege una entrega ya 100% completada (ver eliminar_entrega_
+  // definitivo, responde 409 en ese caso). El boton de abajo ya se renderiza
+  // solo cuando puedeCancelar aplica (ver el JSX mas abajo). Se llama desde
+  // ModalConfirmar una vez que el usuario confirma ahi.
+  const puedeCancelar = entrega.estado === "pendiente_revision" || tienePendiente(entrega);
   const cancelarPedido = async () => {
     setConfirmandoBorrado(false);
     setGuardando(true);
     try {
-      if (puedeCancelarPorRevision) {
-        // Borrado definitivo -- el backend rechaza cualquier otro estado
-        // con 409 (ver /definitivo en entregas.py), por eso este camino
-        // solo se toma cuando puedeCancelarPorRevision ya lo confirmo.
-        await eliminarEntrega(entrega.id, adminToken);
-      } else {
-        // Sin token -- el backend no lo pide para este camino (tambien lo
-        // usa el mobile). Idempotente: si de verdad ya tuvo una entrega
-        // parcial, no borra nada en vez de fallar (ver cancelarEntrega).
-        await cancelarEntrega(entrega.id);
-      }
+      await eliminarEntrega(entrega.id, adminToken);
       toast.success("Pedido cancelado");
       onGuardado();
     } catch (err) {
@@ -450,7 +450,7 @@ function FilaRevision({
 
   return (
     <tr className="bg-amber-500/5">
-      <td colSpan={9} className="px-4 py-3">
+      <td colSpan={11} className="px-4 py-3">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
             <span>Revisar antes de aprobar — campos con baja confianza de la IA:</span>
@@ -691,11 +691,7 @@ function FilaRevision({
                 {guardando ? "Guardando..." : "Aprobar"}
               </button>
             ) : null}
-            {/* Dos caminos distintos segun el estado (ver cancelarPedido) --
-                pendiente_revision usa el borrado definitivo de siempre;
-                procesada-con-pendiente-sin-tocar usa el camino nuevo, sin
-                token. El boton se ve igual en los dos casos. */}
-            {puedeCancelarPorRevision || puedeCancelarSinTocar ? (
+            {puedeCancelar ? (
               <button
                 onClick={() => setConfirmandoBorrado(true)}
                 disabled={guardando || !adminToken}
@@ -824,6 +820,12 @@ function ModalDetalleEntrega({
           <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
             <span className="block text-xs text-neutral-500">Operador</span>
             <span className="text-neutral-200">{entrega.operador_nombre ?? entrega.operador_id}</span>
+          </div>
+          <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            <span className="block text-xs text-neutral-500">Bodeguero</span>
+            <span className="text-neutral-200">
+              {entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE"}
+            </span>
           </div>
           <div className="col-span-2 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             <span className="block text-xs text-neutral-500">Capturado</span>
@@ -1061,6 +1063,11 @@ export default function DashboardPage() {
   );
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
+  // "Necesita tu atención" arranca colapsado a los N mas urgentes por grupo
+  // -- con hasta 150 entregas cargadas, mostrar todo de una hacia una pared
+  // de botones inmanejable. Cada grupo se expande por separado.
+  const [verTodoRevision, setVerTodoRevision] = useState(false);
+  const [verTodoPendiente, setVerTodoPendiente] = useState(false);
   // Filtro por categoria, aparte del buscador de texto libre (ver
   // entregasFiltradas mas abajo y las tarjetas/botones que lo setean).
   const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
@@ -1133,12 +1140,21 @@ export default function DashboardPage() {
   // nada nuevo al backend (ver el comentario de limit en lib/api.ts). ---
   const entregasPorId = useMemo(() => new Map((entregas ?? []).map((e) => [e.id, e])), [entregas]);
   const entregasHoy = useMemo(() => (entregas ?? []).filter((e) => esHoy(e.capturado_at)), [entregas]);
+  // Ordenadas por capturado_at ascendente -- lo mas viejo esperando primero
+  // es lo mas urgente, y es el orden en el que "Necesita tu atención" las
+  // muestra (ver mas abajo).
   const paraRevisar = useMemo(
-    () => (entregas ?? []).filter((e) => e.estado === "pendiente_revision"),
+    () =>
+      (entregas ?? [])
+        .filter((e) => e.estado === "pendiente_revision")
+        .sort((a, b) => a.capturado_at.localeCompare(b.capturado_at)),
     [entregas]
   );
   const conPendiente = useMemo(
-    () => (entregas ?? []).filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision"),
+    () =>
+      (entregas ?? [])
+        .filter((e) => tienePendiente(e) && e.estado !== "pendiente_revision")
+        .sort((a, b) => a.capturado_at.localeCompare(b.capturado_at)),
     [entregas]
   );
   const devolucionesHoy = useMemo(
@@ -1280,9 +1296,9 @@ export default function DashboardPage() {
           {paraRevisar.length > 0 ? (
             <div className="flex flex-col gap-2">
               <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                En revisión
+                En revisión{paraRevisar.length > LIMITE_ATENCION ? ` (${paraRevisar.length})` : ""}
               </h3>
-              {paraRevisar.map((e) => (
+              {(verTodoRevision ? paraRevisar : paraRevisar.slice(0, LIMITE_ATENCION)).map((e) => (
                 <button
                   key={e.id}
                   onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
@@ -1294,14 +1310,22 @@ export default function DashboardPage() {
                   <span className="text-xs font-medium text-amber-400">La IA no está segura — revisar</span>
                 </button>
               ))}
+              {paraRevisar.length > LIMITE_ATENCION ? (
+                <button
+                  onClick={() => setVerTodoRevision((v) => !v)}
+                  className="self-start text-xs font-medium text-neutral-500 hover:text-amber-400"
+                >
+                  {verTodoRevision ? "Ver menos" : `Ver todas (${paraRevisar.length})`}
+                </button>
+              ) : null}
             </div>
           ) : null}
           {conPendiente.length > 0 ? (
             <div className="flex flex-col gap-2">
               <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                Sin terminar
+                Sin terminar{conPendiente.length > LIMITE_ATENCION ? ` (${conPendiente.length})` : ""}
               </h3>
-              {conPendiente.map((e) => (
+              {(verTodoPendiente ? conPendiente : conPendiente.slice(0, LIMITE_ATENCION)).map((e) => (
                 <button
                   key={e.id}
                   onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
@@ -1315,6 +1339,14 @@ export default function DashboardPage() {
                   </span>
                 </button>
               ))}
+              {conPendiente.length > LIMITE_ATENCION ? (
+                <button
+                  onClick={() => setVerTodoPendiente((v) => !v)}
+                  className="self-start text-xs font-medium text-neutral-500 hover:text-amber-400"
+                >
+                  {verTodoPendiente ? "Ver menos" : `Ver todas (${conPendiente.length})`}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>
@@ -1419,9 +1451,11 @@ export default function DashboardPage() {
             <thead className="bg-neutral-900 text-neutral-500">
               <tr>
                 <th className="px-4 py-2 font-medium">Tipo</th>
-                <th className="px-4 py-2 font-medium">N° de documento</th>
+                <th className="px-4 py-2 font-medium">Número</th>
                 <th className="px-4 py-2 font-medium">Sede</th>
+                <th className="px-4 py-2 font-medium">Bodeguero</th>
                 <th className="px-4 py-2 font-medium">Productos</th>
+                <th className="px-4 py-2 font-medium">Entregas</th>
                 <th className="px-4 py-2 font-medium">Entregado</th>
                 <th className="px-4 py-2 font-medium">Pendiente</th>
                 <th className="px-4 py-2 font-medium">Estado</th>
@@ -1432,14 +1466,14 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-neutral-800">
               {!entregasTablaCargando && entregasTabla?.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={11} className="px-4 py-6 text-center text-neutral-500">
                     Sin entregas todavía.
                   </td>
                 </tr>
               ) : null}
               {!entregasTablaCargando && termino && entregasFiltradas?.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={11} className="px-4 py-6 text-center text-neutral-500">
                     Sin resultados para &quot;{busqueda}&quot;.
                   </td>
                 </tr>
@@ -1465,7 +1499,10 @@ export default function DashboardPage() {
                         {e.indicativo_numero || "—"}
                       </td>
                       <td className="px-4 py-2 text-neutral-300">
-                        {e.sede_origen_nombre ?? e.sede_origen_id}
+                        {nombreSedeCorto(e.sede_origen_nombre) ?? e.sede_origen_id}
+                      </td>
+                      <td className="px-4 py-2 text-neutral-300">
+                        {e.bodeguero_nombre ?? e.bodeguero_id ?? "NE"}
                       </td>
                       <td
                         className="max-w-[220px] truncate px-4 py-2 text-neutral-400"
@@ -1474,6 +1511,9 @@ export default function DashboardPage() {
                         {e.items.length === 0
                           ? "—"
                           : `${e.items.length} producto${e.items.length === 1 ? "" : "s"}`}
+                      </td>
+                      <td className="px-4 py-2 text-neutral-300">
+                        {sumar(e.items, "cantidad_entregada") + sumar(e.items, "cantidad_pendiente")}
                       </td>
                       <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_entregada")}</td>
                       <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_pendiente")}</td>
