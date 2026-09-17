@@ -170,10 +170,12 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
 
   const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, base64);
 
-  const path = `${new Date().toISOString().slice(0, 10)}/${hash}.jpg`;
+  // WebP, no JPEG -- comprimirParaEnvio (PantallaCapturaFoto.tsx) ya entrega
+  // el archivo en ese formato (misma resolucion/calidad, la mitad de peso).
+  const path = `${new Date().toISOString().slice(0, 10)}/${hash}.webp`;
   const { error } = await supabase.storage
     .from(EVIDENCIA_BUCKET)
-    .upload(path, decode(base64), { contentType: 'image/jpeg', upsert: false });
+    .upload(path, decode(base64), { contentType: 'image/webp', upsert: false });
 
   if (error) {
     // Conflicto (409, "ya existe") en Storage == misma evidencia ya subida

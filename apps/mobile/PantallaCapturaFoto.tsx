@@ -85,9 +85,31 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
   const [modalEsFaia, setModalEsFaia] = useState(false);
   const [guardandoFaia, setGuardandoFaia] = useState(false);
 
-  const usarResultado = (resultado: ImagePicker.ImagePickerResult) => {
+  // La camara/galeria entregan la foto a resolucion completa (3000-4000px de
+  // lado en un celular moderno, varios MB) -- de ahi viaja completa a Storage
+  // Y de vuelta al backend, que la manda entera a la IA de vision. Nada de
+  // eso necesita esa resolucion para leer texto impreso: se achica a un
+  // ancho maximo de 1600px antes de subirla (de sobra para OCR), lo que
+  // reduce el peso varias veces sin perder legibilidad. Mismo mecanismo que
+  // ya usa rotarFoto (manipulateAsync), asi que rotar despues de esto sigue
+  // operando sobre la version ya achicada, no vuelve a inflar el tamaño.
+  // WebP en vez de JPEG: misma resolucion/calidad, la mitad de peso (medido
+  // con una foto real: 326.6 KB en JPEG vs 160.7 KB en WebP) y la IA la lee
+  // bastante mas rapido del lado del backend (ver vision.py). Se mantiene el
+  // color -- a diferencia de convertir a escala de grises (tambien evaluado
+  // y descartado por el riesgo de perder informacion real, ej. sellos o
+  // tinta de otro color).
+  const comprimirParaEnvio = async (uri: string): Promise<string> => {
+    const resultado = await manipulateAsync(uri, [{ resize: { width: 1600 } }], {
+      compress: 0.8,
+      format: SaveFormat.WEBP,
+    });
+    return resultado.uri;
+  };
+
+  const usarResultado = async (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
-      setFoto(resultado.assets[0].uri);
+      setFoto(await comprimirParaEnvio(resultado.assets[0].uri));
       // Foto nueva -- si venia de un intento anterior con necesita_traslado,
       // ese aviso ya no aplica (es de OTRO documento).
       setNecesitaTraslado(null);
@@ -110,7 +132,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       exif: false,
     });
 
-    usarResultado(resultado);
+    await usarResultado(resultado);
   };
 
   const elegirDeGaleria = async () => {
@@ -126,7 +148,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       exif: false,
     });
 
-    usarResultado(resultado);
+    await usarResultado(resultado);
   };
 
   // Rota la foto ya tomada 90° en el momento -- cubre el caso de una guia
@@ -136,18 +158,20 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
   // original.
   const rotarFoto = async () => {
     if (!foto) return;
+    // WEBP, no JPEG -- foto ya viene en WebP de comprimirParaEnvio, si esto
+    // devolviera JPEG se perderia esa optimizacion apenas alguien rota.
     const resultado = await manipulateAsync(foto, [{ rotate: 90 }], {
       compress: 0.9,
-      format: SaveFormat.JPEG,
+      format: SaveFormat.WEBP,
     });
     setFoto(resultado.uri);
   };
 
   // Espejo de tomarFoto/elegirDeGaleria, pero para la foto de traslado --
   // solo aparecen cuando necesitaTraslado esta seteado (ver enviar()).
-  const usarResultadoTraslado = (resultado: ImagePicker.ImagePickerResult) => {
+  const usarResultadoTraslado = async (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
-      setFotoTraslado(resultado.assets[0].uri);
+      setFotoTraslado(await comprimirParaEnvio(resultado.assets[0].uri));
     }
   };
 
@@ -158,7 +182,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       return;
     }
     const resultado = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false, exif: false });
-    usarResultadoTraslado(resultado);
+    await usarResultadoTraslado(resultado);
   };
 
   const elegirTrasladoDeGaleria = async () => {
@@ -168,7 +192,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       return;
     }
     const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, exif: false });
-    usarResultadoTraslado(resultado);
+    await usarResultadoTraslado(resultado);
   };
 
   // Mismo tratamiento que rotarFoto, para la foto de traslado.
@@ -176,7 +200,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
     if (!fotoTraslado) return;
     const resultado = await manipulateAsync(fotoTraslado, [{ rotate: 90 }], {
       compress: 0.9,
-      format: SaveFormat.JPEG,
+      format: SaveFormat.WEBP,
     });
     setFotoTraslado(resultado.uri);
   };
@@ -420,7 +444,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
               <Ionicons name="camera-outline" size={40} color={NEUTRAL_400} />
               <Text style={styles.previewTexto}>Sin foto capturada</Text>
               <Text style={styles.previewSubtexto}>
-                Encuadrá el documento completo, con buena luz
+                Encuadra el documento completo, con buena luz
               </Text>
             </View>
           )}

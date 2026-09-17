@@ -46,7 +46,7 @@ export function esErrorFacturacionPendiente(err: unknown): boolean {
 }
 
 export const MENSAJE_FACTURACION_PENDIENTE =
-  'Este pedido todavía no fue facturado por punto de venta. Esperá a que se cargue la factura antes de despachar.';
+  'Este pedido todavía no fue facturado por punto de venta. Espera a que se cargue la factura antes de despachar.';
 
 // Caso puntual de punto_venta: fotografio una factura que ya habia
 // registrado antes (ver FacturaYaRegistrada en duplicates.py) -- una

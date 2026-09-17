@@ -4,10 +4,12 @@ arquitectura: este servicio implementa el paso "IA Vision -> extrae JSON".
 """
 
 import base64
+import io
 import json
 
 import httpx
 from openai import AsyncOpenAI, OpenAIError
+from PIL import Image
 
 from app.config import get_settings
 
@@ -175,9 +177,30 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
         # lado del movil se ve como "error o pantalla en blanco".
         raise ExtraccionFallida(f"No se pudo descargar la evidencia: {exc}") from exc
 
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    # Recodificar siempre a WebP (venga la evidencia en JPEG -- app movil
+    # vieja -- o ya en WebP -- app nueva, ver comprimirParaEnvio en
+    # PantallaCapturaFoto.tsx) antes de mandarla a la IA: WebP a la misma
+    # resolucion/calidad pesa la mitad que JPEG y el modelo la procesa mucho
+    # mas rapido (medido: ~2.7s promedio vs ~5.2s con JPEG, misma imagen,
+    # misma resolucion -- ver plan de este cambio). No se descarta color
+    # (a diferencia de convertir a escala de grises, que tambien se probo y
+    # se descarto por el riesgo de perder informacion real, ej. sellos o
+    # tinta de otro color) -- Image.open() abre JPEG o WebP indistintamente,
+    # asi que este mismo codigo sirve para ambos formatos sin rama especial.
+    imagen = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="WEBP", quality=80)
+    image_b64 = base64.standard_b64encode(buffer.getvalue()).decode("utf-8")
+    media_type = "image/webp"
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    # Sin este timeout, el cliente usa el default del SDK (600s, mas hasta 2
+    # reintentos automaticos -- hasta 30 minutos reales en el peor caso) y el
+    # operador se queda mirando "Extrayendo datos..." sin ningun corte si la
+    # IA anda lenta. 30s alcanza de sobra en el caso normal (la extraccion
+    # tarda unos pocos segundos); si se pasa, mejor cortar y que
+    # ExtraccionFallida le devuelva un error claro al movil (ver el catch de
+    # OpenAIError mas abajo, ya lo maneja) que dejarlo esperando indefinido.
+    client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=30.0)
     try:
         response = await client.chat.completions.create(
             model=settings.vision_model,
