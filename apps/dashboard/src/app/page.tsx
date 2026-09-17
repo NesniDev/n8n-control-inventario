@@ -812,22 +812,31 @@ function ModalDetalleEntrega({
         {/* Datos clave en tarjetas, no en una lista de texto -- de un vistazo
             se entiende quien/donde/cuando sin tener que leer renglon por
             renglon. */}
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-            <span className="block text-xs text-neutral-500">Sede</span>
-            <span className="text-neutral-200">{entrega.sede_origen_nombre ?? entrega.sede_origen_id}</span>
+        <div className="flex flex-col gap-2 text-sm">
+          {/* flex-wrap en vez de grid-cols-2: cada tarjeta ocupa solo el
+              ancho de su texto, y si las tres no entran en una fila, la que
+              sobra salta sola a la siguiente. */}
+          <div className="flex flex-wrap gap-2">
+            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
+              <span className="block text-xs text-neutral-500">Sede</span>
+              <span className="whitespace-nowrap text-neutral-200">
+                {entrega.sede_origen_nombre ?? entrega.sede_origen_id}
+              </span>
+            </div>
+            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
+              <span className="block text-xs text-neutral-500">Operador</span>
+              <span className="whitespace-nowrap text-neutral-200">
+                {entrega.operador_nombre ?? entrega.operador_id}
+              </span>
+            </div>
+            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
+              <span className="block text-xs text-neutral-500">Bodeguero</span>
+              <span className="whitespace-nowrap text-neutral-200">
+                {entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE"}
+              </span>
+            </div>
           </div>
           <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-            <span className="block text-xs text-neutral-500">Operador</span>
-            <span className="text-neutral-200">{entrega.operador_nombre ?? entrega.operador_id}</span>
-          </div>
-          <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-            <span className="block text-xs text-neutral-500">Bodeguero</span>
-            <span className="text-neutral-200">
-              {entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE"}
-            </span>
-          </div>
-          <div className="col-span-2 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             <span className="block text-xs text-neutral-500">Capturado</span>
             <span className="text-neutral-200">
               {entrega.capturado_at ? new Date(entrega.capturado_at).toLocaleString() : "—"}
@@ -1201,7 +1210,7 @@ export default function DashboardPage() {
       );
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-8 px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-6 py-10">
       <header className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
@@ -1498,7 +1507,7 @@ export default function DashboardPage() {
                       <td className="px-4 py-2 font-mono text-neutral-300">
                         {e.indicativo_numero || "—"}
                       </td>
-                      <td className="px-4 py-2 text-neutral-300">
+                      <td className="whitespace-nowrap px-4 py-2 text-neutral-300">
                         {nombreSedeCorto(e.sede_origen_nombre) ?? e.sede_origen_id}
                       </td>
                       <td className="px-4 py-2 text-neutral-300">
@@ -1527,7 +1536,7 @@ export default function DashboardPage() {
                       <td className="px-4 py-2 text-neutral-500">
                         {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="whitespace-nowrap px-4 py-2">
                         <a
                           href={e.evidencia_url}
                           target="_blank"
