@@ -104,6 +104,26 @@ class _NecesitaTraslado(Exception):
     documento -- ver _TIPO_SEDE_DUENA."""
 
 
+class NecesitaTrasladoParaConfirmar(Exception):
+    """Espejo de _NecesitaTraslado, pero para CONFIRMAR (aplicar_actualizacion_items)
+    en vez de crear: una entrega ya existente, con tipo de sede duena, que
+    intenta confirmar/editar cantidades una sede distinta de la duena, sin
+    traslado valido adjunto. A diferencia de _NecesitaTraslado (interna,
+    nunca sale de duplicates.py), esta SI cruza a router/movil -- lleva
+    tipo/indicativo_numero por separado (no solo el identificador formateado)
+    para que el endpoint arme una respuesta estructurada que el cliente
+    pueda distinguir de un error generico (ver actualizar_items en
+    routers/entregas.py)."""
+
+    def __init__(self, tipo: str, indicativo_numero: str):
+        self.tipo = tipo
+        self.indicativo_numero = indicativo_numero
+        identificador = _identificador(tipo, indicativo_numero)
+        super().__init__(
+            f"El documento {identificador} pertenece a otra sede -- se necesita un traslado para confirmarlo."
+        )
+
+
 # tipo (mayusculas) -> codigo de sedes.codigo (SEDE-01/SEDE-02, NO nombre --
 # el nombre de una sede se puede renombrar, ej. "Sede Principal" ya paso a
 # llamarse "Sede Centro", el codigo es el identificador estable). Un tipo que
@@ -141,6 +161,32 @@ def _concepto_referencia_factura(tipo: str, indicativo_numero: str, concepto_tra
     identificador = f"{tipo.strip().upper()}-{numero}"
     concepto_normalizado = re.sub(r"\s*-\s*", "-", concepto_traslado.strip().upper())
     return identificador in concepto_normalizado
+
+
+async def requiere_traslado(tipo: str, sede_id: str, entrega_id: str | None = None) -> bool:
+    """Aviso temprano (NO es el gate real) -- True si `tipo` tiene sede
+    duena (_TIPO_SEDE_DUENA) y `sede_id` no es esa. Se usa para mostrarle a
+    la app la tarjeta "Traslado requerido" apenas se busca/reescanea un
+    documento, ANTES de que el bodeguero cargue cantidades que despues no va
+    a poder guardar -- el gate que de verdad bloquea sigue siendo
+    aplicar_actualizacion_items (NecesitaTrasladoParaConfirmar), esto es
+    puramente informativo y nunca escribe ni lanza nada.
+
+    `entrega_id`, si viene, permite cortar temprano: si ESE documento
+    puntual ya tiene un traslado guardado (de una visita anterior), no hace
+    falta pedirlo de nuevo -- mismo criterio que el gate real."""
+    dueno_esperado = _TIPO_SEDE_DUENA.get(tipo)
+    if dueno_esperado is None:
+        return False
+    pool = await get_pool()
+    if entrega_id is not None:
+        ya_tiene_traslado = await pool.fetchval(
+            "select traslado_url is not null from entregas where id = $1::uuid", entrega_id
+        )
+        if ya_tiene_traslado:
+            return False
+    fila_sede = await pool.fetchrow("select codigo from sedes where id::text = $1", sede_id)
+    return fila_sede is None or fila_sede["codigo"] != dueno_esperado
 
 
 def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: float) -> EstadoEntrega:
@@ -455,11 +501,16 @@ async def aplicar_actualizacion_items(
     es_faia: bool | None = None,
     nota_general: str | None = None,
     retirado_por: RetiradoPor | None = None,
+    traslado_url: str | None = None,
 ) -> list[ItemEntrega]:
     """Paso 2: confirma una entrega nueva (cantidad_pendiente absoluta) o
     aplica una actualizacion incremental (entregado_hoy, sumado/restado
     atomicamente en SQL -- asi dos visitas casi simultaneas al mismo item no
-    se pisan). Cualquier sede puede llamar esto, no solo la que la creo."""
+    se pisan). Cualquier sede puede confirmar una entrega ya existente (no
+    solo la que la creo) -- salvo que el tipo tenga sede duena
+    (_TIPO_SEDE_DUENA) y la sede que confirma no sea esa: ahi tambien hace
+    falta un traslado valido, mismo mecanismo que ya exige procesar_extraccion
+    al CREAR (ver el chequeo de sede_no_coincide mas abajo)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         # 'faia_viewer' es de solo lectura -- no puede confirmar ninguna
@@ -479,6 +530,63 @@ async def aplicar_actualizacion_items(
             raise RolNoAutorizado()
         if fila_empleado is not None and fila_empleado["rol"] == "punto_venta" and items:
             raise RolNoAutorizado()
+
+        # Gate de sede -- solo cuando de verdad se tocan cantidades (mismo
+        # criterio de alcance que el bloqueo de punto_venta arriba: una
+        # correccion de solo nota/firma/es_faia desde otra sede no exige
+        # esto), Y solo para un empleado real (fila_empleado is not None) --
+        # mismo criterio que el resto de los chequeos de esta funcion: el
+        # "supervisor" fijo del dashboard (revisarEntrega) no matchea ningun
+        # empleado real, y una correccion manual desde ahi no debe quedar
+        # bloqueada por sede (el dashboard no tiene UI de traslado, a
+        # diferencia del movil). Reusa _TIPO_SEDE_DUENA (misma restriccion de
+        # sede que ya protege la creacion) -- para que confirmar una entrega
+        # pendiente creada por otra sede no sea una puerta trasera a esa
+        # restriccion.
+        #
+        # A diferencia de la creacion, ACA NO se valida el concepto del
+        # traslado contra _concepto_referencia_factura: ese chequeo depende
+        # de que la IA haya leido el texto real impreso en la foto del
+        # traslado (ver procesar_extraccion) -- confirmar cantidades no pasa
+        # por la IA, asi que no hay ningun "concepto leido" real que
+        # comparar. Pedir aca solo que exista `traslado_url` (una foto
+        # adjunta) es la version alcanzable de este mismo gate sin agregar
+        # una llamada a IA nueva -- mas liviano que al crear, pero sigue
+        # exigiendo una accion deliberada (adjuntar evidencia) en vez de
+        # dejar pasar la edicion sin mas.
+        #
+        # "items no vacio" NO alcanza como condicion: un guardado de solo
+        # nota/descripcion por producto (boton "Guardar nota" en
+        # PantallaConfirmando, cuando itemsConCambioCantidad esta vacio)
+        # tambien manda `items` no vacio, pero sin ningun campo de cantidad
+        # -- ese caso tiene que colarse igual que nota_general/firma_url/
+        # es_faia (no toca cantidades). Se chequea especificamente que algun
+        # item traiga entregado_hoy o cantidad_pendiente.
+        hay_cambio_cantidad = any(
+            item.entregado_hoy is not None
+            or item.cantidad_pendiente is not None
+            or item.cantidad_entregada is not None
+            for item in items
+        )
+        if hay_cambio_cantidad and fila_empleado is not None:
+            fila_entrega = await conn.fetchrow(
+                "select tipo, indicativo_numero, traslado_url from entregas where id = $1::uuid", entrega_id
+            )
+            dueno_esperado = fila_entrega and _TIPO_SEDE_DUENA.get(fila_entrega["tipo"])
+            if dueno_esperado is not None:
+                fila_sede = await conn.fetchrow(
+                    "select codigo from sedes where id::text = $1", sede_id
+                )
+                sede_no_coincide = fila_sede is None or fila_sede["codigo"] != dueno_esperado
+                # Si el documento ya tiene un traslado guardado de una visita
+                # anterior (de este pedido o de uno previo), no hace falta
+                # pedirlo de nuevo en cada confirmacion -- una sola vez por
+                # documento alcanza (ver requiere_traslado, mismo criterio).
+                ya_tiene_traslado = fila_entrega["traslado_url"] is not None
+                if sede_no_coincide and traslado_url is None and not ya_tiene_traslado:
+                    raise NecesitaTrasladoParaConfirmar(
+                        fila_entrega["tipo"], fila_entrega["indicativo_numero"]
+                    )
 
         async with conn.transaction():
             for item in items:
@@ -616,6 +724,18 @@ async def aplicar_actualizacion_items(
                     entrega_id,
                     evidencia_url,
                     hash_evidencia,
+                )
+
+            if traslado_url:
+                # Solo llega hasta aca si ya paso el gate de sede de arriba
+                # (o el tipo no tenia sede duena, en cuyo caso esto es un
+                # traslado_url que no hacia falta pero tampoco molesta) --
+                # se guarda como "el traslado vigente" de esta entrega, mismo
+                # campo que ya usa procesar_extraccion al crear.
+                await conn.execute(
+                    "update entregas set traslado_url = $2, actualizado_at = now() where id = $1::uuid",
+                    entrega_id,
+                    traslado_url,
                 )
 
             if firma_url:

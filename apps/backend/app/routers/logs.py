@@ -22,16 +22,28 @@ async def listar_logs(
 
     if entidad_id:
         valores.append(entidad_id)
-        condiciones.append(f"entidad_id = ${len(valores)}")
+        condiciones.append(f"l.entidad_id = ${len(valores)}")
     if sede_id:
         valores.append(sede_id)
-        condiciones.append(f"sede_id = ${len(valores)}")
+        condiciones.append(f"l.sede_id = ${len(valores)}")
 
     where = f"where {' and '.join(condiciones)}" if condiciones else ""
     valores.append(limit)
 
+    # actor_nombre -- mismo patron que operador_nombre/bodeguero_nombre en
+    # _SELECT_ENTREGAS_BASE (routers/entregas.py): join contra empleados por
+    # actor_id, null si no matchea (ej. actor_id="system" del sync en tiempo
+    # real, o "supervisor" de una correccion del dashboard) -- el cliente ya
+    # sabe caer al id crudo en ese caso, mismo criterio que en entregas.
     rows = await pool.fetch(
-        f'select * from logs {where} order by "timestamp" desc limit ${len(valores)}',
+        f"""
+        select l.*, e.nombre as actor_nombre
+        from logs l
+        left join empleados e on e.id::text = l.actor_id
+        {where}
+        order by l."timestamp" desc
+        limit ${len(valores)}
+        """,
         *valores,
     )
     return [{**dict(row), "id": str(row["id"])} for row in rows]

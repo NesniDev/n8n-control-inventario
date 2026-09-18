@@ -22,7 +22,7 @@ _MESES_ES = {
 
 # Los 4 tipos conocidos van primero en cada hoja; cualquier otro (custom, ver
 # vision.py/EntregaRevision) va despues, en orden alfabetico.
-_ORDEN_TIPOS_CONOCIDOS = ("FEI", "TB", "RM3", "RM2")
+_ORDEN_TIPOS_CONOCIDOS = ("FEI", "TB9", "RM3", "RM2")
 
 # Mismos valores que MotivoDevolucion/ResolucionDevolucion en
 # app/models/devolucion.py -- version legible para el reporte.

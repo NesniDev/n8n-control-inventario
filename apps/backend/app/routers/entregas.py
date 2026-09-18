@@ -38,10 +38,12 @@ from app.services.duplicates import (
     ExtraccionIlegible,
     FacturacionRequerida,
     FacturaYaRegistrada,
+    NecesitaTrasladoParaConfirmar,
     RolNoAutorizado,
     aplicar_actualizacion_items,
     cancelar_entrega_no_confirmada,
     procesar_extraccion,
+    requiere_traslado,
 )
 from app.services.logging_service import registrar_evento
 from app.services.reportes import generar_reporte_mensual_xlsx
@@ -279,26 +281,32 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
     )
 
     codigo = status.HTTP_201_CREATED if situacion == SituacionEntrega.NUEVA else status.HTTP_200_OK
-    return JSONResponse(
-        status_code=codigo,
-        content={
-            "id": entrega_id,
-            "situacion": situacion.value,
-            "estado": estado.value,
-            "tipo": tipo,
-            "indicativo_numero": indicativo_numero,
-            "items": [item.model_dump() for item in items],
-            "confianza": extraido.get("confianza", {}),
-            # Documento ya existente conserva su flag FAIA, su nota general y
-            # su firma (ver procesar_extraccion); el movil las usa para
-            # precargar el switch/la nota/mostrar la ultima firma en
-            # PantallaConfirmando en vez de asumir vacio -- antes esto solo
-            # llegaba via GET /entregas/buscar, no re-fotografiando.
-            "es_faia": es_faia,
-            "nota_general": nota_general,
-            "firma_url": firma_url_actual,
-        },
-    )
+    contenido = {
+        "id": entrega_id,
+        "situacion": situacion.value,
+        "estado": estado.value,
+        "tipo": tipo,
+        "indicativo_numero": indicativo_numero,
+        "items": [item.model_dump() for item in items],
+        "confianza": extraido.get("confianza", {}),
+        # Documento ya existente conserva su flag FAIA, su nota general y
+        # su firma (ver procesar_extraccion); el movil las usa para
+        # precargar el switch/la nota/mostrar la ultima firma en
+        # PantallaConfirmando en vez de asumir vacio -- antes esto solo
+        # llegaba via GET /entregas/buscar, no re-fotografiando.
+        "es_faia": es_faia,
+        "nota_general": nota_general,
+        "firma_url": firma_url_actual,
+    }
+    # Aviso temprano de traslado (ver requiere_traslado en duplicates.py) --
+    # solo tiene sentido reescaneando un documento que YA existia
+    # (actualizable): 'nueva' recien se creo con la sede que la escaneo,
+    # y 'necesita_traslado' ya es ese mismo aviso pero para CREAR. El gate
+    # real sigue en aplicar_actualizacion_items, esto solo le evita al movil
+    # cargar cantidades que despues no va a poder guardar.
+    if situacion == SituacionEntrega.ACTUALIZABLE:
+        contenido["requiere_traslado"] = await requiere_traslado(tipo, payload.sede_origen_id, entrega_id)
+    return JSONResponse(status_code=codigo, content=contenido)
 
 
 @router.delete("/todas", dependencies=[Depends(_verificar_token_admin)])
@@ -410,6 +418,7 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
             es_faia=payload.es_faia,
             nota_general=payload.nota_general,
             retirado_por=payload.retirado_por,
+            traslado_url=payload.traslado_url,
         )
     except CantidadInvalida as exc:
         # 422 y no 502/503/504: el proxy de EasyPanel (Traefik) intercepta esos
@@ -418,6 +427,20 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RolNoAutorizado as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except NecesitaTrasladoParaConfirmar as exc:
+        # 409 (conflicto de estado, no un dato invalido) con un body
+        # estructurado -- no solo texto -- para que el movil lo distinga de
+        # un error generico y muestre la tarjeta de "Traslado requerido" en
+        # vez de un mensaje de error plano (mismo shape conceptual que
+        # SituacionEntrega.NECESITA_TRASLADO en POST /procesar).
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "situacion": "necesita_traslado",
+                "tipo": exc.tipo,
+                "indicativo_numero": exc.indicativo_numero,
+            },
+        ) from exc
 
     return {"id": entrega_id, "items": [item.model_dump() for item in items]}
 
@@ -514,7 +537,7 @@ async def listar_entregas(
 
 
 @router.get("/buscar")
-async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
+async def buscar_entrega(tipo: str, indicativo_numero: str, sede_id: str | None = None) -> dict:
     """Consulta directa por codigo de factura (sin pasar por una foto) -- el
     bodeguero busca `(tipo, indicativo_numero)` y ve que productos quedan
     pendientes. Usa el mismo indice unico que ya bloquea duplicados (ver
@@ -546,6 +569,12 @@ async def buscar_entrega(tipo: str, indicativo_numero: str) -> dict:
     # que el movil pueda reusar tal cual la pantalla de confirmacion de items
     # que ya existe para el flujo de re-escaneo.
     resultado["situacion"] = "actualizable"
+    # Aviso temprano de traslado (ver requiere_traslado en duplicates.py) --
+    # solo si vino sede_id (quien esta consultando); sin eso no hay con que
+    # comparar. El gate real sigue en aplicar_actualizacion_items, esto solo
+    # le evita al movil cargar cantidades que despues no va a poder guardar.
+    if sede_id:
+        resultado["requiere_traslado"] = await requiere_traslado(resultado["tipo"], sede_id, resultado["id"])
     return resultado
 
 

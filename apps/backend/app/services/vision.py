@@ -14,7 +14,7 @@ from PIL import Image
 from app.config import get_settings
 
 # Tipos de documento mas comunes -- factura (FEI/FV1), EDP/EDV, traslado
-# entre bodegas (TB) o remision (RM3/RM2), ver app.models.entrega.TipoDocumento
+# entre bodegas (TB9) o remision (RM3/RM2), ver app.models.entrega.TipoDocumento
 # -- pero "tipo" en el schema de abajo NO esta restringido a estos: son la
 # guia del prompt, no una jaula, porque en la practica aparecen otros. Ver
 # tambien _TIPO_SEDE_DUENA en app/services/duplicates.py: EDP/EDV son de
@@ -96,7 +96,7 @@ _EXTRACTION_PROMPT = (
     "del texto impreso y leelo como corresponde, sin asumir que la foto ya "
     "viene derecha. El tipo es el codigo "
     "impreso junto al numero (ej. 'FEI 10254' -> tipo FEI, 'EDP 340' -> tipo "
-    "EDP) -- puede ser, entre otros, FEI o FV1 (factura), EDP o EDV, TB "
+    "EDP) -- puede ser, entre otros, FEI o FV1 (factura), EDP o EDV, TB9 "
     "(traslado entre bodegas), o RM3/RM2 (remision). Esta lista es solo "
     "referencia, NO una jaula: transcribi EXACTAMENTE el codigo que este "
     "impreso en el documento, letra por letra, aunque no sea ninguno de "

@@ -14,10 +14,10 @@ import { ContenidoBoton, NEUTRAL_400, styles } from './tema';
 import type { RootStackParamList } from './Navegacion';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
-// duplicates.py); TB/RM3/RM2 no tienen sede duena. Solo sugerencia rapida
+// duplicates.py); TB9/RM3/RM2 no tienen sede duena. Solo sugerencia rapida
 // para el chip "Consultar factura" -- se puede escribir cualquier otro tipo
 // con el chip "+ Otro".
-const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB', 'RM3', 'RM2'] as const;
+const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB9', 'RM3', 'RM2'] as const;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Buscar'>;
 
@@ -25,6 +25,7 @@ export default function PantallaBuscar({ navigation }: Props) {
   const {
     cargando,
     setCargando,
+    sede,
     setEntregaId,
     setDocumentoIdentificado,
     setSituacion,
@@ -35,6 +36,7 @@ export default function PantallaBuscar({ navigation }: Props) {
     setEsFaia,
     setNotaGeneral,
     setNotaGeneralOriginal,
+    setNecesitaTrasladoConfirmar,
     reiniciar,
   } = useEntrega();
 
@@ -53,7 +55,7 @@ export default function PantallaBuscar({ navigation }: Props) {
     setMensaje('Buscando...');
 
     try {
-      const resultado = await buscarEntrega(tipoBusqueda, indicativo);
+      const resultado = await buscarEntrega(tipoBusqueda, indicativo, sede?.id ?? '');
       setEntregaId(resultado.id);
       setDocumentoIdentificado({ tipo: resultado.tipo, indicativo_numero: resultado.indicativo_numero });
       // GET /entregas/buscar siempre fuerza situacion "actualizable" del
@@ -61,6 +63,15 @@ export default function PantallaBuscar({ navigation }: Props) {
       // solo sale de procesarEntrega), pero el tipo es compartido entre los
       // dos endpoints.
       setSituacion(resultado.situacion === 'necesita_traslado' ? 'actualizable' : resultado.situacion);
+      // Aviso temprano (ver ResultadoEnvio.requiere_traslado) -- si el
+      // documento pertenece a otra sede, Confirmando ya abre con la tarjeta
+      // "Traslado requerido" puesta, en vez de que el bodeguero cargue
+      // cantidades para nada.
+      setNecesitaTrasladoConfirmar(
+        resultado.requiere_traslado
+          ? { tipo: resultado.tipo, indicativo_numero: resultado.indicativo_numero }
+          : null
+      );
       setEstadoFinal(resultado.estado);
       setItems(
         resultado.items.map((item) => ({

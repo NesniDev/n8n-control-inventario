@@ -13,7 +13,7 @@ class EstadoEntrega(StrEnum):
 class TipoDocumento(StrEnum):
     """Los tipos mas comunes -- factura (FEI/FV1, de Sede Centro), EDP/EDV
     (de Polo Sur, ver _TIPO_SEDE_DUENA en duplicates.py), traslado entre
-    bodegas (TB) o remision (RM3/RM2). Referencia para armar chips/sugerencias
+    bodegas (TB9) o remision (RM3/RM2). Referencia para armar chips/sugerencias
     en las apps; NO se usa para validar (en la practica aparecen otros tipos,
     ver EntregaRevision.tipo y buscar_entrega en routers/entregas.py, los dos
     aceptan cualquier texto no vacio)."""
@@ -22,7 +22,7 @@ class TipoDocumento(StrEnum):
     FV1 = "FV1"
     EDP = "EDP"
     EDV = "EDV"
-    TB = "TB"
+    TB9 = "TB9"
     RM3 = "RM3"
     RM2 = "RM2"
 
@@ -197,3 +197,13 @@ class ActualizarItemsRequest(BaseModel):
     # que es por producto) -- la escribe el bodeguero en PantallaConfirmando.
     # None significa "no tocar"; "" (string vacio) borra la nota existente.
     nota_general: str | None = None
+    # Mismo concepto que EntregaCreate.traslado_url, pero para CONFIRMAR (no
+    # crear): si el tipo del documento pertenece a otra sede (ver
+    # _TIPO_SEDE_DUENA) y quien confirma no es la sede duena, hace falta
+    # adjuntar una foto de traslado para poder tocar cantidades -- ver
+    # NecesitaTrasladoParaConfirmar en app/services/duplicates.py. A
+    # diferencia de EntregaCreate, no hay `concepto_traslado` aca: ese
+    # chequeo depende de que la IA lea el texto de la foto (ver
+    # _concepto_referencia_factura), y confirmar cantidades no pasa por la
+    # IA -- alcanza con que exista la foto.
+    traslado_url: str | None = None

@@ -8,6 +8,10 @@ import { Alert, Image, Pressable, Modal, PanResponder, Text, View } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+// Ver comentario junto a comprimirParaEnvio -- misma API legacy que ya
+// usaba PantallaCapturaFoto.tsx, movida aca para poder reusarla tambien
+// desde PantallaConfirmando.tsx (foto de traslado al confirmar).
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { cancelarEntrega, type Empleado, type ItemEntrega, type Sede } from './api';
 import { ACENTO, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, type EstadoFinal } from './tema';
@@ -64,6 +68,22 @@ export function valorValido(item: ItemFormulario, situacion: Situacion): boolean
   const valor = item.valor.trim();
   if (!/^\d+$/.test(valor)) return false;
   return Number(valor) <= topeValor(item, situacion);
+}
+
+// La camara/galeria entregan la foto a resolucion completa (3000-4000px de
+// lado en un celular moderno, varios MB) -- de ahi viaja completa a Storage
+// Y de vuelta al backend, que la manda entera a la IA de vision. Nada de eso
+// necesita esa resolucion para leer texto impreso: se achica a un ancho
+// maximo de 1600px antes de subirla (de sobra para OCR), en WebP (mismo
+// tamaño/calidad, la mitad de peso que JPEG -- medido con una foto real).
+// Usada tanto para la evidencia principal/traslado en PantallaCapturaFoto.tsx
+// como para la foto de traslado al confirmar en PantallaConfirmando.tsx.
+export async function comprimirParaEnvio(uri: string): Promise<string> {
+  const resultado = await manipulateAsync(uri, [{ resize: { width: 1600 } }], {
+    compress: 0.8,
+    format: SaveFormat.WEBP,
+  });
+  return resultado.uri;
 }
 
 // "FEI-152754" tal como aparece impreso en el documento -- se muestra al
@@ -229,6 +249,14 @@ export interface EntregaContextValue {
   setCargando: (v: boolean) => void;
   fotoAmpliada: string | null;
   setFotoAmpliada: (v: string | null) => void;
+  // Cross-fase a proposito: tanto Buscar como CapturaFoto (reescaneo) pueden
+  // saber, ANTES de llegar a Confirmando, que el documento necesita
+  // traslado (ver ResultadoEnvio.requiere_traslado en api.ts) -- si esto
+  // fuera estado local de Confirmando, esas dos pantallas no podrian
+  // setearlo antes de navegar. Confirmando sigue siendo quien lo consume y
+  // lo resetea a null en su catch/reintento normal.
+  necesitaTrasladoConfirmar: { tipo: string; indicativo_numero: string } | null;
+  setNecesitaTrasladoConfirmar: (v: { tipo: string; indicativo_numero: string } | null) => void;
   reiniciar: () => void;
   cancelarConfirmacion: () => Promise<void>;
 }
@@ -273,6 +301,10 @@ export function EntregaProvider({
   // tanto Captura como Confirmando, por eso el visor se renderiza aca mismo
   // (una sola instancia compartida) en vez de en cada pantalla.
   const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null);
+  const [necesitaTrasladoConfirmar, setNecesitaTrasladoConfirmar] = useState<{
+    tipo: string;
+    indicativo_numero: string;
+  } | null>(null);
 
   // Limpia SOLO el estado de contexto -- el estado fase-local de
   // Captura/Buscar/Confirmando (foto, mensaje, notasAbiertas, etc.) no se
@@ -288,6 +320,7 @@ export function EntregaProvider({
     setEsFaia(false);
     setNotaGeneral('');
     setNotaGeneralOriginal('');
+    setNecesitaTrasladoConfirmar(null);
     setEvidenciaActual(null);
     setFirmaUrlConsultada(null);
     setFotoAmpliada(null);
@@ -343,6 +376,8 @@ export function EntregaProvider({
     setCargando,
     fotoAmpliada,
     setFotoAmpliada,
+    necesitaTrasladoConfirmar,
+    setNecesitaTrasladoConfirmar,
     reiniciar,
     cancelarConfirmacion,
   };

@@ -68,6 +68,14 @@ export interface ResultadoEnvio {
   // endpoints, se precarga en Confirmando para no pisar una nota ya escrita
   // en una visita anterior. null si nunca se escribio.
   nota_general: string | null;
+  // Aviso TEMPRANO (no el gate real, ver aplicar_actualizacion_items en el
+  // backend) de que este documento pertenece a otra sede -- solo presente
+  // cuando situacion es 'actualizable' Y se mando el sede_id de quien
+  // consulta (buscarEntrega siempre lo manda; procesarEntrega tambien).
+  // Permite mostrar la tarjeta "Traslado requerido" apenas se abre
+  // Confirmando, sin esperar a que el bodeguero cargue cantidades y falle
+  // al confirmar.
+  requiere_traslado?: boolean;
 }
 
 export interface ErrorEnvio {
@@ -268,8 +276,12 @@ export async function procesarEntrega(payload: {
  * documento ya existe por definicion), asi que reusa la misma pantalla de
  * confirmacion de items que el flujo de re-escaneo.
  */
-export async function buscarEntrega(tipo: string, indicativoNumero: string): Promise<ResultadoEnvio> {
-  const params = new URLSearchParams({ tipo, indicativo_numero: indicativoNumero });
+export async function buscarEntrega(
+  tipo: string,
+  indicativoNumero: string,
+  sedeId: string
+): Promise<ResultadoEnvio> {
+  const params = new URLSearchParams({ tipo, indicativo_numero: indicativoNumero, sede_id: sedeId });
   const res = await fetch(`${API_BASE_URL}/entregas/buscar?${params}`);
   return parsearRespuesta<ResultadoEnvio>(res);
 }
@@ -319,7 +331,14 @@ export async function confirmarItems(
   // firmaUrl (alguien presente para firmar), ver el formulario previo a
   // VisorFirma en PantallaConfirmando. No es una columna: queda en el
   // detalle del evento de esta confirmacion (ver logs en el backend).
-  retiradoPor?: { nombre: string; telefono: string }
+  retiradoPor?: { nombre: string; telefono: string },
+  // Foto de traslado -- solo hace falta cuando el backend ya devolvio
+  // "necesita_traslado" en un intento anterior de ESTA MISMA confirmacion
+  // (ver extraerNecesitaTrasladoConfirmar en errorMessages.ts y la tarjeta
+  // "Traslado requerido" en PantallaConfirmando.tsx). Mismo par que ya usa
+  // procesarEntrega para el traslado al crear.
+  trasladoUrl?: string,
+  conceptoTraslado?: string
 ): Promise<{ id: string; items: ItemEntrega[] }> {
   const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
     method: 'PATCH',
@@ -334,6 +353,8 @@ export async function confirmarItems(
       es_faia: esFaia,
       nota_general: notaGeneral,
       retirado_por: retiradoPor,
+      traslado_url: trasladoUrl,
+      concepto_traslado: conceptoTraslado,
     }),
   });
 
@@ -387,6 +408,12 @@ export interface LogEntry {
   evento: string;
   entidad_id: string;
   actor_id: string;
+  // Nombre del empleado dueño de actor_id (join en el backend, ver
+  // listar_logs) -- null si actor_id no matchea ningun empleado (ej.
+  // "system" del sync en tiempo real, o "supervisor" de una correccion del
+  // dashboard) -- caer al actor_id crudo en ese caso, mismo criterio que ya
+  // usa operador_nombre/bodeguero_nombre en Entrega.
+  actor_nombre?: string | null;
   sede_id: string;
   resultado: string;
   detalle: Record<string, any>;

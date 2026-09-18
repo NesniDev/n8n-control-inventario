@@ -9,7 +9,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost
 // la practica el tipo real de un documento no siempre es uno de estos (ver
 // apps/backend/app/models/entrega.py TipoDocumento). FEI/FV1 son de Sede
 // Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en duplicates.py).
-export type TipoDocumento = "FEI" | "FV1" | "EDP" | "EDV" | "TB" | "RM3" | "RM2";
+export type TipoDocumento = "FEI" | "FV1" | "EDP" | "EDV" | "TB9" | "RM3" | "RM2";
 
 export interface ItemEntrega {
   id: string;
@@ -111,6 +111,10 @@ export interface LogEvent {
   entidad_tipo: string;
   entidad_id: string;
   actor_id: string;
+  // Nombre resuelto del actor (join contra empleados en GET /logs) -- null
+  // si actor_id no matchea ningun empleado real (ej. "system" del sync en
+  // tiempo real, o "supervisor" de una correccion del dashboard).
+  actor_nombre?: string | null;
   sede_id: string;
   resultado: string;
   // Varia segun `evento` -- ver app/services/logging_service.py. Para

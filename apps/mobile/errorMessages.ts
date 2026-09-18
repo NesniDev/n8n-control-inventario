@@ -63,6 +63,23 @@ export function esErrorFacturaYaRegistrada(err: unknown): boolean {
 
 export const MENSAJE_FACTURA_YA_REGISTRADA = 'Esta factura ya fue registrada. No hace falta volver a fotografiarla.';
 
+// Caso puntual al CONFIRMAR (no al crear): el documento pertenece a otra
+// sede y la que esta confirmando no adjunto un traslado valido (ver
+// NecesitaTrasladoParaConfirmar en duplicates.py) -- a diferencia de los dos
+// casos de arriba, este SI trae datos que hacen falta (tipo/indicativo) para
+// mostrar la tarjeta de traslado, por eso devuelve el payload en vez de solo
+// un booleano. El backend manda `detail` como objeto (no texto) para este
+// caso puntual -- distinto del resto de los errores de este archivo.
+export function extraerNecesitaTrasladoConfirmar(
+  err: unknown
+): { tipo: string; indicativo_numero: string } | null {
+  if (!esErrorHttp(err) || err.status !== 409) return null;
+  const detail = err.detail as { situacion?: string; tipo?: string; indicativo_numero?: string } | undefined;
+  if (detail?.situacion !== 'necesita_traslado') return null;
+  if (typeof detail.tipo !== 'string' || typeof detail.indicativo_numero !== 'string') return null;
+  return { tipo: detail.tipo, indicativo_numero: detail.indicativo_numero };
+}
+
 /**
  * `contexto` solo se usa como fallback -- cuando el error no trae ya un
  * mensaje de negocio utilizable (404/422 con detail, o los casos conocidos

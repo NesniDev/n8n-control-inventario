@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -20,18 +21,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePreventRemove } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Signature, { type SignatureViewRef } from 'react-native-signature-canvas';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import {
   confirmarItems,
   fetchHistorialEntrega,
   registrarDevolucion,
+  subirEvidencia,
   subirFirma,
   type LogEntry,
   type MotivoDevolucion,
   type ResolucionDevolucion,
 } from './api';
-import { mensajeError } from './errorMessages';
+import { extraerNecesitaTrasladoConfirmar, mensajeError } from './errorMessages';
 import {
+  comprimirParaEnvio,
   esBloqueado,
   formatearIdentificador,
   HeaderEntrega,
@@ -202,6 +207,8 @@ export default function PantallaConfirmando({ navigation }: Props) {
     cargando,
     setCargando,
     setFotoAmpliada,
+    necesitaTrasladoConfirmar,
+    setNecesitaTrasladoConfirmar,
     cancelarConfirmacion,
   } = useEntrega();
 
@@ -244,6 +251,14 @@ export default function PantallaConfirmando({ navigation }: Props) {
   const [mostrandoDatosEntrega, setMostrandoDatosEntrega] = useState(false);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [mensaje, setMensaje] = useState('');
+  // necesitaTrasladoConfirmar vive en EntregaContext (no local) -- Buscar y
+  // CapturaFoto tambien lo setean, ANTES de llegar aca, cuando el backend ya
+  // avisa "requiere_traslado" al buscar/reescanear (ver
+  // ResultadoEnvio.requiere_traslado en api.ts). El catch de confirmar() de
+  // mas abajo lo sigue seteando tambien, para el caso en que el aviso
+  // temprano no llegara a tiempo (ver extraerNecesitaTrasladoConfirmar en
+  // errorMessages.ts) -- el gate real es el mismo en los dos casos.
+  const [fotoTraslado, setFotoTraslado] = useState<string | null>(null);
 
   // Un stack navigator real activa, sin que se lo pida, el boton fisico
   // atras de Android y el swipe de iOS -- si no se intercepta, el usuario
@@ -416,6 +431,10 @@ export default function PantallaConfirmando({ navigation }: Props) {
         nombre: log.detalle.retirado_por.nombre as string,
         telefono: log.detalle.retirado_por.telefono as string | undefined,
         fecha: log.timestamp as string,
+        // Quien de bodega hizo ESA visita puntual (no confundir con
+        // nombre/telefono de arriba, que es el cliente que retiro) -- cae al
+        // id crudo si actor_nombre vino null (ver LogEntry en api.ts).
+        empleado: log.actor_nombre ?? log.actor_id,
       })) ?? [];
 
   const actualizarDraftDevolucion = (id: string, cambios: Partial<DevolucionDraft>) => {
@@ -500,20 +519,11 @@ export default function PantallaConfirmando({ navigation }: Props) {
       : items;
   const cantidadesValidas =
     situacion !== null && itemsConCambioCantidad.every((item) => valorValido(item, situacion));
-  // Distinto de documentoCompleto (que es sobre el estado YA guardado antes
-  // de esta pantalla) -- esto mira los valores tipeados ahora mismo: si se
-  // confirma tal cual estan, ¿algun item va a quedar con algo pendiente?
-  // Determina si hace falta pedir firma (solo en una entrega total) o
-  // alcanza con confirmar sin firma (entrega parcial, queda para otra
-  // visita).
-  const entregaSeCompletaAhora =
-    situacion !== null &&
-    items.every((item) => {
-      if (esBloqueado(item, situacion)) return true;
-      const valor = item.valor.trim();
-      return /^\d+$/.test(valor) && Number(valor) === valorTodoEntregado(item, situacion);
-    });
-  const puedeConfirmar = itemsAEnviar.length > 0 && cantidadesValidas && !cargando;
+  // Si el backend ya pidio traslado (ver el catch de confirmar()), no se
+  // puede reintentar hasta adjuntar la foto -- si no, el segundo intento
+  // volveria a fallar con el mismo error.
+  const puedeConfirmar =
+    itemsAEnviar.length > 0 && cantidadesValidas && !cargando && (!necesitaTrasladoConfirmar || !!fotoTraslado);
   // Cubre tambien BORRAR una nota ya escrita (notaGeneral.trim() !== '' solo
   // no lo detectaria) -- ver notaGeneralOriginal en EntregaContext.
   const notaGeneralCambio = notaGeneral.trim() !== notaGeneralOriginal.trim();
@@ -521,6 +531,45 @@ export default function PantallaConfirmando({ navigation }: Props) {
   // una nota, asi el aviso de "nada pendiente" sigue siendo cierto aunque
   // itemsAEnviar (lo que hay que mandar) ya no este vacio por una nota nueva.
   const documentoCompleto = situacion === 'actualizable' && items.length > 0 && itemsConCambioCantidad.length === 0;
+
+  // Foto de traslado -- solo aparece cuando confirmar() ya intento una vez y
+  // el backend respondio "necesita_traslado" (ver el catch mas abajo). Mismo
+  // patron que tomarFotoTraslado/elegirTrasladoDeGaleria en
+  // PantallaCapturaFoto.tsx, reusando comprimirParaEnvio (EntregaContext.tsx).
+  const usarFotoTraslado = async (resultado: ImagePicker.ImagePickerResult) => {
+    if (!resultado.canceled && resultado.assets[0]) {
+      setFotoTraslado(await comprimirParaEnvio(resultado.assets[0].uri));
+    }
+  };
+
+  const tomarFotoTraslado = async () => {
+    const permiso = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara para capturar el traslado.');
+      return;
+    }
+    const resultado = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false, exif: false });
+    await usarFotoTraslado(resultado);
+  };
+
+  const elegirTrasladoDeGaleria = async () => {
+    const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a las fotos para elegir el traslado.');
+      return;
+    }
+    const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, exif: false });
+    await usarFotoTraslado(resultado);
+  };
+
+  const rotarFotoTraslado = async () => {
+    if (!fotoTraslado) return;
+    const resultado = await manipulateAsync(fotoTraslado, [{ rotate: 90 }], {
+      compress: 0.9,
+      format: SaveFormat.WEBP,
+    });
+    setFotoTraslado(resultado.uri);
+  };
 
   // Paso 2: confirma lo que cargo el bodeguero por producto (ver
   // itemsAEnviar: para 'nueva' van todos, para 'actualizable' solo los que
@@ -583,6 +632,17 @@ export default function PantallaConfirmando({ navigation }: Props) {
         setMensaje('Guardando...');
       }
 
+      // Solo se sube si el bodeguero ya adjunto una (reintento tras
+      // "necesita_traslado") -- en el primer intento fotoTraslado es null,
+      // no se manda nada.
+      let trasladoUrl: string | undefined;
+      if (fotoTraslado) {
+        setMensaje('Subiendo traslado...');
+        const subida = await subirEvidencia(fotoTraslado);
+        trasladoUrl = subida.url;
+        setMensaje('Guardando...');
+      }
+
       await confirmarItems(
         entregaId,
         payload,
@@ -595,7 +655,8 @@ export default function PantallaConfirmando({ navigation }: Props) {
         firmaUrl,
         esFaia,
         notaGeneral,
-        retiradoPor
+        retiradoPor,
+        trasladoUrl
       );
       const mensajeFinal =
         estadoFinal === 'procesada'
@@ -603,7 +664,18 @@ export default function PantallaConfirmando({ navigation }: Props) {
           : 'Registrada, pero necesita revisión manual (baja confianza de la IA).';
       navigation.navigate('Resultado', { mensaje: mensajeFinal });
     } catch (err: any) {
-      setMensaje(mensajeError(err, 'entrega'));
+      // El documento pertenece a otra sede y todavia no se adjunto un
+      // traslado valido -- en vez del mensaje de error generico, se abre la
+      // tarjeta "Traslado requerido" (mismo patron que PantallaCapturaFoto.tsx)
+      // para que el bodeguero adjunte la foto y reintente sin perder lo que
+      // ya cargo.
+      const traslado = extraerNecesitaTrasladoConfirmar(err);
+      if (traslado) {
+        setNecesitaTrasladoConfirmar(traslado);
+        setMensaje('');
+      } else {
+        setMensaje(mensajeError(err, 'entrega'));
+      }
     } finally {
       setCargando(false);
     }
@@ -982,6 +1054,58 @@ export default function PantallaConfirmando({ navigation }: Props) {
           </View>
         ) : null}
 
+        {necesitaTrasladoConfirmar ? (
+          <View style={styles.tarjeta}>
+            <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
+            <Text style={styles.previewSubtexto}>
+              {`El documento "${
+                formatearIdentificador(
+                  necesitaTrasladoConfirmar.tipo,
+                  necesitaTrasladoConfirmar.indicativo_numero
+                ) ?? necesitaTrasladoConfirmar.tipo
+              }" pertenece a otra sede -- para confirmarlo desde acá, adjunta una foto del traslado.`}
+            </Text>
+            {fotoTraslado ? (
+              <>
+                <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
+                  <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
+                  <View style={styles.iconoAmpliar}>
+                    <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
+                  onPress={rotarFotoTraslado}
+                >
+                  <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
+                </Pressable>
+              </>
+            ) : (
+              <View style={[styles.preview, styles.previewVacio]}>
+                <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />
+                <Text style={styles.previewTexto}>Sin foto de traslado</Text>
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                onPress={tomarFotoTraslado}
+              >
+                <ContenidoBoton
+                  icono={fotoTraslado ? 'camera-reverse-outline' : 'camera-outline'}
+                  texto={fotoTraslado ? 'Repetir foto' : 'Tomar foto'}
+                />
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                onPress={elegirTrasladoDeGaleria}
+              >
+                <ContenidoBoton icono="images-outline" texto="Galería" />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
 
         {cargando && itemsConCambioCantidad.length > 0 ? (
@@ -1000,42 +1124,19 @@ export default function PantallaConfirmando({ navigation }: Props) {
             >
               <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
             </Pressable>
-          ) : !entregaSeCompletaAhora ? (
-            <>
-              <Pressable
-                disabled={!puedeConfirmar}
-                style={({ pressed }) => [
-                  styles.boton,
-                  styles.botonPrimario,
-                  !puedeConfirmar && styles.botonDeshabilitado,
-                  pressed && puedeConfirmar && styles.botonPresionado,
-                ]}
-                onPress={() => confirmar()}
-              >
-                <ContenidoBoton
-                  icono="checkmark-circle-outline"
-                  texto={cargando ? 'Guardando...' : 'Confirmar cantidades'}
-                />
-              </Pressable>
-              {/* Firma OPCIONAL tambien en una entrega parcial -- antes solo
-                  se ofrecia al completar del todo. El bodeguero decide si la
-                  persona que retira esta presente para firmar esta visita. */}
-              <Pressable
-                disabled={!puedeConfirmar}
-                style={({ pressed }) => [
-                  styles.boton,
-                  !puedeConfirmar && styles.botonDeshabilitado,
-                  pressed && puedeConfirmar && styles.botonPresionado,
-                ]}
-                onPress={() => setMostrandoDatosRetira(true)}
-              >
-                <ContenidoBoton icono="create-outline" texto="Firmar" color={NEUTRAL_400} />
-              </Pressable>
-            </>
           ) : (
+            // Firma obligatoria siempre que se toquen cantidades -- parcial o
+            // completa, sin una opcion aparte de confirmar sin firmar (antes
+            // la entrega parcial ofrecia "Confirmar cantidades" sin firma mas
+            // un boton "Firmar" separado).
             <Pressable
-              disabled={cargando}
-              style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+              disabled={!puedeConfirmar}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                !puedeConfirmar && styles.botonDeshabilitado,
+                pressed && puedeConfirmar && styles.botonPresionado,
+              ]}
               onPress={() => setMostrandoDatosRetira(true)}
             >
               <ContenidoBoton
@@ -1094,6 +1195,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     <Text style={styles.previewSubtexto}>
                       Entrega {i + 1}: {retiro.nombre}
                       {retiro.telefono ? ` y ${retiro.telefono}` : ''}
+                    </Text>
+                    <Text style={{ color: NEUTRAL_500, fontSize: 12 }}>
+                      Bodeguero: {retiro.empleado}
                     </Text>
                     <Text style={{ color: NEUTRAL_500, fontSize: 12 }}>
                       {new Date(retiro.fecha).toLocaleDateString('es-CO', {
@@ -1175,7 +1279,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
             <View style={[styles.tarjeta, estilosRetira.tarjeta]}>
               <Text style={styles.etiquetaSeccion}>¿Quién retira?</Text>
               <Text style={styles.previewSubtexto}>
-                Opcional -- dejalo en blanco si no lo sabés, igual podés firmar.
+                Opcional -- déjalo en blanco si no lo sabes, igual puedes firmar.
               </Text>
               <TextInput
                 value={retiradoNombre}

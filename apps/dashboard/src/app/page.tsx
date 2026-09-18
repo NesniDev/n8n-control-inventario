@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { toast } from "sonner";
@@ -24,9 +24,9 @@ import {
 import { supabase } from "@/lib/supabase";
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
-// el backend); TB/RM3/RM2 no tienen sede dueña -- sugerencia rápida del
+// el backend); TB9/RM3/RM2 no tienen sede dueña -- sugerencia rápida del
 // datalist, no una restricción real (se puede escribir cualquier otro tipo).
-const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB", "RM3", "RM2"];
+const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB9", "RM3", "RM2"];
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -57,25 +57,22 @@ function nombreSedeCorto(nombre: string | null): string | null {
   return nombre.replace(/^Sede\s+/i, "");
 }
 
-type Rango = "hoy" | "semana" | "mes" | "todo";
-
-// Ventanas MOVILES (ultimos N dias corridos), no semana/mes calendario --
-// mismo criterio que ya usa esHoy con toDateString(). No hay que igualar la
-// semana ISO que usa generar_turnos.py: es un concepto distinto, sin relacion
-// con este filtro de la tabla "Todas las entregas".
-function rangoAFechas(rango: Rango): { desde?: string; hasta?: string } {
-  const ahora = new Date();
-  if (rango === "hoy") {
-    const medianocheLocal = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
-    return { desde: medianocheLocal.toISOString() };
+// Convierte el rango de calendario (inputs <input type="date">, formato
+// "YYYY-MM-DD" o "" si no se eligio) a los ISO que espera fetchEntregas.
+// "hasta" se lleva al final de ese dia (23:59:59.999 local) porque el
+// backend filtra con capturado_at <= hasta -- sin esto se perderian las
+// entregas capturadas despues de medianoche del dia elegido.
+function fechasCalendarioAISO(desde: string, hasta: string): { desde?: string; hasta?: string } {
+  const resultado: { desde?: string; hasta?: string } = {};
+  if (desde) {
+    const [anio, mes, dia] = desde.split("-").map(Number);
+    resultado.desde = new Date(anio, mes - 1, dia).toISOString();
   }
-  if (rango === "semana") {
-    return { desde: new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString() };
+  if (hasta) {
+    const [anio, mes, dia] = hasta.split("-").map(Number);
+    resultado.hasta = new Date(anio, mes - 1, dia, 23, 59, 59, 999).toISOString();
   }
-  if (rango === "mes") {
-    return { desde: new Date(ahora.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() };
-  }
-  return {};
+  return resultado;
 }
 
 // Etiqueta/color que se muestra al usuario -- no es 1:1 con el estado real
@@ -764,6 +761,24 @@ function ModalDetalleEntrega({
     .map((log) => ({ log, texto: describirEvento(log, entregasPorId) }))
     .filter((x): x is { log: LogEvent; texto: string } => x.texto !== null);
 
+  // Bodegueros DISTINTOS que confirmaron cantidades -- entregas.bodeguero_id
+  // solo guarda el ULTIMO (se pisa en cada visita, ver aplicar_actualizacion_items
+  // en el backend), asi que si mas de una persona atendio visitas distintas
+  // de este mismo documento, la columna sola no lo muestra. Se arma desde el
+  // historial en su lugar (cada entrega_actualizada ya trae actor_id/
+  // actor_nombre). null mientras el historial todavia esta cargando -- ahi
+  // se usa como fallback el ultimo bodeguero de la fila (entrega.bodeguero_nombre).
+  const bodeguerosHistorial =
+    historial === null
+      ? null
+      : Array.from(
+          new Map(
+            historial
+              .filter((log) => log.evento === "entrega_actualizada")
+              .map((log) => [log.actor_id, log.actor_nombre ?? log.actor_id] as const)
+          ).values()
+        );
+
   // Fotos disponibles como miniatura -- solo las que la entrega realmente
   // trae (traslado y firma son opcionales). Si evidencia_creacion_url existe
   // y es DISTINTA de evidencia_url, alguien (tipicamente bodega) volvio a
@@ -830,9 +845,13 @@ function ModalDetalleEntrega({
               </span>
             </div>
             <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-              <span className="block text-xs text-neutral-500">Bodeguero</span>
-              <span className="whitespace-nowrap text-neutral-200">
-                {entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE"}
+              <span className="block text-xs text-neutral-500">
+                {bodeguerosHistorial && bodeguerosHistorial.length > 1 ? "Bodegueros" : "Bodeguero"}
+              </span>
+              <span className="text-neutral-200">
+                {bodeguerosHistorial && bodeguerosHistorial.length > 0
+                  ? bodeguerosHistorial.join(", ")
+                  : (entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE")}
               </span>
             </div>
           </div>
@@ -1039,20 +1058,30 @@ export default function DashboardPage() {
   // no cambia seguido, no hace falta refreshInterval.
   const { data: sedes } = useSWR("sedes", fetchSedes);
 
-  // Filtro por rango de fechas y por sede de la seccion "Todas las entregas"
-  // -- fuente de datos SEPARADA de `entregas` (el hook base) para que "Cómo
-  // va hoy" y "Necesita tu atención" queden siempre fijos en hoy/todas las
-  // sedes, sin importar lo que se elija aca.
-  const [rango, setRango] = useState<Rango>("todo");
+  // Filtro por rango de fechas (calendario, ver fechasCalendarioAISO) y por
+  // sede de la seccion "Todas las entregas" -- fuente de datos SEPARADA de
+  // `entregas` (el hook base) para que "Cómo va hoy" y "Necesita tu
+  // atención" queden siempre fijos en hoy/todas las sedes, sin importar lo
+  // que se elija aca. "" en desde/hasta equivale a "Todo" (sin filtrar).
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
   const [sedeFiltro, setSedeFiltro] = useState<string>("todas");
   const [limiteTabla, setLimiteTabla] = useState(150);
 
-  // Reset del limite al cambiar cualquiera de los dos filtros -- se hace en
-  // los propios manejadores (cambiarRango/cambiarSedeFiltro) y no en un
-  // useEffect, para no disparar un setState sincronico dentro de un efecto
-  // (react-hooks/set-state-in-effect).
-  const cambiarRango = (nuevoRango: Rango) => {
-    setRango(nuevoRango);
+  // Reset del limite al cambiar cualquiera de los filtros -- se hace en los
+  // propios manejadores y no en un useEffect, para no disparar un setState
+  // sincronico dentro de un efecto (react-hooks/set-state-in-effect).
+  const cambiarFechaDesde = (valor: string) => {
+    setFechaDesde(valor);
+    setLimiteTabla(150);
+  };
+  const cambiarFechaHasta = (valor: string) => {
+    setFechaHasta(valor);
+    setLimiteTabla(150);
+  };
+  const limpiarFechas = () => {
+    setFechaDesde("");
+    setFechaHasta("");
     setLimiteTabla(150);
   };
   const cambiarSedeFiltro = (nuevaSede: string) => {
@@ -1061,11 +1090,11 @@ export default function DashboardPage() {
   };
 
   const { data: entregasTabla, isLoading: entregasTablaCargando } = useSWR(
-    ["entregas-tabla", rango, sedeFiltro, limiteTabla],
+    ["entregas-tabla", fechaDesde, fechaHasta, sedeFiltro, limiteTabla],
     () =>
       fetchEntregas({
         sedeId: sedeFiltro === "todas" ? undefined : sedeFiltro,
-        ...rangoAFechas(rango),
+        ...fechasCalendarioAISO(fechaDesde, fechaHasta),
         limit: limiteTabla,
       }),
     { refreshInterval: 5000 }
@@ -1092,16 +1121,33 @@ export default function DashboardPage() {
 
   // Token de administrador para los endpoints de borrado (ver
   // _verificar_token_admin en el backend) -- persistido en localStorage para
-  // no tener que pegarlo de nuevo en cada visita.
-  const [adminToken, setAdminToken] = useState(() => {
-    if (typeof window === "undefined") return "";
-    try {
-      return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
+  // no tener que pegarlo de nuevo en cada visita. Arranca en "" siempre (no
+  // se lee localStorage en el initializer de useState) para que el primer
+  // render en el cliente coincida con el del servidor -- leerlo de sincrono
+  // ahi rompia la hidratacion cuando ya habia un token guardado de antes.
+  const [adminToken, setAdminToken] = useState("");
   useEffect(() => {
+    // queueMicrotask (no setState directo en el cuerpo del efecto) para
+    // no disparar react-hooks/set-state-in-effect -- mismo patron que ya
+    // usa este archivo para setState async (ver ModalDetalleEntrega).
+    queueMicrotask(() => {
+      try {
+        setAdminToken(localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? "");
+      } catch {
+        // localStorage puede fallar (modo privado, storage lleno) -- el
+        // token simplemente no persiste entre visitas.
+      }
+    });
+  }, []);
+  // Se salta el primer efecto (dispara al montar, antes de que el efecto de
+  // arriba termine de cargar el valor guardado) para no pisar el token ya
+  // guardado con el "" inicial.
+  const primerEfectoToken = useRef(true);
+  useEffect(() => {
+    if (primerEfectoToken.current) {
+      primerEfectoToken.current = false;
+      return;
+    }
     try {
       localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, adminToken);
     } catch {
@@ -1415,30 +1461,37 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-          {/* Filtro por rango de fechas -- ventana movil, no calendario (ver
-              rangoAFechas). Se combina con AND junto al resto de filtros de
-              esta tabla. */}
-          <div className="flex flex-wrap gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
-            {(
-              [
-                { valor: "hoy", etiqueta: "Hoy" },
-                { valor: "semana", etiqueta: "7 días" },
-                { valor: "mes", etiqueta: "30 días" },
-                { valor: "todo", etiqueta: "Todo" },
-              ] as const
-            ).map((opcion) => (
-              <button
-                key={opcion.valor}
-                onClick={() => cambiarRango(opcion.valor)}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                  rango === opcion.valor
-                    ? "bg-emerald-600 text-white"
-                    : "text-neutral-400 hover:bg-neutral-800"
-                }`}
-              >
-                {opcion.etiqueta}
-              </button>
-            ))}
+          {/* Filtro por rango de fechas -- calendario libre (desde/hasta),
+              con "Todo" para volver a no filtrar (ver fechasCalendarioAISO).
+              Se combina con AND junto al resto de filtros de esta tabla. */}
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => cambiarFechaDesde(e.target.value)}
+              max={fechaHasta || undefined}
+              aria-label="Desde"
+              className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
+            />
+            <span className="text-xs text-neutral-600">–</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => cambiarFechaHasta(e.target.value)}
+              min={fechaDesde || undefined}
+              aria-label="Hasta"
+              className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
+            />
+            <button
+              onClick={limpiarFechas}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                !fechaDesde && !fechaHasta
+                  ? "bg-emerald-600 text-white"
+                  : "text-neutral-400 hover:bg-neutral-800"
+              }`}
+            >
+              Todo
+            </button>
           </div>
           {/* Filtro por sede -- opt-in, no oculta que existen las demas
               (default "todas"). */}
@@ -1493,9 +1546,8 @@ export default function DashboardPage() {
                 // solo lectura en vez del flujo editable de FilaRevision.
                 const puedeEditar = e.estado === "pendiente_revision" || tienePendiente(e);
                 return (
-                  <>
+                  <Fragment key={e.id}>
                     <tr
-                      key={e.id}
                       className="cursor-pointer"
                       onClick={() =>
                         puedeEditar
@@ -1565,7 +1617,7 @@ export default function DashboardPage() {
                         }}
                       />
                     ) : null}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

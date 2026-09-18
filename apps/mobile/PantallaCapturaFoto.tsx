@@ -22,7 +22,7 @@ import {
   MENSAJE_FACTURA_YA_REGISTRADA,
   mensajeError,
 } from './errorMessages';
-import { formatearIdentificador, HeaderEntrega, useEntrega } from './EntregaContext';
+import { comprimirParaEnvio, formatearIdentificador, HeaderEntrega, useEntrega } from './EntregaContext';
 import { ContenidoBoton, ESTADO_INFO, NEUTRAL_400, styles, TEXTO_PRIMARIO } from './tema';
 import type { RootStackParamList } from './Navegacion';
 
@@ -47,6 +47,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
     setNotaGeneral,
     setFirmaUrlConsultada,
     setNotaGeneralOriginal,
+    setNecesitaTrasladoConfirmar,
   } = useEntrega();
   // La sede de trabajo ya se eligio en el login -- puede no ser la sede del
   // perfil del empleado (ej. cubriendo turno en otra).
@@ -84,28 +85,6 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
   // existe), siempre arranca en false -- no hace falta precargar nada.
   const [modalEsFaia, setModalEsFaia] = useState(false);
   const [guardandoFaia, setGuardandoFaia] = useState(false);
-
-  // La camara/galeria entregan la foto a resolucion completa (3000-4000px de
-  // lado en un celular moderno, varios MB) -- de ahi viaja completa a Storage
-  // Y de vuelta al backend, que la manda entera a la IA de vision. Nada de
-  // eso necesita esa resolucion para leer texto impreso: se achica a un
-  // ancho maximo de 1600px antes de subirla (de sobra para OCR), lo que
-  // reduce el peso varias veces sin perder legibilidad. Mismo mecanismo que
-  // ya usa rotarFoto (manipulateAsync), asi que rotar despues de esto sigue
-  // operando sobre la version ya achicada, no vuelve a inflar el tamaño.
-  // WebP en vez de JPEG: misma resolucion/calidad, la mitad de peso (medido
-  // con una foto real: 326.6 KB en JPEG vs 160.7 KB en WebP) y la IA la lee
-  // bastante mas rapido del lado del backend (ver vision.py). Se mantiene el
-  // color -- a diferencia de convertir a escala de grises (tambien evaluado
-  // y descartado por el riesgo de perder informacion real, ej. sellos o
-  // tinta de otro color).
-  const comprimirParaEnvio = async (uri: string): Promise<string> => {
-    const resultado = await manipulateAsync(uri, [{ resize: { width: 1600 } }], {
-      compress: 0.8,
-      format: SaveFormat.WEBP,
-    });
-    return resultado.uri;
-  };
 
   const usarResultado = async (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
@@ -322,6 +301,18 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
 
       setEntregaId(resultado.id);
       setSituacion(resultado.situacion);
+      // Aviso temprano de traslado PARA CONFIRMAR (necesitaTrasladoConfirmar
+      // en EntregaContext) -- no confundir con el estado local
+      // necesitaTraslado de esta misma pantalla, que es el de CREAR (otro
+      // mecanismo, otra forma). Solo llega en true al re-escanear un
+      // documento pendiente que le pertenece a otra sede (situacion
+      // 'actualizable'); en 'nueva' el documento se acaba de crear con esta
+      // misma sede, nunca hace falta.
+      setNecesitaTrasladoConfirmar(
+        resultado.requiere_traslado
+          ? { tipo: resultado.tipo, indicativo_numero: resultado.indicativo_numero }
+          : null
+      );
       setEstadoFinal(resultado.estado);
       setDocumentoIdentificado({ tipo: resultado.tipo, indicativo_numero: resultado.indicativo_numero });
       // Precarga el switch FAIA con el valor real del documento (false en uno
