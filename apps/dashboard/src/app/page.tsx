@@ -1067,6 +1067,7 @@ export default function DashboardPage() {
   const [fechaHasta, setFechaHasta] = useState("");
   const [sedeFiltro, setSedeFiltro] = useState<string>("todas");
   const [limiteTabla, setLimiteTabla] = useState(150);
+  const [busqueda, setBusqueda] = useState("");
 
   // Reset del limite al cambiar cualquiera de los filtros -- se hace en los
   // propios manejadores y no en un useEffect, para no disparar un setState
@@ -1089,12 +1090,26 @@ export default function DashboardPage() {
     setLimiteTabla(150);
   };
 
+  // El buscador le pega al backend (busca en todo el historico, no solo en
+  // las `limiteTabla` filas ya cargadas -- ver GET /entregas?busqueda=) --
+  // se debounce 300ms para no mandar un request por cada tecla.
+  const [busquedaDebounced, setBusquedaDebounced] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setBusquedaDebounced(busqueda.trim()), 300);
+    return () => clearTimeout(id);
+  }, [busqueda]);
+  const cambiarBusqueda = (valor: string) => {
+    setBusqueda(valor);
+    setLimiteTabla(150);
+  };
+
   const { data: entregasTabla, isLoading: entregasTablaCargando } = useSWR(
-    ["entregas-tabla", fechaDesde, fechaHasta, sedeFiltro, limiteTabla],
+    ["entregas-tabla", fechaDesde, fechaHasta, sedeFiltro, busquedaDebounced, limiteTabla],
     () =>
       fetchEntregas({
         sedeId: sedeFiltro === "todas" ? undefined : sedeFiltro,
         ...fechasCalendarioAISO(fechaDesde, fechaHasta),
+        busqueda: busquedaDebounced || undefined,
         limit: limiteTabla,
       }),
     { refreshInterval: 5000 }
@@ -1116,7 +1131,6 @@ export default function DashboardPage() {
   // `procesada` sin nada pendiente, donde no tiene sentido el flujo
   // editable de FilaRevision.
   const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
-  const [busqueda, setBusqueda] = useState("");
   const [enVivo, setEnVivo] = useState(false);
 
   // Token de administrador para los endpoints de borrado (ver
@@ -1246,14 +1260,9 @@ export default function DashboardPage() {
     return entregasTabla?.filter((e) => e.estado === "procesada" && !tienePendiente(e));
   }, [entregasTabla, filtroEstado]);
 
-  const termino = busqueda.trim().toLowerCase();
-  const entregasFiltradas = !termino
-    ? entregasPorEstado
-    : entregasPorEstado?.filter((e) =>
-        [e.tipo, e.indicativo_numero, e.sede_origen_nombre, e.operador_id, ...e.items.map((i) => i.descripcion)]
-          .filter(Boolean)
-          .some((campo) => campo!.toLowerCase().includes(termino))
-      );
+  // El texto libre ya se filtro en el backend (ver busquedaDebounced /
+  // GET /entregas?busqueda=), asi que aca solo queda aplicar filtroEstado.
+  const entregasFiltradas = entregasPorEstado;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-6 py-10">
@@ -1441,7 +1450,7 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
+            onChange={(e) => cambiarBusqueda(e.target.value)}
             placeholder="Buscar por tipo, número, sede, operador o producto..."
             className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 sm:flex-1"
           />
@@ -1545,7 +1554,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
               ) : null}
-              {!entregasTablaCargando && termino && entregasFiltradas?.length === 0 ? (
+              {!entregasTablaCargando && busquedaDebounced && entregasFiltradas?.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="px-4 py-6 text-center text-neutral-500">
                     Sin resultados para &quot;{busqueda}&quot;.

@@ -504,6 +504,7 @@ async def listar_entregas(
     sede_id: str | None = None,
     desde: datetime | None = None,
     hasta: datetime | None = None,
+    busqueda: str | None = None,
     limit: int = 50,
 ) -> list[dict]:
     pool = await get_pool()
@@ -519,6 +520,26 @@ async def listar_entregas(
     if hasta:
         parametros.append(hasta)
         condiciones.append(f"e.capturado_at <= ${len(parametros)}")
+    if busqueda and busqueda.strip():
+        parametros.append(f"%{busqueda.strip()}%")
+        patron = f"${len(parametros)}"
+        # EXISTS (no un join directo) para no filtrar las filas de
+        # entrega_items ANTES del group by de abajo -- si hiciera el ilike
+        # sobre "i.descripcion" en este where, el json_agg solo veria los
+        # items que matchean y la entrega se devolveria con su lista de
+        # productos incompleta, aunque el documento entero deba aparecer.
+        condiciones.append(
+            f"""(
+                e.tipo ilike {patron}
+                or e.indicativo_numero ilike {patron}
+                or s.nombre ilike {patron}
+                or op.nombre ilike {patron}
+                or exists (
+                    select 1 from entrega_items bi
+                    where bi.entrega_id = e.id and bi.descripcion ilike {patron}
+                )
+            )"""
+        )
 
     where = f" where {' and '.join(condiciones)}" if condiciones else ""
     parametros.append(limit)
