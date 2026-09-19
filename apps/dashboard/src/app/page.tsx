@@ -1465,23 +1465,27 @@ export default function DashboardPage() {
               con "Todo" para volver a no filtrar (ver fechasCalendarioAISO).
               Se combina con AND junto al resto de filtros de esta tabla. */}
           <div className="flex flex-wrap items-center gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
-            <input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => cambiarFechaDesde(e.target.value)}
-              max={fechaHasta || undefined}
-              aria-label="Desde"
-              className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
-            />
+            <label className="flex flex-col items-start px-0.5">
+              <span className="text-[10px] leading-none text-neutral-500">Desde</span>
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => cambiarFechaDesde(e.target.value)}
+                max={fechaHasta || undefined}
+                className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
+              />
+            </label>
             <span className="text-xs text-neutral-600">–</span>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => cambiarFechaHasta(e.target.value)}
-              min={fechaDesde || undefined}
-              aria-label="Hasta"
-              className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
-            />
+            <label className="flex flex-col items-start px-0.5">
+              <span className="text-[10px] leading-none text-neutral-500">Hasta</span>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => cambiarFechaHasta(e.target.value)}
+                min={fechaDesde || undefined}
+                className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
+              />
+            </label>
             <button
               onClick={limpiarFechas}
               className={`rounded px-2.5 py-1 text-xs font-medium transition ${
