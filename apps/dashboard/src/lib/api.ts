@@ -357,3 +357,33 @@ export async function actualizarProducto(id: string, nombre: string): Promise<Pr
   }
   return res.json();
 }
+
+// Ranking de productos mas/menos vendidos en un rango de fechas (ver GET
+// /ranking/productos en el backend) -- se agrega en Python a partir de
+// entrega_items, sin agregacion en SQL (ver apps/backend/app/services/ranking.py).
+export interface RankingProductoItem {
+  codigo: string | null;
+  nombre: string;
+  cantidad_total: number;
+  entregas_count: number;
+}
+
+export interface RankingProductosResponse {
+  desde: string;
+  hasta: string;
+  sede_id: string | null;
+  mas_vendidos: RankingProductoItem[];
+  menos_vendidos: RankingProductoItem[];
+}
+
+export const fetchRankingProductos = (opciones: {
+  desde: string;
+  hasta: string;
+  sedeId?: string;
+  limit?: number;
+}) => {
+  const params = new URLSearchParams({ desde: opciones.desde, hasta: opciones.hasta });
+  if (opciones.sedeId) params.set("sede_id", opciones.sedeId);
+  if (opciones.limit) params.set("limit", String(opciones.limit));
+  return getJson<RankingProductosResponse>(`/ranking/productos?${params.toString()}`);
+};

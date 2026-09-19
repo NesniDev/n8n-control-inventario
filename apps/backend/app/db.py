@@ -83,6 +83,10 @@ create table if not exists entregas (
 create index if not exists idx_entregas_sede_capturado
     on entregas (sede_origen_id, capturado_at desc);
 
+-- Rango de fechas sin filtro de sede (ver GET /ranking/productos) -- el
+-- indice de arriba no sirve solo cuando no hay sede_origen_id en el where.
+create index if not exists idx_entregas_capturado_at on entregas (capturado_at);
+
 -- Un documento puede traer varios productos, cada uno con su propia cantidad
 -- (ver app/services/duplicates.py). Reemplaza los campos unicos
 -- cantidad_entregada/cantidad_pendiente/detalle que tenia "entregas" antes.

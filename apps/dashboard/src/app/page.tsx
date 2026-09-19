@@ -1275,12 +1275,20 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
-          <Link
-            href="/productos"
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
-          >
-            Catálogo de productos
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/productos"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+            >
+              Catálogo de productos
+            </Link>
+            <Link
+              href="/ranking"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+            >
+              Ranking de productos
+            </Link>
+          </div>
         </div>
         <p className="text-sm text-neutral-400">
           Así viene el negocio hoy, en las dos sedes — se actualiza solo, sin recargar la página.
