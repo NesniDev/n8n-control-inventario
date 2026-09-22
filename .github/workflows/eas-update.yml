@@ -1,0 +1,30 @@
+name: EAS Update (app móvil)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Instalar dependencias
+        working-directory: apps/mobile
+        run: npm ci
+
+      - name: Publicar actualización OTA
+        working-directory: apps/mobile
+        run: eas update --channel preview --environment preview --message "${{ github.event.head_commit.message }}" --non-interactive

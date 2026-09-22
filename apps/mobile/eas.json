@@ -13,13 +13,15 @@
         "EXPO_PUBLIC_API_URL": "https://backend-1bs8jn-dbe94c-13-140-182-22.sslip.io",
         "EXPO_PUBLIC_SUPABASE_URL": "https://hfxhhkbgwxutcxpxpfxu.supabase.co",
         "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_LxnuPdJa6rhwp7cY4c0W0w_qvKjq7Ny"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {

@@ -34,11 +34,18 @@
       ],
       "expo-font"
     ],
+    "owner": "elimperio",
     "extra": {
       "eas": {
-        "projectId": "ee84cf8b-3ace-4a7e-ad72-dcf7f4157b77"
+        "projectId": "ddd5c40a-ad9a-483a-9bcb-599f53eba7bb"
       }
     },
-    "owner": "cimperio2026"
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ddd5c40a-ad9a-483a-9bcb-599f53eba7bb",
+      "checkAutomatically": "ON_LOAD"
+    }
   }
 }

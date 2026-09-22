@@ -12,6 +12,7 @@ import {
 } from '@expo-google-fonts/manrope';
 
 import type { Empleado, Sede } from './api';
+import ErrorBoundary from './ErrorBoundary';
 import Navegacion from './Navegacion';
 import { ACENTO, styles } from './tema';
 
@@ -35,23 +36,25 @@ export default function App() {
   });
 
   return (
-    <SafeAreaProvider>
-      {!fuentesCargadas ? (
-        <SafeAreaView style={styles.container}>
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator color={ACENTO} />
-          </View>
-        </SafeAreaView>
-      ) : (
-        <NavigationContainer>
-          <StatusBar style="light" />
-          <Navegacion
-            sesion={sesion}
-            onLogin={(empleado, sede) => setSesion({ empleado, sede })}
-            onCerrarSesion={() => setSesion(null)}
-          />
-        </NavigationContainer>
-      )}
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        {!fuentesCargadas ? (
+          <SafeAreaView style={styles.container}>
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <ActivityIndicator color={ACENTO} />
+            </View>
+          </SafeAreaView>
+        ) : (
+          <NavigationContainer>
+            <StatusBar style="light" />
+            <Navegacion
+              sesion={sesion}
+              onLogin={(empleado, sede) => setSesion({ empleado, sede })}
+              onCerrarSesion={() => setSesion(null)}
+            />
+          </NavigationContainer>
+        )}
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
