@@ -743,12 +743,12 @@ export default function PantallaConfirmando({ navigation }: Props) {
           const excedeTope =
             !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
           const notaAbierta = notasAbiertas.has(item.id);
-          // Solo se puede corregir el nombre recien leido por la IA
-          // (situacion 'nueva') -- al consultar un documento que ya
-          // existia (buscar o re-escaneo, siempre 'actualizable') el
-          // nombre ya quedo confirmado antes, no tiene sentido seguir
-          // permitiendo tocarlo desde cualquier consulta.
-          const puedeEditarDescripcion = situacion === 'nueva';
+          // Editable siempre -- tambien en 'actualizable' (documento ya
+          // existente, re-escaneo o "Buscar"): el nombre leido por la IA
+          // la primera vez puede haber quedado mal y recien notarse en
+          // una entrega posterior. El backend ya soporta esta correccion
+          // sin importar la situacion (PATCH /entregas/{id}/items).
+          const puedeEditarDescripcion = true;
           const descripcionAbierta = puedeEditarDescripcion && descripcionesAbiertas.has(item.id);
           const descripcionEditada = item.descripcion.trim() !== item.descripcionOriginal.trim();
           const cantidadLeidaAbierta = cantidadesLeidasAbiertas.has(item.id);
