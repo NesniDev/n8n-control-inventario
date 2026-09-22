@@ -10,9 +10,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://learning-backend.nxepde.easypanel.host",
-        "EXPO_PUBLIC_SUPABASE_URL": "https://geczvoxkeocmwabisbrr.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlY3p2b3hrZW9jbXdhYmlzYnJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MzczNzYsImV4cCI6MjEwMjIxMzM3Nn0.WB5pxJTNVD0wiXWoXAMT0BotRdJDdkzUiJkJJRiKL10"
+        "EXPO_PUBLIC_API_URL": "https://backend-1bs8jn-dbe94c-13-140-182-22.sslip.io",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://hfxhhkbgwxutcxpxpfxu.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_LxnuPdJa6rhwp7cY4c0W0w_qvKjq7Ny"
       }
     },
     "production": {

@@ -19,9 +19,12 @@ class Settings(BaseSettings):
 
     # Supabase Storage — solo la usa scripts/setup_storage.py (provisioning),
     # el backend web no toca Storage directamente. La app movil sube con la
-    # anon key (ver apps/mobile/supabase.ts).
+    # publishable key (ver apps/mobile/supabase.ts).
+    # Secret key nueva (sb_secret_...) — reemplaza a la service_role key (JWT),
+    # que Supabase da de baja a fines de 2026. Ambas funcionan igual, esta es
+    # la vigente.
     supabase_url: str = ""
-    supabase_service_role_key: str = ""
+    supabase_secret_key: str = ""
 
     # Lista separada por comas — permite el dashboard en prod (Vercel) y el
     # dashboard local (localhost:3000) al mismo tiempo mientras se sigue

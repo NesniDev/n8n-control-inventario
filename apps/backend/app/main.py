@@ -59,12 +59,12 @@ async def excepcion_no_manejada(request: Request, exc: Exception) -> JSONRespons
 
 # Marcador manual de build -- no se calcula del commit de git en runtime
 # porque el Dockerfile solo copia app/ y scripts/ (build path "apps/backend"
-# en EasyPanel, ver README): el directorio .git vive en la raiz del repo y
+# en Dokploy, ver README): el directorio .git vive en la raiz del repo y
 # no esta disponible dentro del contexto de build ni de la imagen. Bumpear
 # a mano este string en cada cambio que valga la pena poder confirmar desde
 # afuera (ver GET /health) -- unica forma de verificar que un deploy en
-# EasyPanel realmente tomo el commit esperado sin entrar al panel.
-_BUILD_MARCADOR = "ranking-y-busqueda"
+# Dokploy realmente tomo el commit esperado sin entrar al panel.
+_BUILD_MARCADOR = "migracion-dokploy-supabase-nuevo"
 
 
 @app.get("/health")

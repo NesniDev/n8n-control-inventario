@@ -45,17 +45,18 @@ npm install
 npx expo start
 ```
 
-> La subida de fotos (`apps/mobile/api.ts`) va directo al bucket `evidencia` de Supabase Storage con la anon key — no hace falta backend propio para el upload.
+> La subida de fotos (`apps/mobile/api.ts`) va directo al bucket `evidencia` de Supabase Storage con la publishable key — no hace falta backend propio para el upload.
 
-## Producción (VPS / EasyPanel)
+## Producción (VPS / Dokploy)
 
 | Servicio | URL |
 |---|---|
-| Backend (FastAPI) | https://learning-backend.nxepde.easypanel.host |
-| n8n | https://learning-n8n.nxepde.easypanel.host |
-| Webhook del pipeline | `POST https://learning-n8n.nxepde.easypanel.host/webhook/foto-subida` |
+| Backend (FastAPI) | https://backend-1bs8jn-dbe94c-13-140-182-22.sslip.io |
+| n8n | https://despachos-n8n-1a94bf-13-140-182-22.sslip.io |
+| Webhook del pipeline | `POST https://despachos-n8n-1a94bf-13-140-182-22.sslip.io/webhook/foto-subida` |
+| Dashboard (Vercel) | https://dashboard-five-khaki-99.vercel.app |
 
-El backend se despliega vía GitHub (build path `apps/backend`, `Dockerfile`) — un push a `main` no auto-despliega todavía (`autoDeploy: false` en el servicio de EasyPanel); hay que disparar el deploy manualmente desde el panel o la API hasta que se configure el webhook de auto-deploy.
+El backend se despliega vía GitHub (build path `apps/backend`, `Dockerfile`) — a diferencia del VPS anterior, en Dokploy `autoDeploy` quedó **activado**: un push a `main` dispara el deploy solo, no hace falta dispararlo a mano.
 
 ## Estado del scaffold
 

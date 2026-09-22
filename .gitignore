@@ -33,3 +33,4 @@ n8n/.env.n8n
 # Cache local de herramientas (no son parte del proyecto)
 .atl/
 supabase/.temp/
+.vercel

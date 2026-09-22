@@ -108,9 +108,10 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
                 resultado="error",
                 detalle={"error": str(exc)},
             )
-            # 422 y no 502: el proxy de EasyPanel (Traefik) intercepta cualquier
-            # respuesta 502/503/504 y la reemplaza por su propia pagina HTML de
-            # "Service is not reachable" -- pensando que el contenedor esta caido
+            # 422 y no 502: en EasyPanel el proxy (Traefik) interceptaba cualquier
+            # respuesta 502/503/504 y la reemplazaba por su propia pagina HTML de
+            # "Service is not reachable" -- pensando que el contenedor esta caido.
+            # VPS actual es Dokploy -- no confirmado si Traefik hace lo mismo ahi
             # -- en vez de dejar pasar nuestro JSON con el detail real. Eso hacia
             # que un fallo de IA (legitimo, ej. imagen ilegible) le llegara al
             # movil como una respuesta no-JSON, mostrando el mensaje generico de
@@ -421,9 +422,8 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
             traslado_url=payload.traslado_url,
         )
     except CantidadInvalida as exc:
-        # 422 y no 502/503/504: el proxy de EasyPanel (Traefik) intercepta esos
-        # tres codigos y los reemplaza por su propia pagina, tapando el detail
-        # real (ver la misma nota en ExtraccionFallida, entregas.py).
+        # 422 y no 502/503/504: mismo motivo que en ExtraccionFallida mas arriba
+        # (ver esa nota -- EasyPanel/Dokploy).
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RolNoAutorizado as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

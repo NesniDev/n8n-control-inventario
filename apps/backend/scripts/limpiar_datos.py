@@ -30,8 +30,8 @@ async def vaciar_tablas(database_url: str) -> None:
         await conn.close()
 
 
-async def vaciar_storage(supabase_url: str, service_role_key: str) -> None:
-    headers = {"apikey": service_role_key, "Authorization": f"Bearer {service_role_key}"}
+async def vaciar_storage(supabase_url: str, secret_key: str) -> None:
+    headers = {"apikey": secret_key, "Authorization": f"Bearer {secret_key}"}
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{supabase_url}/storage/v1/object/list/{BUCKET}",
@@ -74,8 +74,8 @@ async def main() -> None:
             return
 
     await vaciar_tablas(settings.database_url)
-    if settings.supabase_url and settings.supabase_service_role_key:
-        await vaciar_storage(settings.supabase_url, settings.supabase_service_role_key)
+    if settings.supabase_url and settings.supabase_secret_key:
+        await vaciar_storage(settings.supabase_url, settings.supabase_secret_key)
     print("Listo — base y storage vacios.")
 
 

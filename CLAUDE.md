@@ -133,15 +133,17 @@ The whole system exists to move one flow reliably (Figure 1 in `docs/architectur
 - `apps/dashboard/src/lib/api.ts` vs `.../lib/supabase.ts` — a deliberate split: **all reads/writes** go
   through the FastAPI backend (`api.ts`); the Supabase client (`supabase.ts`) is used **only** to subscribe
   to Realtime change events, never to query/write data directly from the dashboard.
-- `DATABASE_URL` must be the Supabase **direct** connection (`POSTGRES_URL_NON_POOLING`), not the PgBouncer
-  transaction pooler — the backend keeps its own long-lived `asyncpg` pool and doesn't need PgBouncer.
+- `DATABASE_URL` should be the Supabase **direct** connection (`POSTGRES_URL_NON_POOLING`) when the host has
+  IPv6 egress — the backend keeps its own long-lived `asyncpg` pool and doesn't need PgBouncer. If the host
+  is IPv4-only (direct connections are IPv6-only unless the project has Supabase's paid IPv4 add-on), fall
+  back to the **Session pooler** on port `5432` (not the Transaction pooler on `6543` — Supabase deprecated
+  session mode on that port in 2025, and `asyncpg`'s prepared statements don't work under transaction mode).
+  This is what the current VPS uses (see `GET /health` and the Production section below).
 
 ## Production
 
-Backend and n8n run on a VPS (EasyPanel); the dashboard is meant for Vercel but isn't deployed yet (see
-README's "Estado del scaffold" for the current-vs-pending checklist). The backend's EasyPanel service has
-`autoDeploy: false` — a push to `main` does **not** auto-deploy; deploys are triggered manually from the
-EasyPanel panel/API until the deploy webhook is wired up.
+Backend and n8n run on a VPS (Dokploy); the dashboard runs on Vercel. The backend's Dokploy service has
+`autoDeploy: true` — a push to `main` deploys automatically, unlike the old EasyPanel setup.
 
 Cada PR que toque `apps/backend` y valga la pena poder verificar sin entrar al panel debe bumpear
 `_BUILD_MARCADOR` en `app/main.py` (ver `GET /health`) -- es la única forma de confirmar desde afuera que

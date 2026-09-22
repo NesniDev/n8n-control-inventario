@@ -1,11 +1,11 @@
 """Provisiona el bucket de Supabase Storage donde la app movil sube las fotos
-de evidencia, y las policies de RLS que permiten subir/leer con la anon key
-(la app movil nunca usa la service_role key). Idempotente — se puede correr
+de evidencia, y las policies de RLS que permiten subir/leer con la publishable
+key (la app movil nunca usa la secret key). Idempotente — se puede correr
 mas de una vez.
 
 Requiere en apps/backend/.env:
     SUPABASE_URL=https://<project-ref>.supabase.co
-    SUPABASE_SERVICE_ROLE_KEY=...
+    SUPABASE_SECRET_KEY=...
     DATABASE_URL=... (conexion directa a Postgres, ya usada por el resto del backend)
 
 Uso:
@@ -22,13 +22,13 @@ from app.config import get_settings
 BUCKET = "evidencia"
 
 
-async def crear_bucket(supabase_url: str, service_role_key: str) -> None:
+async def crear_bucket(supabase_url: str, secret_key: str) -> None:
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{supabase_url}/storage/v1/bucket",
             headers={
-                "apikey": service_role_key,
-                "Authorization": f"Bearer {service_role_key}",
+                "apikey": secret_key,
+                "Authorization": f"Bearer {secret_key}",
             },
             json={"id": BUCKET, "name": BUCKET, "public": True},
         )
@@ -76,11 +76,11 @@ async def crear_policies(database_url: str) -> None:
 
 async def main() -> None:
     settings = get_settings()
-    if not settings.supabase_url or not settings.supabase_service_role_key:
+    if not settings.supabase_url or not settings.supabase_secret_key:
         raise SystemExit(
-            "Faltan SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY en apps/backend/.env"
+            "Faltan SUPABASE_URL / SUPABASE_SECRET_KEY en apps/backend/.env"
         )
-    await crear_bucket(settings.supabase_url, settings.supabase_service_role_key)
+    await crear_bucket(settings.supabase_url, settings.supabase_secret_key)
     await crear_policies(settings.database_url)
 
 

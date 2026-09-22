@@ -7,11 +7,11 @@ App del operador (React Native + Expo): toma la foto de la guía, la sube a Supa
 ```bash
 cd apps/mobile
 npm install
-copy .env.example .env    # completar EXPO_PUBLIC_SUPABASE_URL / ANON_KEY / API_URL
+copy .env.example .env    # completar EXPO_PUBLIC_SUPABASE_URL / PUBLISHABLE_KEY / API_URL
 npx expo start
 ```
 
-- `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`: mismo proyecto Supabase que usa el backend (la app usa la **anon key**, nunca la `service_role`).
+- `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: mismo proyecto Supabase que usa el backend (la app usa la **publishable key**, nunca la `secret key`).
 - `EXPO_PUBLIC_API_URL`: URL del backend. En el emulador Android, `localhost` apunta al propio emulador — usar la IP de la máquina host o `10.0.2.2` en su lugar.
 
 ## Flujo
@@ -29,7 +29,7 @@ Sin correo ni contraseña. El login tiene dos pasos (`PantallaLogin.tsx`): elegi
 **Crear un empleado** (hasta que exista una pantalla de administración):
 
 ```bash
-curl -X POST https://learning-backend.nxepde.easypanel.host/empleados \
+curl -X POST https://backend-1bs8jn-dbe94c-13-140-182-22.sslip.io/empleados \
   -H "Content-Type: application/json" \
   -d '{"nombre":"Juan Pérez","sede_id":"<id-de-la-sede>","pin":"1234"}'
 ```

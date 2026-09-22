@@ -50,9 +50,11 @@ segundo webhook + nodo HTTP apuntando a `/entregas/{id}/items`.
   conexión/timeout (`max_retries=2` por defecto = 3 intentos totales). Si
   `/entregas/procesar` devuelve 422 con detail de extracción, es porque ya se
   agotaron esos intentos del lado del backend (o el modelo rechazó la imagen).
-  Ojo: el backend usa 422 a propósito acá y no 502/503/504 -- el proxy de
-  EasyPanel (Traefik) intercepta esos tres códigos y los reemplaza por su
-  propia página de "Service is not reachable", tapando el `detail` real.
+  Ojo: el backend usa 422 a propósito acá y no 502/503/504 -- en EasyPanel el
+  proxy (Traefik) interceptaba esos tres códigos y los reemplazaba por su
+  propia página de "Service is not reachable", tapando el `detail` real. En
+  Dokploy (VPS actual) no está confirmado si Traefik se comporta igual --
+  verificar antes de asumir que este workaround sigue haciendo falta.
 
 ## Workflow 2 — Analítica semanal de turnos
 
@@ -90,7 +92,7 @@ nodo más después de `HTTP: registrar caida en logs`.
 
 | Variable | Ejemplo | Usada por |
 |---|---|---|
-| `API_BASE_URL` | `https://learning-backend.nxepde.easypanel.host` | Workflows 1, 2, 3 |
-| `SUPABASE_URL` | `https://geczvoxkeocmwabisbrr.supabase.co` | Workflow 3 |
-| `SUPABASE_SERVICE_ROLE_KEY` | (secreto — `apps/backend/.env`) | Workflow 3 |
+| `API_BASE_URL` | `https://backend-1bs8jn-dbe94c-13-140-182-22.sslip.io` | Workflows 1, 2, 3 |
+| `SUPABASE_URL` | `https://hfxhhkbgwxutcxpxpfxu.supabase.co` | Workflow 3 |
+| `SUPABASE_SECRET_KEY` | (secreto — `apps/backend/.env`) | Workflow 3 |
 | `SLACK_WEBHOOK_URL` / credencial Slack | — | Workflow 1 (pendiente) |
