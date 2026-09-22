@@ -28,4 +28,6 @@ jobs:
 
       - name: Publicar actualización OTA
         working-directory: apps/mobile
-        run: eas update --channel preview --environment preview --message "${{ github.event.head_commit.message }}" --non-interactive
+        run: eas update --channel preview --environment preview --message "$MENSAJE" --non-interactive
+        env:
+          MENSAJE: ${{ github.event.head_commit.message || 'Actualización manual' }}
