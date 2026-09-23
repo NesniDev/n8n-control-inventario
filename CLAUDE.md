@@ -148,3 +148,29 @@ Backend and n8n run on a VPS (Dokploy); the dashboard runs on Vercel. The backen
 Cada PR que toque `apps/backend` y valga la pena poder verificar sin entrar al panel debe bumpear
 `_BUILD_MARCADOR` en `app/main.py` (ver `GET /health`) -- es la única forma de confirmar desde afuera que
 un deploy tomó el commit esperado, dado que el Dockerfile no tiene acceso a `.git` en build time.
+
+El **borrado de entregas desde el dashboard** (`DELETE /entregas/{id}/definitivo` y `/entregas/todas`) pide
+un header `X-Admin-Token` que el propio dashboard NO trae por variable de entorno -- lo escribe a mano el
+usuario en un campo ("Token de administrador", arriba de la página) que se guarda en `localStorage` del
+navegador. Como es por origen, cada dominio nuevo del dashboard (ej. tras migrar de cuenta de Vercel)
+empieza sin ese valor guardado y el borrado da 401 hasta que se vuelve a pegar el token — no es un bug,
+es el campo vacío. El valor esperado es `ADMIN_DELETE_TOKEN` del `.env` del backend.
+
+### Actualizaciones de la app móvil (EAS Update / OTA)
+
+`apps/mobile` tiene `expo-updates` configurado con `runtimeVersion: {"policy": "fingerprint"}` (ver
+`app.json`) y publicación automática: cualquier push a `main` que toque `apps/mobile/**` dispara
+`.github/workflows/eas-update.yml`, que corre `eas update --channel preview --environment preview`.
+Los operadores reciben el cambio solos la próxima vez que abren la app (`checkAutomatically: "ON_LOAD"`)
+-- no hace falta generar un `.apk` nuevo ni reinstalar nada.
+
+- **Se actualiza solo**: cualquier cambio que sea JS puro (pantallas, lógica, estilos, textos, incluso las
+  URLs `EXPO_PUBLIC_*`), mientras no agregue ni cambie código nativo.
+- **Necesita un `.apk` nuevo** (`eas build --platform android --profile preview`) + reinstalar a mano en
+  cada celular: agregar una librería con código nativo, o tocar la parte nativa de `app.json` (ícono,
+  package name, permisos, plugins nativos).
+- No hace falta juzgar cuál es cuál a mano: la política `fingerprint` lo detecta sola. Si un cambio toca
+  algo nativo, el fingerprint cambia y esa actualización deja de aplicar a los builds viejos -- no rompe
+  nada, simplemente no llega hasta que se genera un build nuevo.
+- El secreto `EXPO_TOKEN` (cuenta `elimperio` en Expo) vive en GitHub Actions (`gh secret set`), no en
+  este repo.
