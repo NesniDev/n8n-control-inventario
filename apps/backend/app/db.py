@@ -262,6 +262,138 @@ create table if not exists productos (
     creado_at timestamptz not null default now()
 );
 
+-- Traslados entre puntos (bodega origen -> conductor -> bodega destino, ver
+-- plan "traslados-entre-puntos"): puntos es una lista de lugares DISTINTA de
+-- sedes (despachos), con sus propios usuarios. Tablas aditivas, no tocan
+-- entregas/sedes/empleados.
+create table if not exists puntos (
+    id uuid primary key default gen_random_uuid(),
+    nombre text not null unique,
+    activo boolean not null default true,
+    created_at timestamptz not null default now()
+);
+
+create table if not exists usuarios_punto (
+    id uuid primary key default gen_random_uuid(),
+    nombre text not null,
+    punto_id uuid not null references puntos(id),
+    pin_hash text,
+    pin_salt text,
+    estado text not null default 'activo',
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_usuarios_punto_punto on usuarios_punto (punto_id);
+
+-- Codigo corto del punto (ej. "CFC") -- el nombre guarda la etiqueta completa
+-- tal como la usan en bodega ("CFC — La Cumbre"); el codigo queda aparte para
+-- ordenar y buscar sin parsear el nombre (ver scripts/cargar_puntos.py).
+alter table puntos add column if not exists codigo text;
+create unique index if not exists puntos_codigo_key on puntos (codigo);
+
+-- El id lo genera el celular (expo-crypto randomUUID()), no gen_random_uuid()
+-- del lado del servidor: el path de las firmas en Storage
+-- (firmas-traslados/{id}-{rol}.webp) se arma ANTES de crear el traslado, asi
+-- que hace falta conocer el id de antemano (ver subirFirmaTraslado en
+-- apps/mobile/api.ts y FirmaTransportador).
+create table if not exists traslados_puntos (
+    id uuid primary key,
+    consecutivo bigserial unique,
+    punto_origen_id uuid not null references puntos(id),
+    punto_destino_id uuid not null references puntos(id),
+    transportador_nombre text not null default '',
+    fecha date not null,
+    observaciones text,
+    estado text not null default 'en_transito'
+        check (estado in ('en_transito', 'recibido', 'recibido_con_novedad')),
+    firma_despacha_url text,
+    firma_transporta_url text,
+    firma_recibe_url text,
+    creado_por uuid not null references usuarios_punto(id),
+    recibido_por uuid references usuarios_punto(id),
+    recibido_at timestamptz,
+    novedad text,
+    created_at timestamptz not null default now(),
+    check (punto_origen_id <> punto_destino_id)
+);
+
+create index if not exists idx_traslados_puntos_destino_estado
+    on traslados_puntos (punto_destino_id, estado);
+create index if not exists idx_traslados_puntos_origen
+    on traslados_puntos (punto_origen_id, created_at desc);
+
+-- Numero impreso en el talonario fisico de traslados (ej. "00231",
+-- "A-00231") -- lo tipea el punto que despacha, es lo primero que copia del
+-- papel (ver TrasladoPuntoCrear en app/models/traslado_punto.py). Null en
+-- los traslados creados antes de este campo -- quedan sin valor para
+-- siempre, no hay forma de reconstruirlo despues.
+alter table traslados_puntos add column if not exists numero_talonario text;
+
+-- Un traslado puede llevar varios productos, cada uno con su propia cantidad
+-- enviada/recibida (mismo criterio que entrega_items para entregas).
+create table if not exists traslado_punto_items (
+    id uuid primary key default gen_random_uuid(),
+    traslado_id uuid not null references traslados_puntos(id) on delete cascade,
+    cantidad integer not null check (cantidad > 0),
+    producto text not null,
+    marca text not null default '',
+    presentacion text not null default '',
+    -- null hasta que el punto destino confirma la recepcion (ver
+    -- registrar_recepcion en app/services/traslados_puntos.py).
+    cantidad_recibida integer,
+    novedad text
+);
+
+create index if not exists idx_traslado_punto_items_traslado on traslado_punto_items (traslado_id);
+
+-- Supervision de novedades (ver el plan "supervision-novedades"): quien
+-- resuelve un traslado que llego a un punto con diferencia de cantidad o con
+-- una novedad cargada. Cuenta propia -- no es un usuario_punto (no pertenece
+-- a un punto) ni un empleado (no pertenece a una sede), solo revisa y
+-- resuelve novedades de cualquier traslado.
+create table if not exists supervisores (
+    id uuid primary key default gen_random_uuid(),
+    nombre text not null,
+    pin_hash text,
+    pin_salt text,
+    estado text not null default 'activo',
+    created_at timestamptz not null default now()
+);
+
+-- Estado de la novedad de un traslado ya recibido: 'pendiente' apenas
+-- registrar_recepcion lo deja en 'recibido_con_novedad', 'resuelta' cuando
+-- Supervision carga una solucion (ver resolver_novedad en
+-- app/services/traslados_puntos.py). Null en un traslado sin novedad
+-- (en_transito o recibido completo) -- no aplica, no se muestra en la
+-- bandeja de Supervision.
+alter table traslados_puntos add column if not exists novedad_estado text;
+alter table traslados_puntos drop constraint if exists traslados_puntos_novedad_estado_check;
+alter table traslados_puntos add constraint traslados_puntos_novedad_estado_check
+    check (novedad_estado is null or novedad_estado in ('pendiente', 'resuelta'));
+alter table traslados_puntos add column if not exists solucion text;
+alter table traslados_puntos add column if not exists solucionado_por uuid references supervisores(id);
+alter table traslados_puntos add column if not exists solucionado_at timestamptz;
+
+-- Backfill idempotente: traslados que ya habian quedado con novedad antes de
+-- que existiera esta columna arrancan en 'pendiente' -- todavia nadie los
+-- reviso via Supervision. No pisa una fila que ya tenga novedad_estado
+-- seteado (por eso el "is null" -- correr esto de nuevo no revierte una
+-- novedad ya resuelta).
+update traslados_puntos set novedad_estado = 'pendiente'
+    where estado = 'recibido_con_novedad' and novedad_estado is null;
+
+create index if not exists idx_traslados_puntos_novedad_estado
+    on traslados_puntos (novedad_estado);
+
+-- Consecutivo bajo el que Supervision guarda la solucion de una novedad
+-- (codigo de punto + numero, ej. "NPT-1234", ver resolver_novedad en
+-- app/services/traslados_puntos.py). Unico solo entre los que tienen valor
+-- (indice parcial) -- una novedad sin resolver no tiene consecutivo todavia,
+-- eso no puede chocar con nada.
+alter table traslados_puntos add column if not exists consecutivo_solucion text;
+create unique index if not exists traslados_puntos_consecutivo_solucion_key
+    on traslados_puntos (consecutivo_solucion) where consecutivo_solucion is not null;
+
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban
 -- agregadas o si la publicacion no existe (p.ej. Postgres self-hosted sin
@@ -287,6 +419,14 @@ begin
         end;
         begin
             alter publication supabase_realtime add table productos;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table traslados_puntos;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table traslado_punto_items;
         exception when duplicate_object then null;
         end;
     end if;

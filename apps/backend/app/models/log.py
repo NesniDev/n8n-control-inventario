@@ -32,3 +32,15 @@ class EventoLog(StrEnum):
     # Borrado masivo de TODAS las entregas y logs, disparado desde el
     # dashboard -- equivalente a scripts/limpiar_datos.py pero via HTTP.
     LIMPIEZA_TOTAL = "limpieza_total"
+    # Alta de un traslado entre puntos -- ver app/services/traslados_puntos.py.
+    TRASLADO_PUNTO_CREADO = "traslado_punto_creado"
+    # Confirmacion de recepcion en el punto destino (registrar_recepcion) --
+    # se registra siempre que se recibe, con o sin novedad.
+    TRASLADO_PUNTO_RECIBIDO = "traslado_punto_recibido"
+    # Se registra ADEMAS de TRASLADO_PUNTO_RECIBIDO (no en su lugar) cuando la
+    # recepcion quedo con una diferencia -- cantidad incompleta en algun item
+    # o alguna novedad cargada (general o por item).
+    TRASLADO_PUNTO_NOVEDAD = "traslado_punto_novedad"
+    # Supervision (Erika) marco una novedad como resuelta -- ver
+    # resolver_novedad en app/services/traslados_puntos.py.
+    TRASLADO_PUNTO_NOVEDAD_RESUELTA = "traslado_punto_novedad_resuelta"
