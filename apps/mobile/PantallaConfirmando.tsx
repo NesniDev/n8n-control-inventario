@@ -49,10 +49,15 @@ import {
 import {
   ACENTO,
   ContenidoBoton,
+  ESTADO_INFO,
   ESTILO_WEB_FIRMA,
   estilosFirma,
+  FUENTE_BODY_SEMI,
+  FUENTE_DISPLAY,
   NEUTRAL_400,
   NEUTRAL_500,
+  NEUTRAL_700,
+  NEUTRAL_800,
   NEUTRAL_900,
   styles,
   TEXTO_PRIMARIO,
@@ -183,6 +188,33 @@ function VisorFirma({
         </View>
       </SafeAreaView>
     </Modal>
+  );
+}
+
+// Boton-chip para las acciones secundarias de cada item (historial,
+// devolucion, nota) -- mismo onPress/condicion que antes, solo un area de
+// toque mas grande y clara que un Ionicons suelto.
+function BotonAccionItem({
+  icono,
+  activo,
+  onPress,
+}: {
+  icono: keyof typeof Ionicons.glyphMap;
+  activo: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [
+        estilosItem.botonAccion,
+        activo && estilosItem.botonAccionActivo,
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <Ionicons name={icono} size={18} color={activo ? ACENTO : NEUTRAL_400} />
+    </Pressable>
   );
 }
 
@@ -690,46 +722,66 @@ export default function PantallaConfirmando({ navigation }: Props) {
       >
         <HeaderEntrega />
 
-        <View style={styles.tarjeta}>
-          <View style={styles.filaConIcono}>
-            <Text style={styles.etiquetaSeccion}>
-              {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
-            </Text>
-            {documentoIdentificado ? (
-              <Text style={styles.badgeIdentificador}>
-                {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
-              </Text>
-            ) : null}
-          </View>
-          <Text style={styles.previewSubtexto}>
-            {situacion === 'nueva'
-              ? 'Cargá cuánto quedó pendiente de cada producto.'
-              : documentoCompleto
-                ? 'Ya se entregó todo lo de este documento.'
-                : 'Todavía le queda algo pendiente. Cargá cuánto entregaste hoy de cada producto.'}
-          </Text>
-          {/* Nota a nivel documento completo -- distinta de la nota por
-              producto (ver mas abajo, dentro de cada item). Boton a la
-              izquierda que abre el modal del editor, caja de solo-lectura a
-              la derecha con lo ya escrito -- separado a pedido explicito
-              (antes era una sola tarjeta tocable de punta a punta). */}
-          <View style={estilosRetira.notaGeneralFila}>
-            <Pressable
-              style={({ pressed }) => [styles.boton, estilosRetira.notaGeneralBoton, pressed && styles.botonPresionado]}
-              onPress={() => setNotaGeneralAbierta(true)}
-            >
-              <ContenidoBoton
-                icono={notaGeneral.trim() ? 'document-text' : 'document-text-outline'}
-                texto="Nota general"
-                color={notaGeneral.trim() ? ACENTO : NEUTRAL_400}
+        <View style={[styles.tarjeta, estilosDoc.tarjeta]}>
+          <View style={estilosDoc.encabezado}>
+            <View style={estilosDoc.iconoDocumento}>
+              <Ionicons
+                name={situacion === 'nueva' ? 'document-outline' : 'refresh-outline'}
+                size={22}
+                color={ACENTO}
               />
-            </Pressable>
-            <View style={[styles.notaGeneralCaja, estilosRetira.notaGeneralInfo]}>
-              <Text style={styles.notaPreview}>
-                {notaGeneral.trim() ? notaGeneral : 'Sin nota general todavía.'}
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
+              <View style={estilosDoc.badges}>
+                {documentoIdentificado ? (
+                  <Text style={styles.badgeIdentificador}>
+                    {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
+                  </Text>
+                ) : null}
+                {estadoFinal ? (
+                  <View style={[estilosDoc.pill, { backgroundColor: ESTADO_INFO[estadoFinal].fondo }]}>
+                    <Ionicons name={ESTADO_INFO[estadoFinal].icono} size={11} color={ESTADO_INFO[estadoFinal].color} />
+                    <Text style={[estilosDoc.pillTexto, { color: ESTADO_INFO[estadoFinal].color }]}>
+                      {ESTADO_INFO[estadoFinal].texto}
+                    </Text>
+                  </View>
+                ) : null}
+                {esFaia ? (
+                  <View style={[estilosDoc.pill, { backgroundColor: 'rgba(200,99,31,0.14)' }]}>
+                    <Text style={[estilosDoc.pillTexto, { color: ACENTO }]}>FAIA</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={estilosDoc.titulo}>
+                {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
               </Text>
             </View>
           </View>
+          <Text style={styles.previewSubtexto}>
+            {situacion === 'nueva'
+              ? 'Es la primera vez que se procesa -- carga cuánto quedó pendiente de cada producto.'
+              : documentoCompleto
+                ? 'Ya se entregó todo lo de este documento.'
+                : 'Este documento ya existía y todavía le queda algo pendiente. Carga cuánto entregaste hoy de cada producto.'}
+          </Text>
+          {/* Nota a nivel documento completo -- distinta de la nota por
+              producto (ver mas abajo, dentro de cada item). Toda la fila
+              abre el modal del editor; el icono a la izquierda y el texto de
+              vista previa a la derecha son la misma accion. */}
+          <Pressable
+            style={({ pressed }) => [estilosDoc.notaGeneralFila, pressed && { opacity: 0.85 }]}
+            onPress={() => setNotaGeneralAbierta(true)}
+          >
+            <Ionicons
+              name={notaGeneral.trim() ? 'document-text' : 'document-text-outline'}
+              size={18}
+              color={notaGeneral.trim() ? ACENTO : NEUTRAL_400}
+            />
+            <Text style={[styles.notaPreview, estilosDoc.notaGeneralTexto]} numberOfLines={2}>
+              {notaGeneral.trim() ? notaGeneral : 'Sin nota general todavía -- toca para agregar una.'}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={NEUTRAL_500} />
+          </Pressable>
         </View>
 
         {items.map((item) => {
@@ -777,7 +829,15 @@ export default function PantallaConfirmando({ navigation }: Props) {
           const historialAbierto = historialesAbiertos.has(item.id);
           const eventosHistorial = historial ? historialDeItem(historial, item.id) : [];
           return (
-            <View key={item.id} style={styles.tarjeta}>
+            <View
+              key={item.id}
+              style={[
+                styles.tarjeta,
+                estilosItem.tarjeta,
+                marcadoTodoEntregado && estilosItem.tarjetaCompleta,
+                excedeTope && estilosItem.tarjetaError,
+              ]}
+            >
               <View style={styles.filaTitulo}>
                 {descripcionAbierta ? (
                   <TextInput
@@ -808,30 +868,24 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   arriba (edita el nombre, esta fila no toca el nombre). */}
               <View style={styles.filaAccionesItem}>
                 {puedeVerHistorial ? (
-                  <Pressable onPress={() => alternarHistorial(item.id)} hitSlop={8}>
-                    <Ionicons
-                      name={historialAbierto ? 'time' : 'time-outline'}
-                      size={20}
-                      color={historialAbierto ? ACENTO : NEUTRAL_400}
-                    />
-                  </Pressable>
+                  <BotonAccionItem
+                    icono={historialAbierto ? 'time' : 'time-outline'}
+                    activo={historialAbierto}
+                    onPress={() => alternarHistorial(item.id)}
+                  />
                 ) : null}
                 {puedeDevolver ? (
-                  <Pressable onPress={() => alternarDevolucion(item.id)} hitSlop={8}>
-                    <Ionicons
-                      name="arrow-undo-outline"
-                      size={20}
-                      color={devolucionAbierta ? ACENTO : NEUTRAL_400}
-                    />
-                  </Pressable>
-                ) : null}
-                <Pressable onPress={() => alternarNota(item.id)} hitSlop={8}>
-                  <Ionicons
-                    name={item.nota.trim() ? 'document-text' : 'document-text-outline'}
-                    size={20}
-                    color={item.nota.trim() || notaAbierta ? ACENTO : NEUTRAL_400}
+                  <BotonAccionItem
+                    icono="arrow-undo-outline"
+                    activo={devolucionAbierta}
+                    onPress={() => alternarDevolucion(item.id)}
                   />
-                </Pressable>
+                ) : null}
+                <BotonAccionItem
+                  icono={item.nota.trim() ? 'document-text' : 'document-text-outline'}
+                  activo={!!item.nota.trim() || notaAbierta}
+                  onPress={() => alternarNota(item.id)}
+                />
               </View>
 
               {historialAbierto ? (
@@ -982,11 +1036,15 @@ export default function PantallaConfirmando({ navigation }: Props) {
               )}
 
               {bloqueado ? null : (
-                <Pressable onPress={() => alternarTodoEntregado(item)} hitSlop={8} style={styles.checkboxFila}>
+                <Pressable
+                  onPress={() => alternarTodoEntregado(item)}
+                  hitSlop={8}
+                  style={[styles.checkboxFila, estilosItem.checkboxFila, marcadoTodoEntregado && estilosItem.checkboxFilaMarcada]}
+                >
                   <View style={[styles.checkboxCaja, marcadoTodoEntregado && styles.checkboxCajaMarcada]}>
                     {marcadoTodoEntregado ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
                   </View>
-                  <Text style={styles.checkboxTexto}>
+                  <Text style={[styles.checkboxTexto, marcadoTodoEntregado && estilosItem.checkboxTextoMarcado]}>
                     {situacion === 'nueva'
                       ? 'Todo entregado (nada pendiente)'
                       : 'Entregué todo lo que quedaba pendiente'}
@@ -1002,16 +1060,20 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 onChangeText={(valor) => actualizarValorItem(item.id, valor)}
                 keyboardType="number-pad"
                 placeholder="0"
-                placeholderTextColor="#6b7688"
+                placeholderTextColor={NEUTRAL_500}
                 editable={!bloqueado && !marcadoTodoEntregado}
                 style={[
                   styles.inputCantidad,
+                  estilosItem.inputCantidad,
                   (bloqueado || marcadoTodoEntregado) && styles.inputCantidadBloqueado,
                   excedeTope && styles.inputCantidadError,
                 ]}
               />
               {bloqueado ? (
-                <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
+                <View style={styles.filaConIcono}>
+                  <Ionicons name="lock-closed-outline" size={13} color={NEUTRAL_500} />
+                  <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
+                </View>
               ) : marcadoTodoEntregado ? (
                 // El input debajo sigue mostrando "cuanto entregaste hoy" (lo
                 // que realmente se manda al backend), no el pendiente final --
@@ -1020,24 +1082,28 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 // encima suele coincidir con el total si nunca se entrego
                 // nada de este producto).
                 <View style={styles.filaConIcono}>
-                  <Ionicons name="checkmark-circle-outline" size={14} color={NEUTRAL_500} />
+                  <Ionicons name="checkmark-circle-outline" size={14} color="#34d399" />
                   <Text style={styles.previewSubtexto}>Vas a entregar los {tope} pendientes — quedará en 0.</Text>
                 </View>
               ) : excedeTope ? (
-                <Text style={styles.textoErrorInline}>
-                  {situacion === 'nueva'
-                    ? `No puede quedar pendiente más de ${tope} (lo que leyó la IA).`
-                    : `No podés entregar más de ${tope} — es lo único que queda pendiente.`}
-                </Text>
+                <View style={styles.filaConIcono}>
+                  <Ionicons name="alert-circle-outline" size={14} color="#f87171" />
+                  <Text style={styles.textoErrorInline}>
+                    {situacion === 'nueva'
+                      ? `No puede quedar pendiente más de ${tope} (lo que leyó la IA).`
+                      : `No puedes entregar más de ${tope} — es lo único que queda pendiente.`}
+                  </Text>
+                </View>
               ) : null}
             </View>
           );
         })}
 
         {items.length === 0 ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.previewSubtexto}>
-              La IA no encontró productos en la foto — repetí la captura con mejor luz/encuadre.
+          <View style={[styles.tarjeta, styles.filaConIcono]}>
+            <Ionicons name="alert-circle-outline" size={18} color={NEUTRAL_400} />
+            <Text style={[styles.previewSubtexto, { flex: 1 }]}>
+              La IA no encontró productos en la foto — repite la captura con mejor luz/encuadre.
             </Text>
           </View>
         ) : null}
@@ -1055,8 +1121,11 @@ export default function PantallaConfirmando({ navigation }: Props) {
         ) : null}
 
         {necesitaTrasladoConfirmar ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
+          <View style={[styles.tarjeta, estilosDoc.tarjetaTraslado]}>
+            <View style={styles.filaConIcono}>
+              <Ionicons name="swap-horizontal" size={18} color="#fbbf24" />
+              <Text style={[styles.etiquetaSeccion, { color: '#fbbf24' }]}>Traslado requerido</Text>
+            </View>
             <Text style={styles.previewSubtexto}>
               {`El documento "${
                 formatearIdentificador(
@@ -1106,11 +1175,16 @@ export default function PantallaConfirmando({ navigation }: Props) {
           </View>
         ) : null}
 
-        {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
+        {mensaje ? (
+          <View style={estilosDoc.errorBox}>
+            <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
+            <Text style={[styles.textoErrorInline, { flex: 1 }]}>{mensaje}</Text>
+          </View>
+        ) : null}
 
         {cargando && itemsConCambioCantidad.length > 0 ? (
           <View style={[styles.tarjeta, styles.estadoBox]}>
-            <ActivityIndicator color="#c8631f" />
+            <ActivityIndicator color={ACENTO} />
             <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
           </View>
         ) : null}
@@ -1119,7 +1193,12 @@ export default function PantallaConfirmando({ navigation }: Props) {
           {itemsAEnviar.length === 0 && !notaGeneralCambio ? null : itemsConCambioCantidad.length === 0 ? (
             <Pressable
               disabled={cargando}
-              style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                estilosDoc.botonPrincipal,
+                pressed && styles.botonPresionado,
+              ]}
               onPress={() => confirmar()}
             >
               <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
@@ -1134,6 +1213,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
               style={({ pressed }) => [
                 styles.boton,
                 styles.botonPrimario,
+                estilosDoc.botonPrincipal,
                 !puedeConfirmar && styles.botonDeshabilitado,
                 pressed && puedeConfirmar && styles.botonPresionado,
               ]}
@@ -1160,12 +1240,16 @@ export default function PantallaConfirmando({ navigation }: Props) {
 
         {/* Nombre/telefono de quien retiro esta factura, por cada visita
             firmada -- al final de la pantalla, a pedido explicito (antes
-            iba pegado a la nota general, arriba del todo). */}
+            iba pegado a la nota general, arriba del todo). Es una accion
+            terciaria (de consulta, no de guardado) -- se ve mas chica y
+            discreta que las de acciones arriba, sin dejar de ser un
+            Pressable con el mismo hitSlop implicito de styles.boton. */}
         <Pressable
-          style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+          style={({ pressed }) => [estilosDoc.botonTerciario, pressed && { opacity: 0.7 }]}
           onPress={abrirDatosEntrega}
         >
-          <ContenidoBoton icono="people-outline" texto="Ver Datos de Entrega" color={NEUTRAL_400} />
+          <Ionicons name="people-outline" size={16} color={NEUTRAL_400} />
+          <Text style={estilosDoc.botonTerciarioTexto}>Ver datos de entrega</Text>
         </Pressable>
       </ScrollView>
       {mostrandoDatosEntrega ? (
@@ -1184,9 +1268,12 @@ export default function PantallaConfirmando({ navigation }: Props) {
               style={estilosRetira.scrollDatosEntrega}
               contentContainerStyle={[styles.tarjeta, estilosRetira.tarjeta]}
             >
-              <Text style={styles.etiquetaSeccion}>Datos de entrega</Text>
+              <View style={styles.filaConIcono}>
+                <Ionicons name="people-outline" size={15} color={NEUTRAL_400} />
+                <Text style={styles.etiquetaSeccion}>Datos de entrega</Text>
+              </View>
               {cargandoHistorial ? (
-                <ActivityIndicator color="#c8631f" />
+                <ActivityIndicator color={ACENTO} />
               ) : retirosEntrega.length === 0 ? (
                 <Text style={styles.previewSubtexto}>Todavía no hay ningún retiro firmado en esta factura.</Text>
               ) : (
@@ -1247,12 +1334,15 @@ export default function PantallaConfirmando({ navigation }: Props) {
         >
           <View style={estilosRetira.fondo}>
             <View style={[styles.tarjeta, estilosRetira.tarjeta]}>
-              <Text style={styles.etiquetaSeccion}>Nota general de la factura</Text>
+              <View style={styles.filaConIcono}>
+                <Ionicons name="document-text-outline" size={15} color={NEUTRAL_400} />
+                <Text style={styles.etiquetaSeccion}>Nota general de la factura</Text>
+              </View>
               <TextInput
                 value={notaGeneral}
                 onChangeText={setNotaGeneral}
                 placeholder="Información adicional de toda la factura (opcional)"
-                placeholderTextColor="#6b7688"
+                placeholderTextColor={NEUTRAL_500}
                 style={styles.inputNota}
                 multiline
                 autoFocus
@@ -1363,7 +1453,86 @@ const estilosRetira = StyleSheet.create({
     borderBottomColor: '#2a2f3a',
   },
   bloqueFirma: { marginTop: 16, gap: 8 },
-  notaGeneralFila: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  notaGeneralBoton: { paddingVertical: 8, paddingHorizontal: 12 },
-  notaGeneralInfo: { flex: 1, justifyContent: 'center' },
+});
+
+// Estilos de la tarjeta de encabezado del documento (identificador, estado,
+// FAIA, nota general) y de los elementos sueltos del pie de pantalla.
+const estilosDoc = StyleSheet.create({
+  tarjeta: { gap: 10 },
+  encabezado: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  iconoDocumento: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(200,99,31,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  pillTexto: { fontSize: 11, fontFamily: FUENTE_BODY_SEMI },
+  titulo: { color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_DISPLAY },
+  notaGeneralFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+  },
+  notaGeneralTexto: { flex: 1 },
+  tarjetaTraslado: { borderColor: 'rgba(251,191,36,0.45)' },
+  botonPrincipal: { paddingVertical: 18 },
+  botonTerciario: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  botonTerciarioTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(248,113,113,0.35)',
+    backgroundColor: 'rgba(248,113,113,0.08)',
+  },
+});
+
+// Estilos de cada tarjeta de producto -- caja de cantidad, botones de accion
+// secundarios y el resaltado del check "todo entregado" / error de tope.
+const estilosItem = StyleSheet.create({
+  tarjeta: { borderWidth: 1.5 },
+  tarjetaCompleta: { borderColor: 'rgba(52,211,153,0.35)' },
+  tarjetaError: { borderColor: 'rgba(248,113,113,0.45)' },
+  botonAccion: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: NEUTRAL_800,
+  },
+  botonAccionActivo: { backgroundColor: 'rgba(200,99,31,0.14)' },
+  checkboxFila: {
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: NEUTRAL_800,
+  },
+  checkboxFilaMarcada: { backgroundColor: 'rgba(52,211,153,0.12)' },
+  checkboxTextoMarcado: { color: '#34d399' },
+  inputCantidad: { paddingVertical: 14 },
 });

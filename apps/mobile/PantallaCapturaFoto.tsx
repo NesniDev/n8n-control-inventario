@@ -23,10 +23,127 @@ import {
   mensajeError,
 } from './errorMessages';
 import { comprimirParaEnvio, formatearIdentificador, HeaderEntrega, useEntrega } from './EntregaContext';
-import { ContenidoBoton, ESTADO_INFO, NEUTRAL_400, styles, TEXTO_PRIMARIO } from './tema';
+import {
+  ACENTO,
+  ContenidoBoton,
+  ESTADO_INFO,
+  FUENTE_BODY,
+  FUENTE_BODY_SEMI,
+  NEUTRAL_400,
+  NEUTRAL_500,
+  NEUTRAL_700,
+  NEUTRAL_800,
+  styles,
+  TEXTO_PRIMARIO,
+} from './tema';
 import type { DespachosStackParamList } from './Navegacion';
 
 type Props = NativeStackScreenProps<DespachosStackParamList, 'Captura'>;
+
+// Recuadro de foto reutilizado por la evidencia y la foto de traslado.
+// Sin foto: todo el recuadro es el boton para abrir la camara, con consejos
+// adentro. Con foto: los controles (rotar, ampliar, repetir) van encima de la
+// imagen como botones redondos, y mientras se procesa el aviso aparece sobre
+// la misma foto -- asi la accion principal de la pantalla queda sola abajo.
+function VistaFoto({
+  uri,
+  deshabilitado,
+  procesando,
+  mensajeProcesando,
+  onTomar,
+  onRotar,
+  onAmpliar,
+  vacioTitulo,
+  vacioIcono,
+  consejos,
+}: {
+  uri: string | null;
+  deshabilitado: boolean;
+  procesando: boolean;
+  mensajeProcesando: string;
+  onTomar: () => void;
+  onRotar: () => void;
+  onAmpliar: () => void;
+  vacioTitulo: string;
+  vacioIcono: keyof typeof Ionicons.glyphMap;
+  consejos?: { icono: keyof typeof Ionicons.glyphMap; texto: string }[];
+}) {
+  if (!uri) {
+    return (
+      <Pressable
+        onPress={onTomar}
+        disabled={deshabilitado}
+        style={({ pressed }) => [estilosFoto.vacio, pressed && estilosFoto.vacioPresionado]}
+      >
+        <View style={estilosFoto.circuloCamara}>
+          <Ionicons name={vacioIcono} size={34} color={ACENTO} />
+        </View>
+        <Text style={estilosFoto.vacioTitulo}>{vacioTitulo}</Text>
+        {consejos ? (
+          <View style={estilosFoto.consejos}>
+            {consejos.map((c) => (
+              <View key={c.texto} style={estilosFoto.consejo}>
+                <Ionicons name={c.icono} size={14} color={NEUTRAL_400} />
+                <Text style={estilosFoto.consejoTexto}>{c.texto}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View>
+      <Pressable onPress={onAmpliar} disabled={procesando}>
+        <Image source={{ uri }} style={styles.preview} resizeMode="cover" />
+      </Pressable>
+
+      {procesando ? (
+        <View style={estilosFoto.velo}>
+          <ActivityIndicator color={TEXTO_PRIMARIO} size="large" />
+          <Text style={estilosFoto.veloTexto}>{mensajeProcesando}</Text>
+        </View>
+      ) : (
+        <View style={estilosFoto.controles}>
+          <BotonSobreFoto icono="reload-outline" etiqueta="Rotar" onPress={onRotar} deshabilitado={deshabilitado} />
+          <BotonSobreFoto icono="expand-outline" etiqueta="Ampliar" onPress={onAmpliar} deshabilitado={deshabilitado} />
+          <BotonSobreFoto icono="camera-reverse-outline" etiqueta="Repetir" onPress={onTomar} deshabilitado={deshabilitado} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+function BotonSobreFoto({
+  icono,
+  etiqueta,
+  onPress,
+  deshabilitado,
+}: {
+  icono: keyof typeof Ionicons.glyphMap;
+  etiqueta: string;
+  onPress: () => void;
+  deshabilitado: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={deshabilitado}
+      hitSlop={6}
+      style={({ pressed }) => [estilosFoto.botonSobreFoto, pressed && { opacity: 0.7 }]}
+    >
+      <Ionicons name={icono} size={18} color={TEXTO_PRIMARIO} />
+      <Text style={estilosFoto.botonSobreFotoTexto}>{etiqueta}</Text>
+    </Pressable>
+  );
+}
+
+const CONSEJOS_FOTO: { icono: keyof typeof Ionicons.glyphMap; texto: string }[] = [
+  { icono: 'sunny-outline', texto: 'Buena luz, sin sombras' },
+  { icono: 'scan-outline', texto: 'Documento completo' },
+  { icono: 'eye-outline', texto: 'Número de factura legible' },
+];
 
 export default function PantallaCapturaFoto({ navigation }: Props) {
   const {
@@ -408,42 +525,33 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
 
         <View style={styles.tarjeta}>
           <View style={styles.filaConIcono}>
-            <Text style={styles.etiquetaSeccion}>Evidencia</Text>
+            <Text style={styles.etiquetaSeccion}>Foto de la factura</Text>
             {documentoIdentificado ? (
               <Text style={styles.badgeIdentificador}>
                 {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
               </Text>
             ) : null}
           </View>
-          {foto ? (
-            <>
-              <Pressable onPress={() => setFotoAmpliada(foto)}>
-                <Image source={{ uri: foto }} style={styles.preview} resizeMode="cover" />
-                <View style={styles.iconoAmpliar}>
-                  <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
-                </View>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
-                onPress={rotarFoto}
-              >
-                <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
-              </Pressable>
-            </>
-          ) : (
-            <View style={[styles.preview, styles.previewVacio]}>
-              <Ionicons name="camera-outline" size={40} color={NEUTRAL_400} />
-              <Text style={styles.previewTexto}>Sin foto capturada</Text>
-              <Text style={styles.previewSubtexto}>
-                Encuadra el documento completo, con buena luz
-              </Text>
-            </View>
-          )}
+          <VistaFoto
+            uri={foto}
+            deshabilitado={cargando}
+            procesando={cargando && !necesitaTraslado}
+            mensajeProcesando={mensaje}
+            onTomar={tomarFoto}
+            onRotar={rotarFoto}
+            onAmpliar={() => foto && setFotoAmpliada(foto)}
+            vacioTitulo="Toca para tomar la foto"
+            vacioIcono="camera"
+            consejos={CONSEJOS_FOTO}
+          />
         </View>
 
         {necesitaTraslado ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Traslado requerido</Text>
+          <View style={[styles.tarjeta, estilosFoto.tarjetaTraslado]}>
+            <View style={styles.filaConIcono}>
+              <Ionicons name="swap-horizontal" size={18} color="#fbbf24" />
+              <Text style={[styles.etiquetaSeccion, { color: '#fbbf24' }]}>Traslado requerido</Text>
+            </View>
             <Text style={styles.previewSubtexto}>
               {necesitaTraslado.rechazado
                 ? 'La foto del traslado no menciona el número de esta factura -- prueba con la correcta.'
@@ -452,75 +560,47 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
                     necesitaTraslado.tipo
                   }" pertenece a otra sede -- para procesarlo desde acá, adjunta una foto del traslado.`}
             </Text>
-            {fotoTraslado ? (
-              <>
-                <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
-                  <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
-                  <View style={styles.iconoAmpliar}>
-                    <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
-                  onPress={rotarFotoTraslado}
-                >
-                  <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
-                </Pressable>
-              </>
-            ) : (
-              <View style={[styles.preview, styles.previewVacio]}>
-                <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />
-                <Text style={styles.previewTexto}>Sin foto de traslado</Text>
-              </View>
-            )}
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Pressable
-                style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
-                onPress={tomarFotoTraslado}
-              >
-                <ContenidoBoton
-                  icono={fotoTraslado ? 'camera-reverse-outline' : 'camera-outline'}
-                  texto={fotoTraslado ? 'Repetir foto' : 'Tomar foto'}
-                />
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
-                onPress={elegirTrasladoDeGaleria}
-              >
-                <ContenidoBoton icono="images-outline" texto="Galería" />
-              </Pressable>
-            </View>
+            <VistaFoto
+              uri={fotoTraslado}
+              deshabilitado={cargando}
+              procesando={cargando}
+              mensajeProcesando={mensaje}
+              onTomar={tomarFotoTraslado}
+              onRotar={rotarFotoTraslado}
+              onAmpliar={() => fotoTraslado && setFotoAmpliada(fotoTraslado)}
+              vacioTitulo="Toca para tomar la foto del traslado"
+              vacioIcono="document-attach"
+            />
+            <Pressable
+              disabled={cargando}
+              style={({ pressed }) => [estilosFoto.botonSecundario, pressed && styles.botonPresionado]}
+              onPress={elegirTrasladoDeGaleria}
+            >
+              <Ionicons name="images-outline" size={18} color={NEUTRAL_400} />
+              <Text style={estilosFoto.botonSecundarioTexto}>Elegir de galería</Text>
+            </Pressable>
           </View>
         ) : null}
 
-        {cargando ? (
+        {/* Aviso de procesando fuera de la foto solo si no hay foto donde
+            mostrarlo (no deberia pasar, pero que no quede sin feedback). */}
+        {cargando && !foto ? (
           <View style={[styles.tarjeta, styles.estadoBox]}>
-            <ActivityIndicator color="#c8631f" />
+            <ActivityIndicator color={ACENTO} />
             <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
           </View>
         ) : null}
 
         <View style={styles.acciones}>
-          <Pressable style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]} onPress={tomarFoto}>
-            <ContenidoBoton
-              icono={foto ? 'camera-reverse-outline' : 'camera-outline'}
-              texto={foto ? 'Repetir foto' : 'Tomar foto'}
-            />
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-            onPress={elegirDeGaleria}
-          >
-            <ContenidoBoton icono="images-outline" texto={foto ? 'Cambiar de galería' : 'Elegir de galería'} />
-          </Pressable>
-
+          {/* Una sola accion principal grande: tomar la foto, o enviarla si
+              ya esta. El resto queda como botones chicos lado a lado. */}
           {foto ? (
             <Pressable
               disabled={!puedeEnviar}
               style={({ pressed }) => [
                 styles.boton,
                 styles.botonPrimario,
+                estilosFoto.botonPrincipal,
                 !puedeEnviar && styles.botonDeshabilitado,
                 pressed && puedeEnviar && styles.botonPresionado,
               ]}
@@ -528,19 +608,45 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
             >
               <ContenidoBoton icono="checkmark-circle-outline" texto={cargando ? 'Procesando...' : 'Enviar y procesar'} />
             </Pressable>
-          ) : null}
-
-          {empleado?.rol !== 'punto_venta' ? (
+          ) : (
             <Pressable
-              style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-              onPress={() => {
-                setMensaje('');
-                navigation.navigate('Buscar');
-              }}
+              disabled={cargando}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                estilosFoto.botonPrincipal,
+                pressed && styles.botonPresionado,
+              ]}
+              onPress={tomarFoto}
             >
-              <ContenidoBoton icono="search-outline" texto="Consultar factura" />
+              <ContenidoBoton icono="camera-outline" texto="Tomar foto" />
             </Pressable>
-          ) : null}
+          )}
+
+          <View style={estilosFoto.filaSecundaria}>
+            <Pressable
+              disabled={cargando}
+              style={({ pressed }) => [estilosFoto.botonSecundario, pressed && styles.botonPresionado]}
+              onPress={elegirDeGaleria}
+            >
+              <Ionicons name="images-outline" size={18} color={NEUTRAL_400} />
+              <Text style={estilosFoto.botonSecundarioTexto}>{foto ? 'Cambiar de galería' : 'Galería'}</Text>
+            </Pressable>
+
+            {empleado?.rol !== 'punto_venta' ? (
+              <Pressable
+                disabled={cargando}
+                style={({ pressed }) => [estilosFoto.botonSecundario, pressed && styles.botonPresionado]}
+                onPress={() => {
+                  setMensaje('');
+                  navigation.navigate('Buscar');
+                }}
+              >
+                <Ionicons name="search-outline" size={18} color={NEUTRAL_400} />
+                <Text style={estilosFoto.botonSecundarioTexto}>Consultar factura</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       </ScrollView>
 
@@ -626,4 +732,89 @@ const estilosModalFactura = StyleSheet.create({
   filaItem: { flexDirection: 'row', justifyContent: 'space-between' },
   checkboxFaia: { marginTop: 4 },
   botonListo: { marginTop: 10 },
+});
+
+const estilosFoto = StyleSheet.create({
+  vacio: {
+    height: 300,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(200,99,31,0.55)',
+    backgroundColor: 'rgba(200,99,31,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 16,
+  },
+  vacioPresionado: { backgroundColor: 'rgba(200,99,31,0.14)' },
+  circuloCamara: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(200,99,31,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vacioTitulo: { color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_BODY_SEMI, textAlign: 'center' },
+  consejos: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 4 },
+  consejo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: NEUTRAL_800,
+  },
+  consejoTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY },
+  controles: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  botonSobreFoto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(15,21,32,0.78)',
+  },
+  botonSobreFotoTexto: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  velo: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15,21,32,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 20,
+  },
+  veloTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI, textAlign: 'center' },
+  tarjetaTraslado: { borderColor: 'rgba(251,191,36,0.45)' },
+  botonPrincipal: { paddingVertical: 18 },
+  filaSecundaria: { flexDirection: 'row', gap: 10 },
+  botonSecundario: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: 'transparent',
+  },
+  botonSecundarioTexto: { color: NEUTRAL_400, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
 });

@@ -2,7 +2,7 @@
 // documento ya existe por definicion, asi que reusa la misma pantalla de
 // confirmacion de items que el flujo de re-escaneo.
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -10,7 +10,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { buscarEntrega } from './api';
 import { mensajeError } from './errorMessages';
 import { HeaderEntrega, useEntrega } from './EntregaContext';
-import { ContenidoBoton, NEUTRAL_400, styles } from './tema';
+import { ACENTO, ContenidoBoton, NEUTRAL_400, NEUTRAL_500, styles, TEXTO_PRIMARIO } from './tema';
 import type { DespachosStackParamList } from './Navegacion';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
@@ -113,8 +113,25 @@ export default function PantallaBuscar({ navigation }: Props) {
       >
         <HeaderEntrega />
 
+        {/* Hero -- explica de entrada que hace esta pantalla, antes de
+            mostrar los campos. Puramente informativo, no toca estado. */}
+        <View style={[styles.tarjeta, estilosBuscar.hero]}>
+          <View style={estilosBuscar.heroIcono}>
+            <Ionicons name="receipt-outline" size={28} color={ACENTO} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={estilosBuscar.heroTitulo}>Consultar factura</Text>
+            <Text style={styles.previewSubtexto}>
+              Busca un documento ya registrado por tipo y número para cargar o actualizar sus cantidades.
+            </Text>
+          </View>
+        </View>
+
         <View style={styles.tarjeta}>
-          <Text style={styles.etiquetaSeccion}>Tipo de documento</Text>
+          <View style={styles.filaConIcono}>
+            <Ionicons name="pricetags-outline" size={15} color={NEUTRAL_400} />
+            <Text style={styles.etiquetaSeccion}>Tipo de documento</Text>
+          </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -129,7 +146,7 @@ export default function PantallaBuscar({ navigation }: Props) {
                     setTipoBusquedaCustom(false);
                     setTipoBusqueda(t);
                   }}
-                  style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                  style={[styles.chipSede, estilosBuscar.chipTipo, activo && styles.chipSedeActiva]}
                 >
                   <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>{t}</Text>
                 </Pressable>
@@ -140,7 +157,7 @@ export default function PantallaBuscar({ navigation }: Props) {
                 setTipoBusquedaCustom(true);
                 setTipoBusqueda('');
               }}
-              style={[styles.chipSede, styles.chipSedeFila, tipoBusquedaCustom && styles.chipSedeActiva]}
+              style={[styles.chipSede, estilosBuscar.chipTipo, styles.chipSedeFila, tipoBusquedaCustom && styles.chipSedeActiva]}
             >
               <Ionicons name="add-outline" size={14} color={tipoBusquedaCustom ? '#fff' : NEUTRAL_400} />
               <Text style={[styles.chipSedeTexto, tipoBusquedaCustom && styles.chipSedeTextoActivo]}>Otro</Text>
@@ -151,8 +168,8 @@ export default function PantallaBuscar({ navigation }: Props) {
             <TextInput
               value={tipoBusqueda}
               onChangeText={(texto) => setTipoBusqueda(texto.toUpperCase())}
-              placeholder="Escribí el tipo (ej: OT, NC)"
-              placeholderTextColor="#6b7688"
+              placeholder="Escribe el tipo (ej: OT, NC)"
+              placeholderTextColor={NEUTRAL_500}
               autoCapitalize="characters"
               style={styles.inputCantidad}
             />
@@ -160,18 +177,34 @@ export default function PantallaBuscar({ navigation }: Props) {
         </View>
 
         <View style={styles.tarjeta}>
-          <Text style={styles.etiquetaSeccion}>Indicativo / número</Text>
-          <TextInput
-            value={indicativoBusqueda}
-            onChangeText={setIndicativoBusqueda}
-            placeholder="Ej: 10254"
-            placeholderTextColor="#6b7688"
-            keyboardType="number-pad"
-            style={styles.inputCantidad}
-          />
+          <View style={styles.filaConIcono}>
+            <Ionicons name="barcode-outline" size={15} color={NEUTRAL_400} />
+            <Text style={styles.etiquetaSeccion}>Indicativo / número</Text>
+          </View>
+          <View style={estilosBuscar.inputConIcono}>
+            <Ionicons name="search" size={18} color={NEUTRAL_500} style={estilosBuscar.inputIcono} />
+            <TextInput
+              value={indicativoBusqueda}
+              onChangeText={setIndicativoBusqueda}
+              placeholder="Ej: 10254"
+              placeholderTextColor={NEUTRAL_500}
+              keyboardType="number-pad"
+              style={[styles.inputCantidad, estilosBuscar.inputConIconoTexto]}
+            />
+          </View>
         </View>
 
-        {mensaje ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
+        {cargando ? (
+          <View style={[styles.tarjeta, styles.estadoBox]}>
+            <ActivityIndicator color={ACENTO} />
+            <Text style={styles.mensajeSubiendo}>{mensaje || 'Buscando...'}</Text>
+          </View>
+        ) : mensaje ? (
+          <View style={estilosBuscar.errorBox}>
+            <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
+            <Text style={[styles.textoErrorInline, { flex: 1 }]}>{mensaje}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.acciones}>
           <Pressable
@@ -179,6 +212,7 @@ export default function PantallaBuscar({ navigation }: Props) {
             style={({ pressed }) => [
               styles.boton,
               styles.botonPrimario,
+              estilosBuscar.botonPrincipal,
               !puedeBuscar && styles.botonDeshabilitado,
               pressed && puedeBuscar && styles.botonPresionado,
             ]}
@@ -194,3 +228,31 @@ export default function PantallaBuscar({ navigation }: Props) {
     </SafeAreaView>
   );
 }
+
+const estilosBuscar = StyleSheet.create({
+  hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  heroIcono: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(200,99,31,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitulo: { color: TEXTO_PRIMARIO, fontSize: 17, fontFamily: 'SpaceGrotesk_700Bold' },
+  chipTipo: { minWidth: 54, alignItems: 'center' },
+  inputConIcono: { position: 'relative', justifyContent: 'center' },
+  inputIcono: { position: 'absolute', left: 14, zIndex: 1 },
+  inputConIconoTexto: { paddingLeft: 40 },
+  botonPrincipal: { paddingVertical: 18 },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(248,113,113,0.35)',
+    backgroundColor: 'rgba(248,113,113,0.08)',
+  },
+});
