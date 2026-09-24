@@ -24,9 +24,9 @@ import {
 } from './errorMessages';
 import { comprimirParaEnvio, formatearIdentificador, HeaderEntrega, useEntrega } from './EntregaContext';
 import { ContenidoBoton, ESTADO_INFO, NEUTRAL_400, styles, TEXTO_PRIMARIO } from './tema';
-import type { RootStackParamList } from './Navegacion';
+import type { DespachosStackParamList } from './Navegacion';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Captura'>;
+type Props = NativeStackScreenProps<DespachosStackParamList, 'Captura'>;
 
 export default function PantallaCapturaFoto({ navigation }: Props) {
   const {

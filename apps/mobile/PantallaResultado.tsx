@@ -10,9 +10,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { HeaderEntrega, useEntrega } from './EntregaContext';
 import { ContenidoBoton, ESTADO_INFO, styles } from './tema';
-import type { RootStackParamList } from './Navegacion';
+import type { DespachosStackParamList } from './Navegacion';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Resultado'>;
+type Props = NativeStackScreenProps<DespachosStackParamList, 'Resultado'>;
 
 export default function PantallaResultado({ route }: Props) {
   const { mensaje } = route.params;

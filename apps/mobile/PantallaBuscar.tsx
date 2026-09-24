@@ -11,7 +11,7 @@ import { buscarEntrega } from './api';
 import { mensajeError } from './errorMessages';
 import { HeaderEntrega, useEntrega } from './EntregaContext';
 import { ContenidoBoton, NEUTRAL_400, styles } from './tema';
-import type { RootStackParamList } from './Navegacion';
+import type { DespachosStackParamList } from './Navegacion';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
 // duplicates.py); TB9/RM3/RM2 no tienen sede duena. Solo sugerencia rapida
@@ -19,7 +19,7 @@ import type { RootStackParamList } from './Navegacion';
 // con el chip "+ Otro".
 const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB9', 'RM3', 'RM2'] as const;
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Buscar'>;
+type Props = NativeStackScreenProps<DespachosStackParamList, 'Buscar'>;
 
 export default function PantallaBuscar({ navigation }: Props) {
   const {

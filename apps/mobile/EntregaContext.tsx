@@ -3,22 +3,22 @@
 // solo componente gigante (PantallaCaptura, en App.tsx). Lo genuinamente
 // cross-fase queda aca; lo que solo usa una pantalla se quedo local a esa
 // pantalla (ver cada Pantalla*.tsx).
-import { createContext, useContext, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { Alert, Image, Pressable, Modal, PanResponder, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NavigationHelpers } from '@react-navigation/native';
 // Ver comentario junto a comprimirParaEnvio -- misma API legacy que ya
 // usaba PantallaCapturaFoto.tsx, movida aca para poder reusarla tambien
 // desde PantallaConfirmando.tsx (foto de traslado al confirmar).
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { cancelarEntrega, type Empleado, type ItemEntrega, type Sede } from './api';
-import { ACENTO, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, type EstadoFinal } from './tema';
+import { ACENTO, ESTILO_TAB_BAR, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, type EstadoFinal } from './tema';
 // Type-only -- se borra en compilacion, no genera dependencia circular en
 // runtime (Navegacion.tsx importa EntregaProvider mas abajo, pero solo el
 // componente, no este tipo).
-import type { RootStackParamList } from './Navegacion';
+import type { DespachosStackParamList } from './Navegacion';
 
 export type Situacion = 'nueva' | 'actualizable';
 
@@ -270,17 +270,23 @@ export function useEntrega(): EntregaContextValue {
 }
 
 export function EntregaProvider({
+  navigation,
   empleado,
   sede,
   cerrarSesion,
   children,
 }: {
+  // navigation del stack de Despachos -- llega por el `layout` del Navigator
+  // (ver Navegacion.tsx), no por useNavigation(): desde ahi useNavigation()
+  // devuelve la navigation de la TAB, no la del stack.
+  navigation: NavigationHelpers<DespachosStackParamList>;
   empleado: Empleado | null;
   sede: Sede | null;
   cerrarSesion: () => void;
   children: ReactNode;
 }) {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  // Navigation de la tab Despachos (el `layout` se renderiza dentro de ella).
+  const navigationTab = useNavigation();
 
   const [entregaId, setEntregaId] = useState<string | null>(null);
   const [situacion, setSituacion] = useState<Situacion | null>(null);
@@ -326,6 +332,17 @@ export function EntregaProvider({
     setFotoAmpliada(null);
     navigation.reset({ index: 0, routes: [{ name: 'Captura' }] });
   };
+
+  // Mientras hay un envio en vuelo (subida de evidencia, procesarEntrega,
+  // confirmar) se oculta la barra de tabs -- mismo criterio que el bloqueo de
+  // "Cerrar sesion" en HeaderEntrega: que el operador no salga a otra tab a
+  // mitad de un envio. Igual el estado del stack se conservaria (los tabs no
+  // se desmontan), esto es para que no quede la duda de si se envio o no.
+  useEffect(() => {
+    navigationTab.setOptions({
+      tabBarStyle: cargando ? [ESTILO_TAB_BAR, { display: 'none' }] : ESTILO_TAB_BAR,
+    });
+  }, [cargando, navigationTab]);
 
   // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
   // insertó la entrega si situacion es 'nueva' -- sin esto, cancelar dejaba
@@ -390,7 +407,9 @@ export function EntregaProvider({
   );
 }
 
-// Header compartido por las 4 pantallas de la sesion logueada -- antes era
+const RUTAS_CON_VOLVER: string[] = ['Buscar', 'Confirmando', 'Resultado'];
+
+// Header compartido por las pantallas de la sesion logueada -- antes era
 // JSX repetido dentro del unico componente gigante; ahora vive en un solo
 // lugar y decide su comportamiento por route.name en vez de por `fase`.
 export function HeaderEntrega() {
@@ -413,7 +432,9 @@ export function HeaderEntrega() {
   return (
     <View style={styles.header}>
       <View style={styles.headerFila}>
-        {route.name !== 'Captura' ? (
+        {/* Solo dentro del flujo de Despachos -- ni en Captura (inicio del
+            flujo) ni en las tabs de Traslados/Remisiones. */}
+        {RUTAS_CON_VOLVER.includes(route.name) ? (
           <Pressable onPress={volverAtras} disabled={cargando} hitSlop={8} style={styles.botonVolverHeader}>
             <Ionicons name="chevron-back" size={26} color={cargando ? NEUTRAL_500 : '#fff'} />
           </Pressable>

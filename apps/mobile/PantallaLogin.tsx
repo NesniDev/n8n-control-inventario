@@ -12,35 +12,82 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { fetchEmpleados, fetchSedes, loginConPin, type Empleado, type EmpleadoBasico, type Sede } from './api';
+import { fetchEmpleados, fetchSedes, loginConPin, type Lugar, type UsuarioLogin } from './api';
 import { mensajeError } from './errorMessages';
 
-// elegir: elegir sede, centrada en la pantalla. Al tocar una sede se abre un
-// popup con el personal de esa sede (ver modalBodeguero mas abajo) -- no es
-// otro paso, es una ventana encima de la misma pantalla. pin: recien ahi
-// confirma la identidad del bodeguero ya elegido (ver POST /auth/pin) -- no
-// busca a quien pertenece.
+// elegir: elegir lugar (sede o punto, segun quien use esta pantalla),
+// centrada en la pantalla. Al tocar uno se abre un popup con su personal
+// (ver modalBodeguero mas abajo) -- no es otro paso, es una ventana encima
+// de la misma pantalla. pin: recien ahi confirma la identidad de quien ya
+// se eligio (ver login), no busca a quien pertenece.
 type PasoLogin = 'elegir' | 'pin';
+
+// Default de cargarUsuarios (Despachos): 'faia_viewer' es de solo lectura de
+// fotos (panel /faia del dashboard, en el navegador) -- no tiene nada que
+// hacer en esta app (el login ya lo rechaza si se cuela, ver ingresar() mas
+// abajo), asi que ni se lo ofrece como opcion en el selector de "quien sos".
+// Este filtro es especifico de Despachos -- Traslados manda su propio
+// cargarUsuarios (ver Navegacion.tsx) sin este criterio.
+async function cargarEmpleadosDespachos(sedeId: string): Promise<UsuarioLogin[]> {
+  const lista = await fetchEmpleados(sedeId);
+  return lista.filter((e) => e.rol !== 'faia_viewer');
+}
+
+// Hasta este numero de lugares se muestran como tarjetas grandes lado a lado
+// (Despachos: un par de sedes); con mas se pasa a lista con buscador.
+const MAX_TARJETAS = 4;
+
+// Para el buscador: sin mayusculas ni tildes ("sachica" encuentra "Sáchica").
+const normalizar = (texto: string) =>
+  texto
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
 
 export default function PantallaLogin({
   onLogin,
+  titulo = 'Control de despachos',
+  // Palabra usada en "Elige tu {etiquetaLugar}" -- unico texto visible que
+  // menciona "sede" a secas; el resto de la pantalla es generico.
+  etiquetaLugar = 'sede',
+  cargarLugares = fetchSedes,
+  cargarUsuarios = cargarEmpleadosDespachos,
+  login = loginConPin,
+  // Traslados: no se elige persona, se entra como el punto -- cada punto
+  // tiene una unica cuenta (ver scripts/cargar_puntos.py). Con esto se salta
+  // el popup "¿Quién eres?" y se va directo al PIN.
+  usuarioUnicoPorLugar = false,
+  // Boton secundario debajo de la lista de lugares -- hoy solo lo usa la
+  // tab Traslados para ofrecer "Entrar como Supervisión" (ver
+  // LoginSupervision en Navegacion.tsx). Despachos no lo pasa, asi que su
+  // login queda exactamente igual que antes de agregar esto.
+  accionExtra,
 }: {
-  onLogin: (empleado: Empleado, sede: Sede) => void;
+  onLogin: (usuario: UsuarioLogin, lugar: Lugar) => void;
+  titulo?: string;
+  etiquetaLugar?: string;
+  cargarLugares?: () => Promise<Lugar[]>;
+  cargarUsuarios?: (lugarId: string) => Promise<UsuarioLogin[]>;
+  login?: (pin: string, usuarioId: string) => Promise<UsuarioLogin>;
+  usuarioUnicoPorLugar?: boolean;
+  accionExtra?: { texto: string; icono: keyof typeof Ionicons.glyphMap; onPress: () => void };
 }) {
   const [paso, setPaso] = useState<PasoLogin>('elegir');
 
-  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [sedes, setSedes] = useState<Lugar[]>([]);
   const [cargandoSedes, setCargandoSedes] = useState(true);
   const [errorSedes, setErrorSedes] = useState<string | null>(null);
-  const [sedeElegida, setSedeElegida] = useState<Sede | null>(null);
+  const [sedeElegida, setSedeElegida] = useState<Lugar | null>(null);
+  // Filtro del buscador -- solo se usa en modo lista (ver MAX_TARJETAS).
+  const [busquedaLugar, setBusquedaLugar] = useState('');
 
   // El popup de bodegueros es independiente de sedeElegida: cerrarlo (X o
   // tocar afuera) no borra cual sede quedo marcada, solo oculta la ventana.
   const [modalBodegueroAbierto, setModalBodegueroAbierto] = useState(false);
-  const [empleados, setEmpleados] = useState<EmpleadoBasico[]>([]);
+  const [empleados, setEmpleados] = useState<UsuarioLogin[]>([]);
   const [cargandoEmpleados, setCargandoEmpleados] = useState(false);
   const [errorEmpleados, setErrorEmpleados] = useState<string | null>(null);
-  const [empleadoElegido, setEmpleadoElegido] = useState<EmpleadoBasico | null>(null);
+  const [empleadoElegido, setEmpleadoElegido] = useState<UsuarioLogin | null>(null);
 
   const [pin, setPin] = useState('');
   const [cargandoLogin, setCargandoLogin] = useState(false);
@@ -49,7 +96,7 @@ export default function PantallaLogin({
   const cargarSedes = () => {
     setCargandoSedes(true);
     setErrorSedes(null);
-    fetchSedes()
+    cargarLugares()
       .then(setSedes)
       .catch((err) => setErrorSedes(mensajeError(err, 'sedes')))
       .finally(() => setCargandoSedes(false));
@@ -60,29 +107,51 @@ export default function PantallaLogin({
     cargarSedes();
   }, []);
 
-  const cargarEmpleados = (sede: Sede) => {
+  const cargarEmpleados = (sede: Lugar) => {
     setCargandoEmpleados(true);
     setErrorEmpleados(null);
-    fetchEmpleados(sede.id)
-      // 'faia_viewer' es de solo lectura de fotos (panel /faia del
-      // dashboard, en el navegador) -- no tiene nada que hacer en esta app
-      // (el login ya lo rechaza si se cuela, ver ingresar() mas abajo), asi
-      // que ni se lo ofrece como opcion en el selector de "quien sos".
-      .then((lista) => setEmpleados(lista.filter((e) => e.rol !== 'faia_viewer')))
+    cargarUsuarios(sede.id)
+      .then(setEmpleados)
       .catch((err) => setErrorEmpleados(mensajeError(err, 'empleados')))
       .finally(() => setCargandoEmpleados(false));
   };
 
   // Tocar una sede abre el popup con su personal -- la sede queda marcada
   // de una, el popup solo agrega el paso de elegir quien es.
-  const elegirSede = (sede: Sede) => {
+  const elegirSede = (sede: Lugar) => {
     setSedeElegida(sede);
     setEmpleadoElegido(null);
+    if (usuarioUnicoPorLugar) {
+      entrarConCuentaDelLugar(sede);
+      return;
+    }
     setModalBodegueroAbierto(true);
     cargarEmpleados(sede);
   };
 
-  const elegirEmpleado = (empleado: EmpleadoBasico) => {
+  // Modo usuarioUnicoPorLugar: se toma la cuenta del lugar sin preguntar.
+  // Si el lugar todavia no tiene cuenta (o falla la red) se muestra el error
+  // en el mismo popup de siempre, para no inventar otra UI de error.
+  const entrarConCuentaDelLugar = (sede: Lugar) => {
+    setCargandoEmpleados(true);
+    setErrorEmpleados(null);
+    cargarUsuarios(sede.id)
+      .then((cuentas) => {
+        if (cuentas.length > 0) {
+          elegirEmpleado(cuentas[0]);
+        } else {
+          setEmpleados([]);
+          setModalBodegueroAbierto(true);
+        }
+      })
+      .catch((err) => {
+        setErrorEmpleados(mensajeError(err, 'empleados'));
+        setModalBodegueroAbierto(true);
+      })
+      .finally(() => setCargandoEmpleados(false));
+  };
+
+  const elegirEmpleado = (empleado: UsuarioLogin) => {
     setEmpleadoElegido(empleado);
     setModalBodegueroAbierto(false);
     setPaso('pin');
@@ -102,12 +171,14 @@ export default function PantallaLogin({
     setCargandoLogin(true);
     setErrorLogin(null);
     try {
-      const empleado = await loginConPin(pin, empleadoElegido.id);
+      const empleado = await login(pin, empleadoElegido.id);
       // 'faia_viewer' es de solo lectura de fotos (panel /faia del
       // dashboard, en el navegador) -- no tiene nada que hacer en esta app,
       // ni siquiera entrar. El backend igual lo bloquea si de algun modo
       // llegara a fotografiar/confirmar (ver RolNoAutorizado), pero aca
-      // se corta antes, con un mensaje que tenga sentido.
+      // se corta antes, con un mensaje que tenga sentido. Chequeo generico
+      // (rol es opcional en UsuarioLogin): en Traslados el usuario logueado
+      // no tiene rol, asi que esta condicion simplemente nunca se cumple ahi.
       if (empleado.rol === 'faia_viewer') {
         setErrorLogin('Este usuario es solo para ver fotos FAIA -- entrá desde el panel en la computadora.');
         setPin('');
@@ -128,7 +199,7 @@ export default function PantallaLogin({
         <View style={styles.iconoCaja}>
           <Ionicons name="cube-outline" size={24} color={ACENTO} />
         </View>
-        <Text style={styles.marcaTexto}>Control de despachos</Text>
+        <Text style={styles.marcaTexto}>{titulo}</Text>
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -141,7 +212,7 @@ export default function PantallaLogin({
 
         {paso === 'elegir' ? (
           <View style={styles.seccion}>
-            <Text style={styles.tituloSeccionCentrado}>Elige tu sede</Text>
+            <Text style={styles.tituloSeccionCentrado}>Elige tu {etiquetaLugar}</Text>
             <Text style={[styles.subtituloSeccion, styles.subtituloCentrado]}>Desde dónde vas a trabajar hoy</Text>
 
             {cargandoSedes ? (
@@ -152,6 +223,42 @@ export default function PantallaLogin({
                 <Pressable onPress={cargarSedes} style={styles.botonReintentar}>
                   <Text style={styles.botonReintentarTexto}>Reintentar</Text>
                 </Pressable>
+              </View>
+            ) : sedes.length > MAX_TARJETAS ? (
+              // Muchos lugares (ej. los ~25 puntos de Traslados): las
+              // tarjetas lado a lado no entran, se pasa a una lista vertical
+              // con buscador por codigo o nombre.
+              <View style={styles.listaLugares}>
+                <TextInput
+                  value={busquedaLugar}
+                  onChangeText={setBusquedaLugar}
+                  placeholder={`Buscar ${etiquetaLugar}…`}
+                  placeholderTextColor={NEUTRAL_500}
+                  style={styles.inputBuscar}
+                  autoCorrect={false}
+                />
+                {sedes
+                  .filter((sede) => normalizar(sede.nombre).includes(normalizar(busquedaLugar.trim())))
+                  .map((sede) => {
+                    const activa = sedeElegida?.id === sede.id;
+                    return (
+                      <Pressable
+                        key={sede.id}
+                        onPress={() => elegirSede(sede)}
+                        style={({ pressed }) => [
+                          styles.filaPersona,
+                          activa && styles.tarjetaSedeActiva,
+                          pressed && styles.filaPersonaPresionada,
+                        ]}
+                      >
+                        <Ionicons name="business" size={18} color={ACENTO} />
+                        <Text style={styles.filaPersonaTexto} numberOfLines={1}>
+                          {sede.nombre}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={18} color={NEUTRAL_500} />
+                      </Pressable>
+                    );
+                  })}
               </View>
             ) : (
               <View style={styles.filaTarjetas}>
@@ -186,18 +293,39 @@ export default function PantallaLogin({
           </View>
         ) : null}
 
+        {paso === 'elegir' && accionExtra ? (
+          <Pressable
+            onPress={accionExtra.onPress}
+            style={({ pressed }) => [styles.botonAccionExtra, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name={accionExtra.icono} size={16} color={NEUTRAL_400} />
+            <Text style={styles.botonAccionExtraTexto}>{accionExtra.texto}</Text>
+          </Pressable>
+        ) : null}
+
         {paso === 'pin' && sedeElegida && empleadoElegido ? (
           <View style={styles.seccion}>
-            <View style={styles.identidadPin}>
-              <View style={styles.avatarGrande}>
-                <Text style={styles.avatarGrandeTexto}>{empleadoElegido.nombre.charAt(0).toUpperCase()}</Text>
+            {usuarioUnicoPorLugar ? (
+              // La cuenta se llama igual que el lugar -- mostrar avatar +
+              // nombre + badge repetiria lo mismo tres veces.
+              <View style={styles.identidadPin}>
+                <View style={styles.avatarGrande}>
+                  <Ionicons name="business" size={30} color={TEXTO_PRIMARIO} />
+                </View>
+                <Text style={styles.tituloSeccionCentrado}>{sedeElegida.nombre}</Text>
               </View>
-              <Text style={styles.tituloSeccionCentrado}>{empleadoElegido.nombre}</Text>
-              <View style={styles.badgeSede}>
-                <Ionicons name="location" size={12} color={ACENTO} />
-                <Text style={styles.badgeSedeTexto}>{sedeElegida.nombre}</Text>
+            ) : (
+              <View style={styles.identidadPin}>
+                <View style={styles.avatarGrande}>
+                  <Text style={styles.avatarGrandeTexto}>{empleadoElegido.nombre.charAt(0).toUpperCase()}</Text>
+                </View>
+                <Text style={styles.tituloSeccionCentrado}>{empleadoElegido.nombre}</Text>
+                <View style={styles.badgeSede}>
+                  <Ionicons name="location" size={12} color={ACENTO} />
+                  <Text style={styles.badgeSedeTexto}>{sedeElegida.nombre}</Text>
+                </View>
               </View>
-            </View>
+            )}
 
             <Text style={styles.etiquetaPin}>Ingresa tu PIN</Text>
 
@@ -276,7 +404,7 @@ export default function PantallaLogin({
                 </Pressable>
               </View>
             ) : empleados.length === 0 ? (
-              <Text style={styles.sinDatos}>Todavía no hay personal registrado en esta sede.</Text>
+              <Text style={styles.sinDatos}>Todavía no hay personal registrado en {etiquetaLugar === 'sede' ? 'esta sede' : `este ${etiquetaLugar}`}.</Text>
             ) : (
               <ScrollView style={styles.listaPersonasScroll}>
                 <View style={styles.listaPersonas}>
@@ -398,6 +526,18 @@ const styles = StyleSheet.create({
   // tocar y de leer que chips chicos, y muestran claramente cual quedo
   // seleccionada.
   filaTarjetas: { flexDirection: 'row', gap: 14 },
+  listaLugares: { gap: 8 },
+  inputBuscar: {
+    backgroundColor: NEUTRAL_800,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: TEXTO_PRIMARIO,
+    fontFamily: FUENTE_BODY,
+    fontSize: 15,
+  },
   tarjetaSede: {
     flex: 1,
     alignItems: 'center',
@@ -534,4 +674,17 @@ const styles = StyleSheet.create({
   botonDeshabilitado: { opacity: 0.4 },
   botonPresionado: { opacity: 0.75 },
   botonTexto: { color: TEXTO_PRIMARIO, fontFamily: FUENTE_DISPLAY_SEMI, fontSize: 15 },
+
+  // Boton secundario debajo de la lista de lugares (ver accionExtra) --
+  // deliberadamente discreto (sin fondo/borde), para no competir con las
+  // tarjetas de lugar de arriba.
+  botonAccionExtra: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 18,
+    paddingVertical: 10,
+  },
+  botonAccionExtraTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
 });

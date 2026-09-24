@@ -4,7 +4,15 @@
  * (stack traces, texto tecnico de Supabase, HTML de un 502 de Traefik, etc.).
  */
 
-export type ContextoError = 'login' | 'sedes' | 'empleados' | 'evidencia' | 'firma' | 'entrega' | 'devolucion';
+export type ContextoError =
+  | 'login'
+  | 'sedes'
+  | 'empleados'
+  | 'evidencia'
+  | 'firma'
+  | 'entrega'
+  | 'devolucion'
+  | 'traslado';
 
 const MENSAJE_SERVIDOR = 'Error del servidor. Intenta de nuevo en unos minutos.';
 const MENSAJE_SESION = 'PIN incorrecto o sesión no válida.';
@@ -17,6 +25,9 @@ const MENSAJES_POR_CONTEXTO: Record<ContextoError, string> = {
   firma: 'No se pudo subir la firma. Revisá tu conexión e intentá de nuevo.',
   entrega: 'No se pudo procesar la entrega. Intentá de nuevo.',
   devolucion: 'No se pudo registrar la devolución. Intentá de nuevo.',
+  // Cubre crear el traslado y confirmar la recepcion -- los dos caminos del
+  // flujo de Traslados que llaman a mensajeError (ver PantallaTraslado*.tsx).
+  traslado: 'No se pudo procesar el traslado. Intentá de nuevo.',
 };
 
 const MENSAJE_GENERICO = 'Ocurrió un error. Intenta de nuevo.';
@@ -62,6 +73,54 @@ export function esErrorFacturaYaRegistrada(err: unknown): boolean {
 }
 
 export const MENSAJE_FACTURA_YA_REGISTRADA = 'Esta factura ya fue registrada. No hace falta volver a fotografiarla.';
+
+// Caso puntual de RecepcionTraslado: alguien mas ya confirmo la recepcion de
+// este traslado (ver TrasladoYaRecibido en app/services/traslados_puntos.py
+// -- 409, no 422, es un conflicto de estado). Mismo criterio que
+// esErrorFacturaYaRegistrada de arriba.
+export function esErrorTrasladoYaRecibido(err: unknown): boolean {
+  return (
+    esErrorHttp(err) &&
+    err.status === 409 &&
+    typeof err.detail === 'string' &&
+    err.detail.includes('ya fue recibido')
+  );
+}
+
+export const MENSAJE_TRASLADO_YA_RECIBIDO = 'Este traslado ya fue recibido.';
+
+// Caso puntual de NovedadDetalle: otro supervisor (u otro dispositivo) ya
+// resolvio esta misma novedad primero (ver NovedadYaResuelta en
+// app/services/traslados_puntos.py -- 409, mismo criterio que
+// esErrorTrasladoYaRecibido).
+export function esErrorNovedadYaResuelta(err: unknown): boolean {
+  return (
+    esErrorHttp(err) &&
+    err.status === 409 &&
+    typeof err.detail === 'string' &&
+    err.detail.includes('ya fue resuelta')
+  );
+}
+
+export const MENSAJE_NOVEDAD_YA_RESUELTA = 'Esta novedad ya fue resuelta.';
+
+// Caso puntual de NovedadDetalle, distinto del de arriba: la novedad en si
+// sigue libre, pero el CONSECUTIVO que Erika eligio ya lo uso otra novedad
+// resuelta antes (indice unico parcial sobre consecutivo_solucion, ver
+// ConsecutivoDuplicado en app/services/traslados_puntos.py -- 409 con un
+// detail distinto del de esErrorNovedadYaResuelta, asi el movil no confunde
+// los dos casos). A diferencia de "ya fue resuelta", aca el formulario sigue
+// abierto -- Erika solo tiene que cambiar el numero.
+export function esErrorConsecutivoDuplicado(err: unknown): boolean {
+  return (
+    esErrorHttp(err) &&
+    err.status === 409 &&
+    typeof err.detail === 'string' &&
+    err.detail.includes('consecutivo ya está registrado')
+  );
+}
+
+export const MENSAJE_CONSECUTIVO_DUPLICADO = 'Ese consecutivo ya está registrado. Usa otro número.';
 
 // Caso puntual al CONFIRMAR (no al crear): el documento pertenece a otra
 // sede y la que esta confirmando no adjunto un traslado valido (ver

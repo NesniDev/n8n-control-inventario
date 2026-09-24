@@ -45,6 +45,12 @@ export const ESTILO_WEB_FIRMA = `
 // Los pesos vienen del archivo de fuente en si -- no combinar con
 // fontWeight numerico en los estilos de abajo, un font file cargado ya
 // tiene un solo peso real.
+// Estilo base de la barra de tabs (ver Navegacion.tsx) -- vive aca y no en
+// Navegacion.tsx porque EntregaContext.tsx tambien lo usa (para ocultar la
+// barra mientras hay un envio en curso) y un import de runtime entre esos dos
+// archivos seria circular.
+export const ESTILO_TAB_BAR = { backgroundColor: NEUTRAL_850, borderTopColor: NEUTRAL_700 };
+
 export const FUENTE_DISPLAY = 'SpaceGrotesk_700Bold';
 export const FUENTE_DISPLAY_SEMI = 'SpaceGrotesk_600SemiBold';
 export const FUENTE_BODY = 'Manrope_400Regular';

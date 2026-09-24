@@ -57,7 +57,7 @@ import {
   styles,
   TEXTO_PRIMARIO,
 } from './tema';
-import type { RootStackParamList } from './Navegacion';
+import type { DespachosStackParamList } from './Navegacion';
 
 // Lista fija de motivos de devolucion (mismos valores que el backend).
 const MOTIVOS_DEVOLUCION: { valor: MotivoDevolucion; texto: string }[] = [
@@ -186,7 +186,7 @@ function VisorFirma({
   );
 }
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Confirmando'>;
+type Props = NativeStackScreenProps<DespachosStackParamList, 'Confirmando'>;
 
 export default function PantallaConfirmando({ navigation }: Props) {
   const {

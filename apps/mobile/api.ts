@@ -9,6 +9,7 @@ import * as Crypto from 'expo-crypto';
 // import legacy explicito para no migrar ahora y evitar el warning de deprecacion.
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { EVIDENCIA_BUCKET, supabase } from './supabase';
 
@@ -87,6 +88,22 @@ export interface Sede {
   id: string;
   nombre: string;
   codigo: string;
+}
+
+// Formas minimas compartidas por PantallaLogin.tsx (generalizada para poder
+// loguear tanto Despachos -- sedes/empleados -- como Traslados -- puntos/
+// usuarios_punto) -- ver el plan "traslados-entre-puntos". Sede y Empleado
+// ya satisfacen estas formas estructuralmente (tienen de sobra), asi que no
+// hacen falta cambios en esos tipos.
+export interface Lugar {
+  id: string;
+  nombre: string;
+}
+
+export interface UsuarioLogin {
+  id: string;
+  nombre: string;
+  rol?: string;
 }
 
 /**
@@ -212,6 +229,33 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
 }
 
 /**
+ * react-native-signature-canvas entrega la firma como data URI PNG a la
+ * resolucion de la pantalla (~970x1670 px, ~95 KB medido con firmas reales).
+ * Antes de subirla se achica a 600 px de ancho y se pasa a WebP -- mismo
+ * criterio que comprimirParaEnvio para las fotos: de ~95 KB baja a ~15 KB sin
+ * perder legibilidad, lo que importa al subir desde bodegas con mala señal
+ * (un traslado lleva 3 firmas). manipulateAsync necesita un archivo, no un
+ * data URI, por eso pasa por un temporal en cache que se borra al terminar.
+ */
+async function firmaAWebp(firmaDataUri: string): Promise<ArrayBuffer> {
+  const base64 = firmaDataUri.replace(/^data:image\/\w+;base64,/, '');
+  const temporal = `${FileSystem.cacheDirectory}firma-${Date.now()}.png`;
+  await FileSystem.writeAsStringAsync(temporal, base64, { encoding: FileSystem.EncodingType.Base64 });
+  try {
+    const resultado = await manipulateAsync(temporal, [{ resize: { width: 600 } }], {
+      compress: 0.9,
+      format: SaveFormat.WEBP,
+      base64: true,
+    });
+    FileSystem.deleteAsync(resultado.uri, { idempotent: true }).catch(() => {});
+    if (!resultado.base64) throw new Error('No se pudo procesar la firma');
+    return decode(resultado.base64);
+  } finally {
+    FileSystem.deleteAsync(temporal, { idempotent: true }).catch(() => {});
+  }
+}
+
+/**
  * Sube la firma del cliente (dibujada con el dedo, ver <Signature> en
  * App.tsx) al mismo bucket que la evidencia, en su propio subpath. A
  * diferencia de subirEvidencia, recibe un data URI base64 ya en memoria
@@ -219,12 +263,13 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
  * upsert: true porque el path es por entregaId, no por hash de contenido --
  * una re-firma pisa la anterior, no hace falta dedup.
  */
-export async function subirFirma(entregaId: string, base64Png: string): Promise<{ url: string }> {
-  const base64 = base64Png.replace(/^data:image\/png;base64,/, '');
-  const path = `firmas/${entregaId}.png`;
+// Las firmas anteriores a este cambio quedaron como firmas/{id}.png -- sus
+// URLs siguen guardadas en entregas.firma_url y funcionan igual.
+export async function subirFirma(entregaId: string, firmaDataUri: string): Promise<{ url: string }> {
+  const path = `firmas/${entregaId}.webp`;
   const { error } = await supabase.storage
     .from(EVIDENCIA_BUCKET)
-    .upload(path, decode(base64), { contentType: 'image/png', upsert: true });
+    .upload(path, await firmaAWebp(firmaDataUri), { contentType: 'image/webp', upsert: true });
 
   if (error) {
     throw new Error(`No se pudo subir la firma: ${error.message}`);
@@ -426,4 +471,314 @@ export async function fetchHistorialEntrega(entregaId: string): Promise<LogEntry
   const params = new URLSearchParams({ entidad_id: entregaId, limit: '200' });
   const res = await fetch(`${API_BASE_URL}/logs?${params}`);
   return parsearRespuesta<LogEntry[]>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Traslados entre puntos -- flujo aparte de Despachos (ver Navegacion.tsx,
+// tab "Traslados" y el plan "traslados-entre-puntos"). Puntos y sus usuarios
+// son listas DISTINTAS de sedes/empleados, con su propio login por PIN.
+
+export interface Punto {
+  id: string;
+  nombre: string;
+  // Codigo corto (ej. "NPT") -- null en un punto que todavia no lo tiene
+  // cargado (ver scripts/cargar_puntos.py). Se usa para armar el
+  // consecutivo de una solucion de novedad (ver resolverNovedadTraslado).
+  codigo?: string | null;
+}
+
+/** Version liviana de UsuarioPunto para el paso "elegir quien esta usando el
+ * telefono" del login -- mismo criterio que EmpleadoBasico. */
+export interface UsuarioPuntoBasico {
+  id: string;
+  nombre: string;
+}
+
+export interface UsuarioPunto {
+  id: string;
+  nombre: string;
+  punto_id: string;
+}
+
+export async function fetchPuntos(): Promise<Punto[]> {
+  const res = await fetch(`${API_BASE_URL}/puntos`);
+  if (!res.ok) {
+    throw new Error(`No se pudieron cargar los puntos (${res.status})`);
+  }
+  return res.json();
+}
+
+/** Usuarios activos de un punto, para el paso intermedio del login (mismo
+ * patron que fetchEmpleados). */
+export async function fetchUsuariosPunto(puntoId: string): Promise<UsuarioPuntoBasico[]> {
+  const res = await fetch(`${API_BASE_URL}/puntos/${puntoId}/usuarios`);
+  if (!res.ok) {
+    throw new Error(`No se pudo cargar el personal de este punto (${res.status})`);
+  }
+  return res.json();
+}
+
+/** Login sin correo/contrasena para usuarios de punto -- mismo mecanismo que
+ * loginConPin, contra POST /puntos/auth/pin. */
+export async function loginPunto(pin: string, usuarioId: string): Promise<UsuarioPunto> {
+  const res = await fetch(`${API_BASE_URL}/puntos/auth/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin, usuario_id: usuarioId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? 'PIN incorrecto');
+  }
+  return res.json();
+}
+
+export type EstadoTraslado = 'en_transito' | 'recibido' | 'recibido_con_novedad';
+
+// Estado de la novedad de un traslado ya recibido con diferencia -- ver
+// app/models/traslado_punto.py. 'pendiente' apenas se registra la recepcion
+// con novedad; 'resuelta' cuando Supervision carga una solucion (ver
+// resolverNovedadTraslado). Ausente/null en un traslado sin novedad.
+export type EstadoNovedad = 'pendiente' | 'resuelta';
+
+export interface ItemTraslado {
+  id: string;
+  traslado_id: string;
+  producto: string;
+  marca: string;
+  presentacion: string;
+  cantidad: number;
+  // null hasta que el punto destino confirma la recepcion.
+  cantidad_recibida: number | null;
+  novedad: string | null;
+}
+
+export interface Traslado {
+  id: string;
+  consecutivo: number;
+  punto_origen_id: string;
+  punto_destino_id: string;
+  // Presentes en list/detail (join del backend) -- no en la respuesta de
+  // POST /traslados-puntos (recien creado, todavia no hace falta el nombre).
+  punto_origen_nombre?: string;
+  punto_destino_nombre?: string;
+  // Numero impreso en el talonario fisico (ver TrasladoPuntoCrear en el
+  // backend) -- null en los traslados creados antes de este campo.
+  numero_talonario?: string | null;
+  transportador_nombre: string;
+  fecha: string;
+  observaciones: string | null;
+  estado: EstadoTraslado;
+  firma_despacha_url: string | null;
+  firma_transporta_url: string | null;
+  firma_recibe_url: string | null;
+  creado_por: string;
+  recibido_por: string | null;
+  recibido_at: string | null;
+  novedad: string | null;
+  created_at: string;
+  // Presente en list (conteo, sin traer todos los items); items completo
+  // solo en detail/creacion/recepcion (ver GET /traslados-puntos/{id}).
+  cantidad_items?: number;
+  items?: ItemTraslado[];
+  // Novedad de Supervision (ver app/services/traslados_puntos.py
+  // resolver_novedad) -- null/undefined en un traslado sin novedad
+  // (en_transito o recibido completo). novedad_estado es 'pendiente' apenas
+  // se recibe con novedad, 'resuelta' una vez que Supervision carga la
+  // solucion; solucion/solucionado_por/solucionado_por_nombre/solucionado_at
+  // solo tienen valor una vez resuelta.
+  novedad_estado?: EstadoNovedad | null;
+  solucion?: string | null;
+  solucionado_por?: string | null;
+  // Join del backend (tabla supervisores) -- mismo criterio que
+  // punto_origen_nombre/punto_destino_nombre.
+  solucionado_por_nombre?: string | null;
+  solucionado_at?: string | null;
+  // Consecutivo bajo el que quedo archivada la solucion (ej. "NPT-1234", ver
+  // resolver_novedad en el backend) -- solo tiene valor una vez resuelta,
+  // mismo criterio que solucion/solucionado_por.
+  consecutivo_solucion?: string | null;
+}
+
+export interface ItemTrasladoCrear {
+  producto: string;
+  marca: string;
+  presentacion: string;
+  cantidad: number;
+}
+
+/**
+ * Crea el traslado -- lo llama FirmaTransportador despues de subir las 2
+ * firmas (despacha/transporta, ver subirFirmaTraslado). `id` lo genera el
+ * celular de antemano (ver TrasladoContext.tsx), porque el path de esas
+ * firmas en Storage depende de el.
+ */
+export async function crearTrasladoPunto(payload: {
+  id: string;
+  numero_talonario: string;
+  punto_origen_id: string;
+  punto_destino_id: string;
+  transportador_nombre: string;
+  fecha: string;
+  observaciones?: string;
+  items: ItemTrasladoCrear[];
+  firma_despacha_url: string;
+  firma_transporta_url: string;
+  creado_por: string;
+}): Promise<Traslado> {
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parsearRespuesta<Traslado>(res);
+}
+
+/** Enviados (origenId) o bandeja por recibir (destinoId) -- ver
+ * InicioTraslados/BandejaRecepcion. */
+export async function fetchTrasladosPunto(filtro: {
+  destinoId?: string;
+  origenId?: string;
+  estado?: EstadoTraslado;
+}): Promise<Traslado[]> {
+  const params = new URLSearchParams();
+  if (filtro.destinoId) params.set('destino_id', filtro.destinoId);
+  if (filtro.origenId) params.set('origen_id', filtro.origenId);
+  if (filtro.estado) params.set('estado', filtro.estado);
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos?${params}`);
+  return parsearRespuesta<Traslado[]>(res);
+}
+
+export async function fetchTrasladoPunto(id: string): Promise<Traslado> {
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos/${id}`);
+  return parsearRespuesta<Traslado>(res);
+}
+
+export interface ItemRecepcionEnvio {
+  id: string;
+  cantidad_recibida: number;
+  novedad?: string;
+}
+
+/**
+ * Confirma la recepcion en el punto destino -- 409 si alguien mas ya lo
+ * recibio primero (ver esErrorTrasladoYaRecibido en errorMessages.ts).
+ */
+export async function registrarRecepcion(
+  trasladoId: string,
+  payload: { items: ItemRecepcionEnvio[]; novedad?: string; firma_recibe_url: string; recibido_por: string }
+): Promise<Traslado> {
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos/${trasladoId}/recepcion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parsearRespuesta<Traslado>(res);
+}
+
+/**
+ * Sube una de las 3 firmas del traslado (despacha/transporta/recibe) al
+ * mismo bucket que la evidencia de Despachos, en su propio subpath -- mismo
+ * mecanismo que subirFirma, sin tocarla.
+ */
+export async function subirFirmaTraslado(
+  trasladoId: string,
+  rol: 'despacha' | 'transporta' | 'recibe',
+  firmaDataUri: string
+): Promise<{ url: string }> {
+  const path = `firmas-traslados/${trasladoId}-${rol}.webp`;
+  const { error } = await supabase.storage
+    .from(EVIDENCIA_BUCKET)
+    .upload(path, await firmaAWebp(firmaDataUri), { contentType: 'image/webp', upsert: true });
+
+  if (error) {
+    throw new Error(`No se pudo subir la firma: ${error.message}`);
+  }
+
+  const { data } = supabase.storage.from(EVIDENCIA_BUCKET).getPublicUrl(path);
+  return { url: data.publicUrl };
+}
+
+// ---------------------------------------------------------------------------
+// Supervision -- revisa y resuelve traslados recibidos con novedad (ver el
+// plan "supervision-novedades"). Cuenta propia (tabla supervisores), no
+// pertenece a un punto ni a una sede.
+
+export interface Supervisor {
+  id: string;
+  nombre: string;
+}
+
+export async function fetchSupervisores(): Promise<Supervisor[]> {
+  const res = await fetch(`${API_BASE_URL}/supervisores`);
+  if (!res.ok) {
+    throw new Error(`No se pudieron cargar los supervisores (${res.status})`);
+  }
+  return res.json();
+}
+
+/** Login sin correo/contrasena para supervisores -- mismo mecanismo que
+ * loginPunto/loginConPin, contra POST /supervisores/auth/pin. */
+export async function loginSupervisor(pin: string, supervisorId: string): Promise<Supervisor> {
+  const res = await fetch(`${API_BASE_URL}/supervisores/auth/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin, supervisor_id: supervisorId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? 'PIN incorrecto');
+  }
+  return res.json();
+}
+
+/** Bandeja de Supervision -- pendientes (el que lleva mas tiempo esperando,
+ * primero) o resueltas (la mas reciente, primero); ver
+ * GET /traslados-puntos/novedades en el backend. */
+export async function fetchNovedadesTraslado(estado: EstadoNovedad): Promise<Traslado[]> {
+  const params = new URLSearchParams({ estado });
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos/novedades?${params}`);
+  return parsearRespuesta<Traslado[]>(res);
+}
+
+/**
+ * Marca una novedad como resuelta -- 409 si alguien mas ya la resolvio
+ * primero (ver esErrorNovedadYaResuelta en errorMessages.ts, mismo criterio
+ * que esErrorTrasladoYaRecibido), o si el consecutivo elegido ya lo uso otra
+ * novedad (ver esErrorConsecutivoDuplicado, distinto detail del 409 anterior).
+ * `consecutivoCodigo` es el codigo del punto (ej. "NPT") y `consecutivoNumero`
+ * el numero tal cual lo tipeo Erika -- el backend arma "NPT-1234".
+ */
+export async function resolverNovedadTraslado(
+  trasladoId: string,
+  supervisorId: string,
+  solucion: string,
+  consecutivoCodigo: string,
+  consecutivoNumero: string
+): Promise<Traslado> {
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos/${trasladoId}/solucion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      supervisor_id: supervisorId,
+      solucion,
+      consecutivo_codigo: consecutivoCodigo,
+      consecutivo_numero: consecutivoNumero,
+    }),
+  });
+  return parsearRespuesta<Traslado>(res);
+}
+
+/**
+ * Busqueda de Supervision por consecutivo (ej. "NPT-1234", ver
+ * GET /traslados-puntos/buscar-consecutivo en el backend) -- solo entre
+ * novedades ya resueltas, `q` vacio o solo espacios nunca se manda (el
+ * backend igual devuelve [] en ese caso, esto evita el viaje de red).
+ */
+export async function buscarConsecutivoTraslado(q: string): Promise<Traslado[]> {
+  const texto = q.trim();
+  if (!texto) return [];
+  const params = new URLSearchParams({ q: texto });
+  const res = await fetch(`${API_BASE_URL}/traslados-puntos/buscar-consecutivo?${params}`);
+  return parsearRespuesta<Traslado[]>(res);
 }
