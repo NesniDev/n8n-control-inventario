@@ -115,6 +115,8 @@ export interface LogEvent {
   // si actor_id no matchea ningun empleado real (ej. "system" del sync en
   // tiempo real, o "supervisor" de una correccion del dashboard).
   actor_nombre?: string | null;
+  // Rol del actor, mismo join que actor_nombre -- null en los mismos casos.
+  actor_rol?: RolEmpleado | null;
   sede_id: string;
   resultado: string;
   // Varia segun `evento` -- ver app/services/logging_service.py. Para

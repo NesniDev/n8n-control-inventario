@@ -768,13 +768,15 @@ function ModalDetalleEntrega({
   // historial en su lugar (cada entrega_actualizada ya trae actor_id/
   // actor_nombre). null mientras el historial todavia esta cargando -- ahi
   // se usa como fallback el ultimo bodeguero de la fila (entrega.bodeguero_nombre).
+  // Se excluye punto_venta: tambien genera entrega_actualizada (sin items) al
+  // marcar FAIA, pero nunca confirma cantidades, asi que no es bodeguero.
   const bodeguerosHistorial =
     historial === null
       ? null
       : Array.from(
           new Map(
             historial
-              .filter((log) => log.evento === "entrega_actualizada")
+              .filter((log) => log.evento === "entrega_actualizada" && log.actor_rol !== "punto_venta")
               .map((log) => [log.actor_id, log.actor_nombre ?? log.actor_id] as const)
           ).values()
         );

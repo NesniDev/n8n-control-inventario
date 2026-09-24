@@ -35,9 +35,12 @@ async def listar_logs(
     # actor_id, null si no matchea (ej. actor_id="system" del sync en tiempo
     # real, o "supervisor" de una correccion del dashboard) -- el cliente ya
     # sabe caer al id crudo en ese caso, mismo criterio que en entregas.
+    # actor_rol sale del mismo join: el dashboard lo usa para no contar como
+    # "bodeguero" a punto_venta, que tambien genera entrega_actualizada (sin
+    # items) al marcar FAIA desde el modal de PantallaCapturaFoto.
     rows = await pool.fetch(
         f"""
-        select l.*, e.nombre as actor_nombre
+        select l.*, e.nombre as actor_nombre, e.rol as actor_rol
         from logs l
         left join empleados e on e.id::text = l.actor_id
         {where}
