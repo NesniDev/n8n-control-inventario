@@ -143,24 +143,30 @@ def _concepto_referencia_factura(tipo: str, indicativo_numero: str, concepto_tra
     el identificador de la factura para la que se pide la excepcion de sede
     -- no el tipo de la guia en si (que es TB, no el de la factura, asi que
     comparar el tipo del TRASLADO nunca coincidiria), sino la referencia
-    "TIPO-INDICATIVO" tal como aparece impresa en el documento fisico (ej.
-    "FEI-21542", con guion, no espacio). Buscar solo el numero suelto daria
-    falsos positivos con cualquier numero que aparezca en el concepto por
-    otro motivo -- el identificador completo es mucho mas dificil que
-    coincida por casualidad con un traslado ajeno.
+    "TIPO INDICATIVO" tal como aparece impresa en el documento fisico, con
+    guion o con espacio entre tipo y numero (ej. "Factura FEI 21542" o
+    "FEI-21542"). Buscar solo el numero suelto daria falsos positivos con
+    cualquier numero que aparezca en el concepto por otro motivo -- el
+    identificador completo es mucho mas dificil que coincida por casualidad
+    con un traslado ajeno.
 
     Substring normalizado (upper + strip) en vez de igualdad exacta: el
     concepto es texto libre, puede traer palabras alrededor (ej. "Traslado
-    por factura FEI-21542 a bodega central"). Tambien se colapsan los
-    espacios pegados a un guion (tipico ruido de OCR: "FEI - 21542",
-    "FEI -21542") -- sigue exigiendo el guion en si, no se relaja a buscar
-    el numero suelto (eso ya se descarto por dar falsos positivos)."""
+    por factura FEI-21542 a bodega central"). Todo separador (guion,
+    espacios, o espacios pegados a un guion -- tipico ruido de OCR: "FEI -
+    21542") se normaliza a un solo guion, asi "FEI 21542" y "FEI-21542"
+    coinciden igual. Sigue exigiendo el tipo pegado al numero, no se relaja
+    a buscar el numero suelto (eso ya se descarto por dar falsos
+    positivos)."""
     numero = indicativo_numero.strip().upper()
     if not numero:
         return False
-    identificador = f"{tipo.strip().upper()}-{numero}"
-    concepto_normalizado = re.sub(r"\s*-\s*", "-", concepto_traslado.strip().upper())
-    return identificador in concepto_normalizado
+
+    def _normalizar(texto: str) -> str:
+        return re.sub(r"\s*-\s*|\s+", "-", texto.strip().upper())
+
+    identificador = _normalizar(f"{tipo} {numero}")
+    return identificador in _normalizar(concepto_traslado)
 
 
 async def requiere_traslado(tipo: str, sede_id: str, entrega_id: str | None = None) -> bool:
