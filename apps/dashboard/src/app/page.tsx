@@ -22,6 +22,7 @@ import {
   type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { EstadoVacio, TarjetaConHeader } from "@/components/ui";
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
 // el backend); TB9/RM3/RM2 no tienen sede dueña -- sugerencia rápida del
@@ -209,11 +210,14 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
 
 type Tono = "neutral" | "bien" | "atencion" | "alerta";
 
-const TONO_CLASE: Record<Tono, string> = {
-  neutral: "border-neutral-800",
-  bien: "border-emerald-500/30",
-  atencion: "border-amber-500/30",
-  alerta: "border-red-500/30",
+// Punto de color junto al rotulo -- mismo patron que Indicador en
+// ranking/page.tsx (el color nunca es la unica pista: el titulo y el valor
+// siempre llevan texto al lado).
+const TONO_ACENTO: Record<Tono, string> = {
+  neutral: "#a3a3a3",
+  bien: "#059669",
+  atencion: "#f59e0b",
+  alerta: "#ef4444",
 };
 
 const TONO_TEXTO: Record<Tono, string> = {
@@ -223,8 +227,10 @@ const TONO_TEXTO: Record<Tono, string> = {
   alerta: "text-red-400",
 };
 
-// Tarjeta de resumen -- una idea, un numero grande, sin que haga falta leer
-// una tabla para entender como viene el dia.
+// Tarjeta de resumen (KPI) -- una idea, un numero grande, sin que haga falta
+// leer una tabla para entender como viene el dia. Mismo cascaron que
+// Indicador (rounded-xl border-neutral-800 bg-neutral-900/60 p-4), pero con
+// valor mas chico (estos numeros suelen ser de 1-2 digitos) y clickeable.
 function TarjetaResumen({
   titulo,
   valor,
@@ -244,13 +250,16 @@ function TarjetaResumen({
   return (
     <Contenedor
       onClick={onClick}
-      className={`flex flex-col gap-1 rounded-lg border text-left ${TONO_CLASE[tono]} bg-neutral-900/60 p-4 ${
+      className={`flex flex-col gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-left ${
         onClick ? "cursor-pointer transition hover:bg-neutral-900" : ""
       }`}
     >
-      <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">{titulo}</span>
-      <span className={`text-2xl font-semibold ${TONO_TEXTO[tono]}`}>{valor}</span>
-      {detalle ? <span className="text-xs text-neutral-500">{detalle}</span> : null}
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: TONO_ACENTO[tono] }} aria-hidden />
+        <span className="text-xs font-medium text-neutral-400">{titulo}</span>
+      </div>
+      <span className={`text-2xl font-semibold tabular-nums ${TONO_TEXTO[tono]}`}>{valor}</span>
+      {detalle ? <span className="truncate text-xs text-neutral-500">{detalle}</span> : null}
     </Contenedor>
   );
 }
@@ -274,7 +283,7 @@ function ModalConfirmar({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onCerrar}>
       <div
-        className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-neutral-800 bg-neutral-900 p-5"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-neutral-800 bg-neutral-900 p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-neutral-100">{titulo}</h3>
@@ -282,7 +291,7 @@ function ModalConfirmar({
         <div className="flex justify-end gap-2">
           <button
             onClick={onCerrar}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
           >
             Cancelar
           </button>
@@ -460,7 +469,7 @@ function FilaRevision({
               href={entrega.evidencia_url}
               target="_blank"
               rel="noreferrer"
-              className="ml-auto text-orange-400 hover:underline"
+              className="ml-auto text-sky-400 hover:underline"
             >
               Ver foto original ↗
             </a>
@@ -469,7 +478,7 @@ function FilaRevision({
                 href={entrega.traslado_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-orange-400 hover:underline"
+                className="text-sky-400 hover:underline"
               >
                 Ver traslado ↗
               </a>
@@ -479,7 +488,7 @@ function FilaRevision({
                 href={entrega.firma_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-orange-400 hover:underline"
+                className="text-sky-400 hover:underline"
               >
                 Ver firma ↗
               </a>
@@ -493,7 +502,7 @@ function FilaRevision({
                 onChange={(e) => setTipo(e.target.value.toUpperCase())}
                 list="tipos-documento-sugeridos"
                 placeholder="FEI, EDP, TB u otro"
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
               />
               {/* Sugerencia rapida de los tipos conocidos -- el input igual
                   acepta cualquier otro valor, el datalist no restringe. */}
@@ -508,7 +517,7 @@ function FilaRevision({
               <input
                 value={indicativoNumero}
                 onChange={(e) => setIndicativoNumero(e.target.value)}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
               />
             </label>
           </div>
@@ -520,7 +529,7 @@ function FilaRevision({
                 <select
                   value={sedeOrigenId}
                   onChange={(e) => setSedeOrigenId(e.target.value)}
-                  className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
                 >
                   <option value={sedeOrigenId}>{entrega.sede_origen_nombre ?? sedeOrigenId}</option>
                   {(sedes ?? [])
@@ -537,7 +546,7 @@ function FilaRevision({
                 <input
                   value={operadorId}
                   onChange={(e) => setOperadorId(e.target.value)}
-                  className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -546,7 +555,7 @@ function FilaRevision({
                   type="datetime-local"
                   value={capturadoAt}
                   onChange={(e) => setCapturadoAt(e.target.value)}
-                  className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
                 />
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -556,7 +565,7 @@ function FilaRevision({
                     value={trasladoTipo}
                     onChange={(e) => setTrasladoTipo(e.target.value.toUpperCase())}
                     placeholder="Opcional"
-                    className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
                   />
                 </label>
                 <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -565,7 +574,7 @@ function FilaRevision({
                     value={trasladoIndicativoNumero}
                     onChange={(e) => setTrasladoIndicativoNumero(e.target.value)}
                     placeholder="Opcional"
-                    className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
                   />
                 </label>
               </div>
@@ -583,7 +592,7 @@ function FilaRevision({
                 onChange={(e) => setNotaGeneral(e.target.value)}
                 placeholder="Observación general sobre todo el documento (opcional)"
                 rows={2}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
               />
             </label>
           </div>
@@ -606,7 +615,7 @@ function FilaRevision({
                           value={item.descripcion}
                           onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
                           disabled={sinPendiente}
-                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
                       <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -618,7 +627,7 @@ function FilaRevision({
                             actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
                           }
                           disabled={sinPendiente}
-                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+                          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
                       <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -629,14 +638,14 @@ function FilaRevision({
                           onChange={(e) =>
                             actualizarItem(item.id, { cantidad_pendiente: Number(e.target.value) })
                           }
-                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
+                          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
                         />
                       </label>
                     </div>
 
                     <button
                       onClick={() => alternarHistorial(item.id)}
-                      className="mt-2 text-xs text-orange-400 hover:underline"
+                      className="mt-2 text-xs text-sky-400 hover:underline"
                     >
                       🕒 {historialAbierto === item.id ? "Ocultar historial" : "Ver historial"}
                     </button>
@@ -675,7 +684,7 @@ function FilaRevision({
             <button
               onClick={() => guardar(false)}
               disabled={guardando}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:opacity-50"
             >
               {guardando ? "Guardando..." : "Guardar"}
             </button>
@@ -683,7 +692,7 @@ function FilaRevision({
               <button
                 onClick={() => guardar(true)}
                 disabled={guardando}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >
                 {guardando ? "Guardando..." : "Aprobar"}
               </button>
@@ -693,7 +702,7 @@ function FilaRevision({
                 onClick={() => setConfirmandoBorrado(true)}
                 disabled={guardando || !adminToken}
                 title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
-                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -807,7 +816,7 @@ function ModalDetalleEntrega({
       onClick={onCerrar}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-5"
+        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-900 p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -894,9 +903,9 @@ function ModalDetalleEntrega({
                   <img
                     src={foto.url}
                     alt={foto.etiqueta}
-                    className="h-24 w-full rounded-md border border-neutral-800 object-cover transition group-hover:border-orange-400/60"
+                    className="h-24 w-full rounded-md border border-neutral-800 object-cover transition group-hover:border-sky-400/60"
                   />
-                  <span className="text-center text-xs text-neutral-500 group-hover:text-orange-400">
+                  <span className="text-center text-xs text-neutral-500 group-hover:text-sky-400">
                     {foto.etiqueta} ↗
                   </span>
                 </a>
@@ -944,7 +953,7 @@ function ModalDetalleEntrega({
                 eventosHistorial.map(({ log, texto }, i) => (
                   <div key={log.id} className="flex gap-2">
                     <div className="flex flex-col items-center">
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-orange-400" />
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" />
                       {i < eventosHistorial.length - 1 ? (
                         <span className="w-px flex-1 bg-neutral-800" />
                       ) : null}
@@ -1003,7 +1012,7 @@ function ModalConfirmarLimpieza({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onCerrar}>
       <div
-        className="flex w-full max-w-md flex-col gap-4 rounded-lg border border-red-500/40 bg-neutral-900 p-5"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-red-500/40 bg-neutral-900 p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-red-400">Eliminar TODOS los productos</h3>
@@ -1017,7 +1026,7 @@ function ModalConfirmarLimpieza({
             value={palabra}
             onChange={(e) => setPalabra(e.target.value)}
             disabled={limpiando}
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 disabled:opacity-40"
+            className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
           />
         </label>
         {error ? <p className="text-xs text-red-400">{error}</p> : null}
@@ -1025,14 +1034,14 @@ function ModalConfirmarLimpieza({
           <button
             onClick={onCerrar}
             disabled={limpiando}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800 disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             onClick={confirmar}
             disabled={!habilitado || limpiando}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
+            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
           >
             {limpiando ? "Eliminando..." : "Eliminar todo"}
           </button>
@@ -1284,18 +1293,18 @@ export default function DashboardPage() {
             {enVivo ? "En vivo" : "Conectando..."}
           </span>
         </div>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
           <div className="flex items-center gap-2">
             <Link
               href="/productos"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
             >
               Catálogo de productos
             </Link>
             <Link
               href="/ranking"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
             >
               Ranking de productos
             </Link>
@@ -1314,16 +1323,21 @@ export default function DashboardPage() {
 
       {/* Habilita "Cancelar" en la cola de revision y la zona de peligro de
           abajo -- ver _verificar_token_admin en el backend. */}
-      <label className="flex max-w-xs flex-col gap-1 text-xs text-neutral-500">
-        Token de administrador
-        <input
-          type="password"
-          value={adminToken}
-          onChange={(e) => setAdminToken(e.target.value)}
-          placeholder="Requerido para borrar entregas"
-          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
-        />
-      </label>
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
+        <label className="flex w-full max-w-xs flex-col gap-1">
+          <span className="text-[10px] leading-none text-neutral-500">Token de administrador</span>
+          <input
+            type="password"
+            value={adminToken}
+            onChange={(e) => setAdminToken(e.target.value)}
+            placeholder="Requerido para borrar entregas"
+            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 [color-scheme:dark]"
+          />
+        </label>
+        <p className="max-w-sm text-xs text-neutral-600">
+          Habilita cancelar entregas en la cola y la zona de peligro más abajo.
+        </p>
+      </div>
 
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
@@ -1427,7 +1441,7 @@ export default function DashboardPage() {
       ) : null}
 
       <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
               Todas las entregas
@@ -1437,103 +1451,117 @@ export default function DashboardPage() {
           <div className="flex flex-wrap gap-2">
             <a
               href={EXPORT_XLSX_URL}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
             >
               📊 Reporte mensual (Excel)
             </a>
             <a
               href={EXPORT_CSV_URL}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
             >
               Descargar CSV (Excel)
             </a>
           </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+
+        {/* Tarjeta de filtros -- mismo patron que ranking/page.tsx: buscador
+            arriba, controles segmentados abajo, resumen "Mostrando" al pie. */}
+        <div className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
           <input
             value={busqueda}
             onChange={(e) => cambiarBusqueda(e.target.value)}
             placeholder="Buscar por tipo, número, sede, operador o producto..."
-            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 sm:flex-1"
+            className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 placeholder:text-neutral-600 [color-scheme:dark]"
           />
-          {/* Filtro por categoria, aparte del buscador -- se combina con AND
-              (ver entregasPorEstado/entregasFiltradas). */}
-          <div className="flex flex-wrap gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
-            {(
-              [
-                { valor: "todas", etiqueta: "Todas" },
-                { valor: "revision", etiqueta: "En revisión" },
-                { valor: "pendiente", etiqueta: "Sin terminar" },
-                { valor: "procesada", etiqueta: "Procesadas" },
-              ] as const
-            ).map((opcion) => (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Filtro por categoria, aparte del buscador -- se combina con AND
+                (ver entregasPorEstado/entregasFiltradas). */}
+            <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
+              {(
+                [
+                  { valor: "todas", etiqueta: "Todas" },
+                  { valor: "revision", etiqueta: "En revisión" },
+                  { valor: "pendiente", etiqueta: "Sin terminar" },
+                  { valor: "procesada", etiqueta: "Procesadas" },
+                ] as const
+              ).map((opcion) => (
+                <button
+                  key={opcion.valor}
+                  onClick={() => setFiltroEstado(opcion.valor)}
+                  aria-pressed={filtroEstado === opcion.valor}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    filtroEstado === opcion.valor
+                      ? "bg-neutral-100 text-neutral-900"
+                      : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  }`}
+                >
+                  {opcion.etiqueta}
+                </button>
+              ))}
+            </div>
+            {/* Filtro por rango de fechas -- calendario libre (desde/hasta),
+                con "Todo" para volver a no filtrar (ver fechasCalendarioAISO).
+                Se combina con AND junto al resto de filtros de esta tabla. */}
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1">
+              <label className="flex flex-col items-start">
+                <span className="text-[10px] leading-none text-neutral-500">Desde</span>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => cambiarFechaDesde(e.target.value)}
+                  max={fechaHasta || undefined}
+                  className="rounded bg-transparent px-1 py-1 text-xs text-neutral-200 [color-scheme:dark]"
+                />
+              </label>
+              <span className="px-1 text-xs text-neutral-600">–</span>
+              <label className="flex flex-col items-start">
+                <span className="text-[10px] leading-none text-neutral-500">Hasta</span>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => cambiarFechaHasta(e.target.value)}
+                  min={fechaDesde || undefined}
+                  className="rounded bg-transparent px-1 py-1 text-xs text-neutral-200 [color-scheme:dark]"
+                />
+              </label>
               <button
-                key={opcion.valor}
-                onClick={() => setFiltroEstado(opcion.valor)}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                  filtroEstado === opcion.valor
-                    ? "bg-emerald-600 text-white"
-                    : "text-neutral-400 hover:bg-neutral-800"
+                onClick={limpiarFechas}
+                aria-pressed={!fechaDesde && !fechaHasta}
+                className={`ml-1 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  !fechaDesde && !fechaHasta
+                    ? "bg-neutral-100 text-neutral-900"
+                    : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
                 }`}
               >
-                {opcion.etiqueta}
+                Todo
               </button>
-            ))}
-          </div>
-          {/* Filtro por rango de fechas -- calendario libre (desde/hasta),
-              con "Todo" para volver a no filtrar (ver fechasCalendarioAISO).
-              Se combina con AND junto al resto de filtros de esta tabla. */}
-          <div className="flex flex-wrap items-center gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-1">
-            <label className="flex flex-col items-start px-0.5">
-              <span className="text-[10px] leading-none text-neutral-500">Desde</span>
-              <input
-                type="date"
-                value={fechaDesde}
-                onChange={(e) => cambiarFechaDesde(e.target.value)}
-                max={fechaHasta || undefined}
-                className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
-              />
-            </label>
-            <span className="text-xs text-neutral-600">–</span>
-            <label className="flex flex-col items-start px-0.5">
-              <span className="text-[10px] leading-none text-neutral-500">Hasta</span>
-              <input
-                type="date"
-                value={fechaHasta}
-                onChange={(e) => cambiarFechaHasta(e.target.value)}
-                min={fechaDesde || undefined}
-                className="rounded bg-transparent px-1.5 py-1 text-xs text-neutral-300 [color-scheme:dark]"
-              />
-            </label>
-            <button
-              onClick={limpiarFechas}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                !fechaDesde && !fechaHasta
-                  ? "bg-emerald-600 text-white"
-                  : "text-neutral-400 hover:bg-neutral-800"
-              }`}
+            </div>
+            {/* Filtro por sede -- opt-in, no oculta que existen las demas
+                (default "todas"). */}
+            <select
+              value={sedeFiltro}
+              onChange={(e) => cambiarSedeFiltro(e.target.value)}
+              className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 [color-scheme:dark]"
             >
-              Todo
-            </button>
+              <option value="todas">Todas las sedes</option>
+              {(sedes ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </select>
           </div>
-          {/* Filtro por sede -- opt-in, no oculta que existen las demas
-              (default "todas"). */}
-          <select
-            value={sedeFiltro}
-            onChange={(e) => cambiarSedeFiltro(e.target.value)}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300"
-          >
-            <option value="todas">Todas las sedes</option>
-            {(sedes ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
+          <p className="text-xs text-neutral-500">
+            Mostrando{" "}
+            <span className="font-medium text-neutral-300">{entregasFiltradas?.length ?? 0}</span>{" "}
+            {entregasFiltradas?.length === 1 ? "entrega" : "entregas"}
+            {entregasTablaCargando ? <span className="ml-2 text-neutral-600">actualizando…</span> : null}
+          </p>
         </div>
-        <div className="overflow-x-auto rounded-lg border border-neutral-800">
+
+        <div className="overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-900/60">
           <table className="w-full min-w-[820px] text-left text-sm">
-            <thead className="bg-neutral-900 text-neutral-500">
+            <thead className="text-xs uppercase tracking-wide text-neutral-500">
               <tr>
                 <th className="px-4 py-2 font-medium">Tipo</th>
                 <th className="px-4 py-2 font-medium">Número</th>
@@ -1571,7 +1599,7 @@ export default function DashboardPage() {
                 return (
                   <Fragment key={e.id}>
                     <tr
-                      className="cursor-pointer"
+                      className="cursor-pointer transition hover:bg-neutral-800/60"
                       onClick={() =>
                         puedeEditar
                           ? setEnRevision(enRevision === e.id ? null : e.id)
@@ -1596,11 +1624,11 @@ export default function DashboardPage() {
                           ? "—"
                           : `${e.items.length} producto${e.items.length === 1 ? "" : "s"}`}
                       </td>
-                      <td className="px-4 py-2 text-neutral-300">
+                      <td className="px-4 py-2 tabular-nums text-neutral-300">
                         {sumar(e.items, "cantidad_entregada") + sumar(e.items, "cantidad_pendiente")}
                       </td>
-                      <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_entregada")}</td>
-                      <td className="px-4 py-2 text-neutral-300">{sumar(e.items, "cantidad_pendiente")}</td>
+                      <td className="px-4 py-2 tabular-nums text-neutral-300">{sumar(e.items, "cantidad_entregada")}</td>
+                      <td className="px-4 py-2 tabular-nums text-neutral-300">{sumar(e.items, "cantidad_pendiente")}</td>
                       <td className="px-4 py-2">
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(e).clase}`}
@@ -1622,7 +1650,7 @@ export default function DashboardPage() {
                             ev.stopPropagation();
                             setEntregaDetalle(e);
                           }}
-                          className="rounded-md border border-orange-500/40 px-2 py-1 text-xs font-medium text-orange-400 hover:bg-orange-500/10"
+                          className="rounded-md border border-sky-500/40 px-2 py-1 text-xs font-medium text-sky-400 transition hover:bg-sky-500/10"
                         >
                           Ver fotos
                         </button>
@@ -1649,38 +1677,40 @@ export default function DashboardPage() {
         {entregasTabla?.length === limiteTabla ? (
           <button
             onClick={() => setLimiteTabla((l) => l + 150)}
-            className="self-center rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-800"
+            className="self-center rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
           >
             Cargar más
           </button>
         ) : null}
       </section>
 
-      <section className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
-            Actividad reciente
-          </h2>
-          <p className="text-xs text-neutral-600">Qué fue pasando, en lenguaje simple.</p>
-        </div>
-        <ul className="flex flex-col divide-y divide-neutral-800 rounded-lg border border-neutral-800 p-1 text-sm">
-          {!logsCargando && actividad.length === 0 ? (
-            <li className="px-3 py-4 text-neutral-500">Sin actividad registrada todavía.</li>
-          ) : null}
-          {actividad.map(({ log, texto }) => (
-            <li key={log.id} className="flex items-center justify-between gap-3 px-3 py-2 text-neutral-300">
-              <span>{texto}</span>
-              <span className="shrink-0 text-xs text-neutral-600">
-                {new Date(log.timestamp).toLocaleString()}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <TarjetaConHeader
+        titulo="Actividad reciente"
+        subtitulo="Qué fue pasando, en lenguaje simple."
+        pildora={!logsCargando ? `${actividad.length}` : undefined}
+      >
+        {!logsCargando && actividad.length === 0 ? (
+          <EstadoVacio titulo="Sin actividad registrada todavía." />
+        ) : (
+          <ul className="flex flex-col divide-y divide-neutral-800">
+            {actividad.map(({ log, texto }) => (
+              <li
+                key={log.id}
+                className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm text-neutral-300 transition hover:bg-neutral-800/60"
+              >
+                <span>{texto}</span>
+                <span className="shrink-0 text-xs text-neutral-600">
+                  {new Date(log.timestamp).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </TarjetaConHeader>
 
-      <section className="flex flex-col gap-3 rounded-lg border border-red-500/30 p-4">
+      <section className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5">
         <div>
-          <h2 className="text-sm font-medium uppercase tracking-wide text-red-400">Zona de peligro</h2>
+          <h2 className="text-sm font-semibold text-red-400">Zona de peligro</h2>
           <p className="text-xs text-neutral-500">
             Borra permanentemente todas las entregas, productos y logs del sistema. Pensado para
             resetear datos de prueba -- no toca las fotos ya subidas a Storage.
@@ -1691,7 +1721,7 @@ export default function DashboardPage() {
             onClick={() => setLimpiezaModalAbierta(true)}
             disabled={!adminToken}
             title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
-            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
           >
             Eliminar TODOS los productos
           </button>
