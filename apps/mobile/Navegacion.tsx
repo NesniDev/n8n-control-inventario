@@ -264,6 +264,10 @@ export default function Navegacion() {
         tabBarInactiveTintColor: NEUTRAL_500,
         tabBarStyle: ESTILO_TAB_BAR,
         tabBarLabelStyle: { fontFamily: FUENTE_BODY_SEMI },
+        // Sin esto, la barra de tabs queda flotando arriba del teclado en
+        // Android (edge-to-edge, ver EvitarTeclado.tsx) cada vez que un campo
+        // de texto toma foco.
+        tabBarHideOnKeyboard: true,
       }}
     >
       <Tabs.Screen

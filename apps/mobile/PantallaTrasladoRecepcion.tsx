@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { fetchTrasladoPunto, registrarRecepcion, subirFirmaTraslado, type ItemTraslado, type Traslado } from './api';
+import EvitarTeclado from './EvitarTeclado';
 import { esErrorTrasladoYaRecibido, mensajeError, MENSAJE_TRASLADO_YA_RECIBIDO } from './errorMessages';
 import CampoFirma from './CampoFirma';
 import HojaModal from './HojaModal';
@@ -271,126 +272,128 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <HeaderTraslado />
+      <EvitarTeclado>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <HeaderTraslado />
 
-        <AvisoRol
-          icono="download-outline"
-          rol="Bodega destino · Recepción"
-          texto="Revisa lo que llegó. Si algo no llegó completo, toca «Con diferencia» en ese producto y anota la cantidad y la novedad. Al final firma como quien recibe."
-        />
-
-        <ResumenTraslado
-          numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
-          origen={traslado.punto_origen_nombre ?? '—'}
-          destino={traslado.punto_destino_nombre ?? punto?.nombre ?? '—'}
-          transportador={traslado.transportador_nombre}
-          talonario={traslado.numero_talonario}
-          fecha={traslado.fecha}
-          items={(traslado.items ?? []).map((item) => ({
-            key: item.id,
-            cantidad: item.cantidad,
-            producto: item.producto,
-            marca: item.marca ?? '',
-            presentacion: item.presentacion ?? '',
-          }))}
-          observaciones={traslado.observaciones ?? ''}
-          mostrarProductos={false}
-        />
-
-        <View style={estilos.encabezado}>
-          <Text style={styles.etiquetaSeccion}>Confirmar lo recibido</Text>
-          {/* Contador en vivo: cuantos productos estan ok y cuantos no. */}
-          <View style={[estilos.contador, conDiferencia > 0 && { backgroundColor: 'rgba(248,113,113,0.14)' }]}>
-            <Ionicons
-              name={conDiferencia > 0 ? 'alert-circle' : 'checkmark-circle'}
-              size={14}
-              color={conDiferencia > 0 ? ROJO : VERDE}
-            />
-            <Text style={[estilos.contadorTexto, { color: conDiferencia > 0 ? ROJO : VERDE }]}>
-              {conDiferencia > 0
-                ? `${conDiferencia} con diferencia`
-                : `${items.length} de ${items.length} completos`}
-            </Text>
-          </View>
-        </View>
-
-        {items.map((item) => {
-          const linea = lineas[item.id];
-          if (!linea) return null;
-          return (
-            <TarjetaProductoRecepcion
-              key={item.id}
-              item={item}
-              linea={linea}
-              onElegirCompleto={(completo) => elegirCompleto(item, completo)}
-              onCambiar={(cambios) => actualizarLinea(item.id, cambios)}
-            />
-          );
-        })}
-
-        {/* Novedad general y firma juntas, como Observaciones + Firma en el
-            despacho: es lo ultimo antes de confirmar. */}
-        <View style={styles.tarjeta}>
-          <CampoFirma
-            titulo="Firma de quien recibe"
-            valor={firmaRecibeBase64}
-            onCambio={(firma) => {
-              setFirmaRecibeBase64(firma);
-              confirmar(firma);
-            }}
-            disabled={cargando || !lineasValidas}
-            accesorio={
-              <Pressable
-                style={({ pressed }) => [
-                  styles.boton,
-                  { flex: 1 },
-                  hayNovedadGeneral && { borderColor: ROJO },
-                  pressed && styles.botonPresionado,
-                ]}
-                onPress={() => setNovedadAbierta(true)}
-              >
-                <ContenidoBoton
-                  icono={hayNovedadGeneral ? 'alert-circle' : 'alert-circle-outline'}
-                  texto="Novedad"
-                  color={hayNovedadGeneral ? TEXTO_PRIMARIO : NEUTRAL_400}
-                />
-              </Pressable>
-            }
+          <AvisoRol
+            icono="download-outline"
+            rol="Bodega destino · Recepción"
+            texto="Revisa lo que llegó. Si algo no llegó completo, toca «Con diferencia» en ese producto y anota la cantidad y la novedad. Al final firma como quien recibe."
           />
-          {hayNovedadGeneral ? (
-            <Pressable onPress={() => setNovedadAbierta(true)} style={styles.notaPreviewFila}>
-              <Ionicons name="alert-circle-outline" size={14} color={ROJO} />
-              <Text style={styles.notaPreview} numberOfLines={2}>
-                {novedadGeneral.trim()}
-              </Text>
-            </Pressable>
-          ) : null}
-          {!lineasValidas ? (
-            <Text style={styles.textoErrorInline}>
-              Revisa las cantidades marcadas en rojo antes de firmar.
-            </Text>
-          ) : (
-            <Text style={styles.previewSubtexto}>
-              {conDiferencia > 0
-                ? 'Al firmar, el traslado queda registrado como recibido con novedad.'
-                : 'Al firmar, el traslado queda registrado como recibido completo.'}
-            </Text>
-          )}
-        </View>
 
-        {mensaje && !cargando ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
-        {cargando ? (
-          <View style={[styles.tarjeta, styles.estadoBox]}>
-            <ActivityIndicator color={ACENTO} />
-            <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+          <ResumenTraslado
+            numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
+            origen={traslado.punto_origen_nombre ?? '—'}
+            destino={traslado.punto_destino_nombre ?? punto?.nombre ?? '—'}
+            transportador={traslado.transportador_nombre}
+            talonario={traslado.numero_talonario}
+            fecha={traslado.fecha}
+            items={(traslado.items ?? []).map((item) => ({
+              key: item.id,
+              cantidad: item.cantidad,
+              producto: item.producto,
+              marca: item.marca ?? '',
+              presentacion: item.presentacion ?? '',
+            }))}
+            observaciones={traslado.observaciones ?? ''}
+            mostrarProductos={false}
+          />
+
+          <View style={estilos.encabezado}>
+            <Text style={styles.etiquetaSeccion}>Confirmar lo recibido</Text>
+            {/* Contador en vivo: cuantos productos estan ok y cuantos no. */}
+            <View style={[estilos.contador, conDiferencia > 0 && { backgroundColor: 'rgba(248,113,113,0.14)' }]}>
+              <Ionicons
+                name={conDiferencia > 0 ? 'alert-circle' : 'checkmark-circle'}
+                size={14}
+                color={conDiferencia > 0 ? ROJO : VERDE}
+              />
+              <Text style={[estilos.contadorTexto, { color: conDiferencia > 0 ? ROJO : VERDE }]}>
+                {conDiferencia > 0
+                  ? `${conDiferencia} con diferencia`
+                  : `${items.length} de ${items.length} completos`}
+              </Text>
+            </View>
           </View>
-        ) : null}
-      </ScrollView>
+
+          {items.map((item) => {
+            const linea = lineas[item.id];
+            if (!linea) return null;
+            return (
+              <TarjetaProductoRecepcion
+                key={item.id}
+                item={item}
+                linea={linea}
+                onElegirCompleto={(completo) => elegirCompleto(item, completo)}
+                onCambiar={(cambios) => actualizarLinea(item.id, cambios)}
+              />
+            );
+          })}
+
+          {/* Novedad general y firma juntas, como Observaciones + Firma en el
+              despacho: es lo ultimo antes de confirmar. */}
+          <View style={styles.tarjeta}>
+            <CampoFirma
+              titulo="Firma de quien recibe"
+              valor={firmaRecibeBase64}
+              onCambio={(firma) => {
+                setFirmaRecibeBase64(firma);
+                confirmar(firma);
+              }}
+              disabled={cargando || !lineasValidas}
+              accesorio={
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.boton,
+                    { flex: 1 },
+                    hayNovedadGeneral && { borderColor: ROJO },
+                    pressed && styles.botonPresionado,
+                  ]}
+                  onPress={() => setNovedadAbierta(true)}
+                >
+                  <ContenidoBoton
+                    icono={hayNovedadGeneral ? 'alert-circle' : 'alert-circle-outline'}
+                    texto="Novedad"
+                    color={hayNovedadGeneral ? TEXTO_PRIMARIO : NEUTRAL_400}
+                  />
+                </Pressable>
+              }
+            />
+            {hayNovedadGeneral ? (
+              <Pressable onPress={() => setNovedadAbierta(true)} style={styles.notaPreviewFila}>
+                <Ionicons name="alert-circle-outline" size={14} color={ROJO} />
+                <Text style={styles.notaPreview} numberOfLines={2}>
+                  {novedadGeneral.trim()}
+                </Text>
+              </Pressable>
+            ) : null}
+            {!lineasValidas ? (
+              <Text style={styles.textoErrorInline}>
+                Revisa las cantidades marcadas en rojo antes de firmar.
+              </Text>
+            ) : (
+              <Text style={styles.previewSubtexto}>
+                {conDiferencia > 0
+                  ? 'Al firmar, el traslado queda registrado como recibido con novedad.'
+                  : 'Al firmar, el traslado queda registrado como recibido completo.'}
+              </Text>
+            )}
+          </View>
+
+          {mensaje && !cargando ? <Text style={styles.textoErrorInline}>{mensaje}</Text> : null}
+          {cargando ? (
+            <View style={[styles.tarjeta, styles.estadoBox]}>
+              <ActivityIndicator color={ACENTO} />
+              <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      </EvitarTeclado>
 
       <HojaModal visible={novedadAbierta} titulo="Novedad general" onCerrar={() => setNovedadAbierta(false)}>
         <TextInput

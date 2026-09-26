@@ -11,6 +11,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { fetchPuntos, type Punto } from './api';
+import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import CampoFirma from './CampoFirma';
 import HojaModal from './HojaModal';
@@ -121,155 +122,157 @@ export default function PantallaTrasladoNuevo() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <HeaderTraslado />
-
-        <AvisoRol
-          icono="cube-outline"
-          rol="Bodega origen · Despacho"
-          texto="Completa el destino, el transportador y los productos que salen. Al final firma como quien despacha."
-        />
-
-        <View style={styles.tarjeta}>
-          <Text style={styles.etiquetaSeccion}>Origen</Text>
-          <Text style={styles.previewSubtexto}>{punto?.nombre ?? '—'}</Text>
-
-          <Text style={styles.etiquetaSeccion}>Número de talonario</Text>
-          <TextInput
-            value={draft.numeroTalonario}
-            onChangeText={(v) =>
-              actualizarDraft({ numeroTalonario: v.replace(TALONARIO_CARACTERES_INVALIDOS, '').slice(0, 30) })
-            }
-            placeholder="Ej. 00231"
-            placeholderTextColor={NEUTRAL_500}
-            autoCapitalize="characters"
-            style={styles.inputCantidad}
-          />
-
-          <Text style={styles.etiquetaSeccion}>Destino</Text>
-          {cargandoPuntos ? (
-            <Text style={styles.previewSubtexto}>Cargando puntos...</Text>
-          ) : errorPuntos ? (
-            <Text style={styles.textoErrorInline}>{errorPuntos}</Text>
-          ) : puntosDestino.length === 0 ? (
-            <Text style={styles.previewSubtexto}>No hay otros puntos activos todavía.</Text>
-          ) : (
-            <CampoSelector
-              icono="location-outline"
-              texto={draft.destino?.nombre ?? null}
-              placeholder="Elegir punto destino"
-              onPress={() => setSelectorDestinoAbierto(true)}
-            />
-          )}
-
-          <Text style={styles.etiquetaSeccion}>Transportador</Text>
-          <TextInput
-            value={draft.transportadorNombre}
-            onChangeText={(v) => actualizarDraft({ transportadorNombre: v })}
-            placeholder="Nombre de quien transporta"
-            placeholderTextColor={NEUTRAL_500}
-            style={styles.inputCantidad}
-          />
-
-          <Text style={styles.etiquetaSeccion}>Fecha</Text>
-          <CampoSelector
-            icono="calendar-outline"
-            texto={fechaValida(draft.fecha) ? formatearFechaLarga(draft.fecha) : null}
-            placeholder="Elegir fecha"
-            onPress={() => setSelectorFechaAbierto(true)}
-          />
-        </View>
-
-        <Text style={styles.etiquetaSeccion}>Productos</Text>
-        {draft.items.length === 0 ? (
-          <Text style={styles.previewSubtexto}>Todavía no agregaste productos.</Text>
-        ) : (
-          draft.items.map((item) => {
-            const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
-            return (
-              // Tocar la tarjeta la edita en el mismo modal; la papelera la quita.
-              <Pressable
-                key={item.localId}
-                onPress={() => setProductoEditado(item)}
-                style={({ pressed }) => [styles.tarjeta, estilos.tarjetaProducto, pressed && { opacity: 0.8 }]}
-              >
-                <View style={estilos.cantidadCaja}>
-                  <Text style={estilos.cantidadTexto}>{item.cantidad}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.itemDescripcion} numberOfLines={2}>
-                    {item.producto}
-                  </Text>
-                  {detalle ? <Text style={styles.previewSubtexto}>{detalle}</Text> : null}
-                </View>
-                <Pressable onPress={() => quitarItem(item.localId)} hitSlop={10}>
-                  <Ionicons name="trash-outline" size={20} color={NEUTRAL_400} />
-                </Pressable>
-              </Pressable>
-            );
-          })
-        )}
-        <Pressable
-          style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-          onPress={() => setProductoEditado(null)}
+      <EvitarTeclado>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <ContenidoBoton icono="add-outline" texto="Agregar producto" color={NEUTRAL_400} />
-        </Pressable>
+          <HeaderTraslado />
 
-        {/* Observaciones y firma de quien despacha van juntas: es lo ultimo
-            que se completa antes de pasarle el celular al conductor. */}
-        <View style={styles.tarjeta}>
-          <CampoFirma
-            titulo="Firma de quien despacha"
-            valor={draft.firmaDespachaBase64}
-            onCambio={(firma) => actualizarDraft({ firmaDespachaBase64: firma })}
-            accesorio={
-              <Pressable
-                style={({ pressed }) => [
-                  styles.boton,
-                  { flex: 1 },
-                  hayObservaciones && { borderColor: ACENTO },
-                  pressed && styles.botonPresionado,
-                ]}
-                onPress={() => setObservacionesAbiertas(true)}
-              >
-                <ContenidoBoton
-                  icono={hayObservaciones ? 'chatbox-ellipses' : 'chatbox-ellipses-outline'}
-                  texto="Observaciones"
-                  color={hayObservaciones ? TEXTO_PRIMARIO : NEUTRAL_400}
-                />
-              </Pressable>
-            }
+          <AvisoRol
+            icono="cube-outline"
+            rol="Bodega origen · Despacho"
+            texto="Completa el destino, el transportador y los productos que salen. Al final firma como quien despacha."
           />
-          {hayObservaciones ? (
-            <Pressable onPress={() => setObservacionesAbiertas(true)} style={styles.notaPreviewFila}>
-              <Ionicons name="chatbox-ellipses-outline" size={14} color={NEUTRAL_500} />
-              <Text style={styles.notaPreview} numberOfLines={2}>
-                {draft.observaciones.trim()}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
 
-        <View style={styles.acciones}>
+          <View style={styles.tarjeta}>
+            <Text style={styles.etiquetaSeccion}>Origen</Text>
+            <Text style={styles.previewSubtexto}>{punto?.nombre ?? '—'}</Text>
+
+            <Text style={styles.etiquetaSeccion}>Número de talonario</Text>
+            <TextInput
+              value={draft.numeroTalonario}
+              onChangeText={(v) =>
+                actualizarDraft({ numeroTalonario: v.replace(TALONARIO_CARACTERES_INVALIDOS, '').slice(0, 30) })
+              }
+              placeholder="Ej. 00231"
+              placeholderTextColor={NEUTRAL_500}
+              autoCapitalize="characters"
+              style={styles.inputCantidad}
+            />
+
+            <Text style={styles.etiquetaSeccion}>Destino</Text>
+            {cargandoPuntos ? (
+              <Text style={styles.previewSubtexto}>Cargando puntos...</Text>
+            ) : errorPuntos ? (
+              <Text style={styles.textoErrorInline}>{errorPuntos}</Text>
+            ) : puntosDestino.length === 0 ? (
+              <Text style={styles.previewSubtexto}>No hay otros puntos activos todavía.</Text>
+            ) : (
+              <CampoSelector
+                icono="location-outline"
+                texto={draft.destino?.nombre ?? null}
+                placeholder="Elegir punto destino"
+                onPress={() => setSelectorDestinoAbierto(true)}
+              />
+            )}
+
+            <Text style={styles.etiquetaSeccion}>Transportador</Text>
+            <TextInput
+              value={draft.transportadorNombre}
+              onChangeText={(v) => actualizarDraft({ transportadorNombre: v })}
+              placeholder="Nombre de quien transporta"
+              placeholderTextColor={NEUTRAL_500}
+              style={styles.inputCantidad}
+            />
+
+            <Text style={styles.etiquetaSeccion}>Fecha</Text>
+            <CampoSelector
+              icono="calendar-outline"
+              texto={fechaValida(draft.fecha) ? formatearFechaLarga(draft.fecha) : null}
+              placeholder="Elegir fecha"
+              onPress={() => setSelectorFechaAbierto(true)}
+            />
+          </View>
+
+          <Text style={styles.etiquetaSeccion}>Productos</Text>
+          {draft.items.length === 0 ? (
+            <Text style={styles.previewSubtexto}>Todavía no agregaste productos.</Text>
+          ) : (
+            draft.items.map((item) => {
+              const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
+              return (
+                // Tocar la tarjeta la edita en el mismo modal; la papelera la quita.
+                <Pressable
+                  key={item.localId}
+                  onPress={() => setProductoEditado(item)}
+                  style={({ pressed }) => [styles.tarjeta, estilos.tarjetaProducto, pressed && { opacity: 0.8 }]}
+                >
+                  <View style={estilos.cantidadCaja}>
+                    <Text style={estilos.cantidadTexto}>{item.cantidad}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemDescripcion} numberOfLines={2}>
+                      {item.producto}
+                    </Text>
+                    {detalle ? <Text style={styles.previewSubtexto}>{detalle}</Text> : null}
+                  </View>
+                  <Pressable onPress={() => quitarItem(item.localId)} hitSlop={10}>
+                    <Ionicons name="trash-outline" size={20} color={NEUTRAL_400} />
+                  </Pressable>
+                </Pressable>
+              );
+            })
+          )}
           <Pressable
-            disabled={!puedeContinuar}
-            style={({ pressed }) => [
-              styles.boton,
-              styles.botonPrimario,
-              !puedeContinuar && styles.botonDeshabilitado,
-              pressed && puedeContinuar && styles.botonPresionado,
-            ]}
-            onPress={() => navigation.navigate('FirmaTransportador')}
+            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+            onPress={() => setProductoEditado(null)}
           >
-            <ContenidoBoton icono="arrow-forward-outline" texto="Continuar" />
+            <ContenidoBoton icono="add-outline" texto="Agregar producto" color={NEUTRAL_400} />
           </Pressable>
-        </View>
-      </ScrollView>
+
+          {/* Observaciones y firma de quien despacha van juntas: es lo ultimo
+              que se completa antes de pasarle el celular al conductor. */}
+          <View style={styles.tarjeta}>
+            <CampoFirma
+              titulo="Firma de quien despacha"
+              valor={draft.firmaDespachaBase64}
+              onCambio={(firma) => actualizarDraft({ firmaDespachaBase64: firma })}
+              accesorio={
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.boton,
+                    { flex: 1 },
+                    hayObservaciones && { borderColor: ACENTO },
+                    pressed && styles.botonPresionado,
+                  ]}
+                  onPress={() => setObservacionesAbiertas(true)}
+                >
+                  <ContenidoBoton
+                    icono={hayObservaciones ? 'chatbox-ellipses' : 'chatbox-ellipses-outline'}
+                    texto="Observaciones"
+                    color={hayObservaciones ? TEXTO_PRIMARIO : NEUTRAL_400}
+                  />
+                </Pressable>
+              }
+            />
+            {hayObservaciones ? (
+              <Pressable onPress={() => setObservacionesAbiertas(true)} style={styles.notaPreviewFila}>
+                <Ionicons name="chatbox-ellipses-outline" size={14} color={NEUTRAL_500} />
+                <Text style={styles.notaPreview} numberOfLines={2}>
+                  {draft.observaciones.trim()}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View style={styles.acciones}>
+            <Pressable
+              disabled={!puedeContinuar}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                !puedeContinuar && styles.botonDeshabilitado,
+                pressed && puedeContinuar && styles.botonPresionado,
+              ]}
+              onPress={() => navigation.navigate('FirmaTransportador')}
+            >
+              <ContenidoBoton icono="arrow-forward-outline" texto="Continuar" />
+            </Pressable>
+          </View>
+        </ScrollView>
+      </EvitarTeclado>
 
       <ModalSelectorPunto
         visible={selectorDestinoAbierto}

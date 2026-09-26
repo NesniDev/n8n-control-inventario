@@ -34,6 +34,7 @@ import {
   type MotivoDevolucion,
   type ResolucionDevolucion,
 } from './api';
+import EvitarTeclado from './EvitarTeclado';
 import { extraerNecesitaTrasladoConfirmar, mensajeError } from './errorMessages';
 import {
   comprimirParaEnvio,
@@ -715,543 +716,545 @@ export default function PantallaConfirmando({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <HeaderEntrega />
+      <EvitarTeclado>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <HeaderEntrega />
 
-        <View style={[styles.tarjeta, estilosDoc.tarjeta]}>
-          <View style={estilosDoc.encabezado}>
-            <View style={estilosDoc.iconoDocumento}>
-              <Ionicons
-                name={situacion === 'nueva' ? 'document-outline' : 'refresh-outline'}
-                size={22}
-                color={ACENTO}
-              />
-            </View>
-            <View style={{ flex: 1, gap: 3 }}>
-              <View style={estilosDoc.badges}>
-                {documentoIdentificado ? (
-                  <Text style={styles.badgeIdentificador}>
-                    {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
-                  </Text>
-                ) : null}
-                {estadoFinal ? (
-                  <View style={[estilosDoc.pill, { backgroundColor: ESTADO_INFO[estadoFinal].fondo }]}>
-                    <Ionicons name={ESTADO_INFO[estadoFinal].icono} size={11} color={ESTADO_INFO[estadoFinal].color} />
-                    <Text style={[estilosDoc.pillTexto, { color: ESTADO_INFO[estadoFinal].color }]}>
-                      {ESTADO_INFO[estadoFinal].texto}
-                    </Text>
-                  </View>
-                ) : null}
-                {esFaia ? (
-                  <View style={[estilosDoc.pill, { backgroundColor: 'rgba(200,99,31,0.14)' }]}>
-                    <Text style={[estilosDoc.pillTexto, { color: ACENTO }]}>FAIA</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={estilosDoc.titulo}>
-                {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.previewSubtexto}>
-            {situacion === 'nueva'
-              ? 'Es la primera vez que se procesa -- carga cuánto quedó pendiente de cada producto.'
-              : documentoCompleto
-                ? 'Ya se entregó todo lo de este documento.'
-                : 'Este documento ya existía y todavía le queda algo pendiente. Carga cuánto entregaste hoy de cada producto.'}
-          </Text>
-          {/* Nota a nivel documento completo -- distinta de la nota por
-              producto (ver mas abajo, dentro de cada item). Toda la fila
-              abre el modal del editor; el icono a la izquierda y el texto de
-              vista previa a la derecha son la misma accion. */}
-          <Pressable
-            style={({ pressed }) => [estilosDoc.notaGeneralFila, pressed && { opacity: 0.85 }]}
-            onPress={() => setNotaGeneralAbierta(true)}
-          >
-            <Ionicons
-              name={notaGeneral.trim() ? 'document-text' : 'document-text-outline'}
-              size={18}
-              color={notaGeneral.trim() ? ACENTO : NEUTRAL_400}
-            />
-            <Text style={[styles.notaPreview, estilosDoc.notaGeneralTexto]} numberOfLines={2}>
-              {notaGeneral.trim() ? notaGeneral : 'Sin nota general todavía -- toca para agregar una.'}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={NEUTRAL_500} />
-          </Pressable>
-        </View>
-
-        {items.map((item) => {
-          const bloqueado = situacion ? esBloqueado(item, situacion) : false;
-          const tope = situacion ? topeValor(item, situacion) : 0;
-          const valorTexto = item.valor.trim();
-          const marcadoTodoEntregado =
-            !bloqueado && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
-          // Se avisa en el momento, sin esperar el error del servidor --
-          // el backend igual lo vuelve a validar (ver PATCH /items).
-          const excedeTope =
-            !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
-          const notaAbierta = notasAbiertas.has(item.id);
-          // Editable siempre -- tambien en 'actualizable' (documento ya
-          // existente, re-escaneo o "Buscar"): el nombre leido por la IA
-          // la primera vez puede haber quedado mal y recien notarse en
-          // una entrega posterior. El backend ya soporta esta correccion
-          // sin importar la situacion (PATCH /entregas/{id}/items).
-          const puedeEditarDescripcion = true;
-          const descripcionAbierta = puedeEditarDescripcion && descripcionesAbiertas.has(item.id);
-          const descripcionEditada = item.descripcion.trim() !== item.descripcionOriginal.trim();
-          const cantidadLeidaAbierta = cantidadesLeidasAbiertas.has(item.id);
-          const cantidadLeidaEditada = item.cantidad_entregada !== item.cantidadEntregadaOriginal;
-          // Una devolucion es sobre algo ya entregado antes -- no tiene
-          // sentido en un documento recien escaneado sin confirmar
-          // (situacion 'nueva'), ni si todavia no se entrego nada.
-          // item.confirmado cubre el caso donde "Consultar factura"
-          // trae un documento que la IA leyo pero que nadie confirmo
-          // todavia: ahi situacion siempre llega como 'actualizable'
-          // (ver GET /entregas/buscar) y cantidad_entregada ya es el
-          // valor que leyo la IA, no lo que se entrego de verdad.
-          const puedeDevolver = situacion === 'actualizable' && item.cantidad_entregada > 0 && item.confirmado;
-          const devolucionAbierta = devolucionesAbiertas.has(item.id);
-          const draft = devolucionDrafts[item.id] ?? DEVOLUCION_DRAFT_VACIO;
-          const cantidadDevolucionValida =
-            /^\d+$/.test(draft.cantidad.trim()) &&
-            Number(draft.cantidad.trim()) > 0 &&
-            Number(draft.cantidad.trim()) <= item.cantidad_entregada;
-          const puedeRegistrarDevolucion =
-            cantidadDevolucionValida && !!draft.motivo && !!draft.resolucion && !cargando;
-          // El historial de fechas solo tiene sentido para algo que ya
-          // existia antes -- un documento recien escaneado sin confirmar
-          // todavia no tiene nada que mostrar.
-          const puedeVerHistorial = situacion === 'actualizable';
-          const historialAbierto = historialesAbiertos.has(item.id);
-          const eventosHistorial = historial ? historialDeItem(historial, item.id) : [];
-          return (
-            <View
-              key={item.id}
-              style={[
-                styles.tarjeta,
-                estilosItem.tarjeta,
-                marcadoTodoEntregado && estilosItem.tarjetaCompleta,
-                excedeTope && estilosItem.tarjetaError,
-              ]}
-            >
-              <View style={styles.filaTitulo}>
-                {descripcionAbierta ? (
-                  <TextInput
-                    value={item.descripcion}
-                    onChangeText={(texto) => actualizarDescripcionItem(item.id, texto)}
-                    placeholder="Nombre del producto"
-                    placeholderTextColor={NEUTRAL_500}
-                    autoFocus
-                    style={[styles.itemDescripcion, styles.inputDescripcion, { flex: 1 }]}
-                  />
-                ) : (
-                  <Text style={[styles.itemDescripcion, { flex: 1 }]}>
-                    {item.descripcion || 'Producto sin descripción'}
-                  </Text>
-                )}
-                {puedeEditarDescripcion ? (
-                  <Pressable onPress={() => alternarDescripcion(item.id)} hitSlop={8}>
-                    <Ionicons
-                      name={descripcionEditada || descripcionAbierta ? 'pencil' : 'pencil-outline'}
-                      size={20}
-                      color={descripcionEditada || descripcionAbierta ? ACENTO : NEUTRAL_400}
-                    />
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {/* Acciones secundarias del item, separadas del lapiz de
-                  arriba (edita el nombre, esta fila no toca el nombre). */}
-              <View style={styles.filaAccionesItem}>
-                {puedeVerHistorial ? (
-                  <BotonAccionItem
-                    icono={historialAbierto ? 'time' : 'time-outline'}
-                    activo={historialAbierto}
-                    onPress={() => alternarHistorial(item.id)}
-                  />
-                ) : null}
-                {puedeDevolver ? (
-                  <BotonAccionItem
-                    icono="arrow-undo-outline"
-                    activo={devolucionAbierta}
-                    onPress={() => alternarDevolucion(item.id)}
-                  />
-                ) : null}
-                <BotonAccionItem
-                  icono={item.nota.trim() ? 'document-text' : 'document-text-outline'}
-                  activo={!!item.nota.trim() || notaAbierta}
-                  onPress={() => alternarNota(item.id)}
+          <View style={[styles.tarjeta, estilosDoc.tarjeta]}>
+            <View style={estilosDoc.encabezado}>
+              <View style={estilosDoc.iconoDocumento}>
+                <Ionicons
+                  name={situacion === 'nueva' ? 'document-outline' : 'refresh-outline'}
+                  size={22}
+                  color={ACENTO}
                 />
               </View>
-
-              {historialAbierto ? (
-                <View style={styles.historialCaja}>
-                  {cargandoHistorial ? (
-                    <ActivityIndicator color="#c8631f" />
-                  ) : eventosHistorial.length === 0 ? (
-                    <Text style={styles.previewSubtexto}>Sin cambios registrados todavía.</Text>
-                  ) : (
-                    eventosHistorial.map((evento, i) => (
-                      <View key={i} style={styles.historialFila}>
-                        <Text style={styles.historialFecha}>
-                          {new Date(evento.fecha).toLocaleString('es-CO', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </Text>
-                        {evento.esDevolucion ? (
-                          <Ionicons name="arrow-undo-outline" size={12} color={NEUTRAL_500} />
-                        ) : null}
-                        <Text style={styles.historialTexto}>{evento.texto}</Text>
-                      </View>
-                    ))
-                  )}
-                </View>
-              ) : null}
-
-              {notaAbierta ? (
-                <TextInput
-                  value={item.nota}
-                  onChangeText={(texto) => actualizarNotaItem(item.id, texto)}
-                  placeholder="Información adicional de este producto (opcional)"
-                  placeholderTextColor="#6b7688"
-                  style={styles.inputNota}
-                  multiline
-                />
-              ) : item.nota.trim() ? (
-                <Pressable onPress={() => alternarNota(item.id)} style={styles.notaPreviewFila}>
-                  <Ionicons name="document-text-outline" size={13} color={NEUTRAL_400} />
-                  <Text style={styles.notaPreview}>{item.nota}</Text>
-                </Pressable>
-              ) : null}
-
-              {devolucionAbierta ? (
-                <View style={styles.devolucionCaja}>
-                  <Text style={styles.etiquetaSeccion}>Devolución -- cantidad</Text>
-                  <TextInput
-                    value={draft.cantidad}
-                    onChangeText={(texto) => actualizarDraftDevolucion(item.id, { cantidad: texto })}
-                    keyboardType="number-pad"
-                    placeholder={`Máx. ${item.cantidad_entregada}`}
-                    placeholderTextColor="#6b7688"
-                    style={styles.inputCantidad}
-                  />
-
-                  <Text style={styles.etiquetaSeccion}>Motivo</Text>
-                  <View style={styles.chipsEnvoltorio}>
-                    {MOTIVOS_DEVOLUCION.map((m) => {
-                      const activo = draft.motivo === m.valor;
-                      return (
-                        <Pressable
-                          key={m.valor}
-                          onPress={() => actualizarDraftDevolucion(item.id, { motivo: m.valor })}
-                          style={[styles.chipSede, activo && styles.chipSedeActiva]}
-                        >
-                          <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
-                            {m.texto}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-
-                  <Text style={styles.etiquetaSeccion}>Resolución</Text>
-                  <View style={styles.chipsEnvoltorio}>
-                    {(
-                      [
-                        { valor: 'reposicion', texto: 'Repongo', icono: 'repeat-outline' },
-                        { valor: 'reembolso', texto: 'Reembolso', icono: 'cash-outline' },
-                      ] as const
-                    ).map((r) => {
-                      const activo = draft.resolucion === r.valor;
-                      return (
-                        <Pressable
-                          key={r.valor}
-                          onPress={() => actualizarDraftDevolucion(item.id, { resolucion: r.valor })}
-                          style={[styles.chipSede, styles.chipSedeFila, activo && styles.chipSedeActiva]}
-                        >
-                          <Ionicons name={r.icono} size={14} color={activo ? '#fff' : NEUTRAL_400} />
-                          <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
-                            {r.texto}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                  {draft.resolucion === 'reposicion' ? (
-                    <Text style={styles.previewSubtexto}>Vuelve a quedar pendiente -- se debe re-entregar.</Text>
-                  ) : draft.resolucion === 'reembolso' ? (
-                    <Text style={styles.previewSubtexto}>
-                      Se devuelve el dinero -- esa cantidad queda cerrada, no vuelve a pendiente.
+              <View style={{ flex: 1, gap: 3 }}>
+                <View style={estilosDoc.badges}>
+                  {documentoIdentificado ? (
+                    <Text style={styles.badgeIdentificador}>
+                      {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
                     </Text>
                   ) : null}
-
-                  <Pressable
-                    disabled={!puedeRegistrarDevolucion}
-                    style={({ pressed }) => [
-                      styles.boton,
-                      styles.botonPrimario,
-                      !puedeRegistrarDevolucion && styles.botonDeshabilitado,
-                      pressed && puedeRegistrarDevolucion && styles.botonPresionado,
-                    ]}
-                    onPress={() => registrarDevolucionItem(item)}
-                  >
-                    <ContenidoBoton icono="arrow-undo-outline" texto="Registrar devolución" />
-                  </Pressable>
+                  {estadoFinal ? (
+                    <View style={[estilosDoc.pill, { backgroundColor: ESTADO_INFO[estadoFinal].fondo }]}>
+                      <Ionicons name={ESTADO_INFO[estadoFinal].icono} size={11} color={ESTADO_INFO[estadoFinal].color} />
+                      <Text style={[estilosDoc.pillTexto, { color: ESTADO_INFO[estadoFinal].color }]}>
+                        {ESTADO_INFO[estadoFinal].texto}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {esFaia ? (
+                    <View style={[estilosDoc.pill, { backgroundColor: 'rgba(200,99,31,0.14)' }]}>
+                      <Text style={[estilosDoc.pillTexto, { color: ACENTO }]}>FAIA</Text>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-
-              {situacion === 'nueva' ? (
-                <View style={styles.filaConIcono}>
-                  {cantidadLeidaAbierta ? (
-                    <>
-                      <Text style={styles.previewSubtexto}>Cantidad leída:</Text>
-                      <TextInput
-                        value={String(item.cantidad_entregada)}
-                        onChangeText={(texto) => actualizarCantidadLeidaItem(item.id, texto)}
-                        keyboardType="number-pad"
-                        autoFocus
-                        style={[styles.inputCantidad, styles.inputCantidadLeida]}
-                      />
-                    </>
-                  ) : (
-                    <Text style={styles.previewSubtexto}>Cantidad leída: {item.cantidad_entregada}</Text>
-                  )}
-                  <Pressable onPress={() => alternarCantidadLeida(item.id)} hitSlop={8}>
-                    <Ionicons
-                      name={cantidadLeidaEditada || cantidadLeidaAbierta ? 'pencil' : 'pencil-outline'}
-                      size={16}
-                      color={cantidadLeidaEditada || cantidadLeidaAbierta ? ACENTO : NEUTRAL_400}
-                    />
-                  </Pressable>
-                </View>
-              ) : (
-                <Text style={styles.previewSubtexto}>Pendiente actual: {item.cantidad_pendiente}</Text>
-              )}
-
-              {bloqueado ? null : (
-                <Pressable
-                  onPress={() => alternarTodoEntregado(item)}
-                  hitSlop={8}
-                  style={[styles.checkboxFila, estilosItem.checkboxFila, marcadoTodoEntregado && estilosItem.checkboxFilaMarcada]}
-                >
-                  <View style={[styles.checkboxCaja, marcadoTodoEntregado && styles.checkboxCajaMarcada]}>
-                    {marcadoTodoEntregado ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
-                  </View>
-                  <Text style={[styles.checkboxTexto, marcadoTodoEntregado && estilosItem.checkboxTextoMarcado]}>
-                    {situacion === 'nueva'
-                      ? 'Todo entregado (nada pendiente)'
-                      : 'Entregué todo lo que quedaba pendiente'}
-                  </Text>
-                </Pressable>
-              )}
-
-              <Text style={styles.etiquetaSeccion}>
-                {situacion === 'nueva' ? 'Cantidad pendiente' : 'Entregado hoy'}
-              </Text>
-              <TextInput
-                value={item.valor}
-                onChangeText={(valor) => actualizarValorItem(item.id, valor)}
-                keyboardType="number-pad"
-                placeholder="0"
-                placeholderTextColor={NEUTRAL_500}
-                editable={!bloqueado && !marcadoTodoEntregado}
-                style={[
-                  styles.inputCantidad,
-                  estilosItem.inputCantidad,
-                  (bloqueado || marcadoTodoEntregado) && styles.inputCantidadBloqueado,
-                  excedeTope && styles.inputCantidadError,
-                ]}
-              />
-              {bloqueado ? (
-                <View style={styles.filaConIcono}>
-                  <Ionicons name="lock-closed-outline" size={13} color={NEUTRAL_500} />
-                  <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
-                </View>
-              ) : marcadoTodoEntregado ? (
-                // El input debajo sigue mostrando "cuanto entregaste hoy" (lo
-                // que realmente se manda al backend), no el pendiente final --
-                // sin esto no queda claro que tildar el check deja el
-                // pendiente en 0 al guardar (se ve el numero de hoy, que
-                // encima suele coincidir con el total si nunca se entrego
-                // nada de este producto).
-                <View style={styles.filaConIcono}>
-                  <Ionicons name="checkmark-circle-outline" size={14} color="#34d399" />
-                  <Text style={styles.previewSubtexto}>Vas a entregar los {tope} pendientes — quedará en 0.</Text>
-                </View>
-              ) : excedeTope ? (
-                <View style={styles.filaConIcono}>
-                  <Ionicons name="alert-circle-outline" size={14} color="#f87171" />
-                  <Text style={styles.textoErrorInline}>
-                    {situacion === 'nueva'
-                      ? `No puede quedar pendiente más de ${tope} (lo que leyó la IA).`
-                      : `No puedes entregar más de ${tope} — es lo único que queda pendiente.`}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          );
-        })}
-
-        {items.length === 0 ? (
-          <View style={[styles.tarjeta, styles.filaConIcono]}>
-            <Ionicons name="alert-circle-outline" size={18} color={NEUTRAL_400} />
-            <Text style={[styles.previewSubtexto, { flex: 1 }]}>
-              La IA no encontró productos en la foto — repite la captura con mejor luz/encuadre.
-            </Text>
-          </View>
-        ) : null}
-
-        {documentoCompleto ? (
-          <View style={[styles.badgeEstado, { backgroundColor: 'rgba(52,211,153,0.12)' }]}>
-            <Ionicons name="checkmark-circle" size={22} color="#34d399" />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.badgeEstadoTitulo, { color: '#34d399' }]}>Documento completo</Text>
-              <Text style={styles.badgeEstadoMensaje}>
-                No queda nada pendiente de entregar en este documento.
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        {necesitaTrasladoConfirmar ? (
-          <View style={[styles.tarjeta, estilosDoc.tarjetaTraslado]}>
-            <View style={styles.filaConIcono}>
-              <Ionicons name="swap-horizontal" size={18} color="#fbbf24" />
-              <Text style={[styles.etiquetaSeccion, { color: '#fbbf24' }]}>Traslado requerido</Text>
+                <Text style={estilosDoc.titulo}>
+                  {situacion === 'nueva' ? 'Documento nuevo' : 'Ya estaba registrado'}
+                </Text>
+              </View>
             </View>
             <Text style={styles.previewSubtexto}>
-              {`El documento "${
-                formatearIdentificador(
-                  necesitaTrasladoConfirmar.tipo,
-                  necesitaTrasladoConfirmar.indicativo_numero
-                ) ?? necesitaTrasladoConfirmar.tipo
-              }" pertenece a otra sede -- para confirmarlo desde acá, adjunta una foto del traslado.`}
+              {situacion === 'nueva'
+                ? 'Es la primera vez que se procesa -- carga cuánto quedó pendiente de cada producto.'
+                : documentoCompleto
+                  ? 'Ya se entregó todo lo de este documento.'
+                  : 'Este documento ya existía y todavía le queda algo pendiente. Carga cuánto entregaste hoy de cada producto.'}
             </Text>
-            {fotoTraslado ? (
-              <>
-                <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
-                  <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
-                  <View style={styles.iconoAmpliar}>
-                    <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+            {/* Nota a nivel documento completo -- distinta de la nota por
+                producto (ver mas abajo, dentro de cada item). Toda la fila
+                abre el modal del editor; el icono a la izquierda y el texto de
+                vista previa a la derecha son la misma accion. */}
+            <Pressable
+              style={({ pressed }) => [estilosDoc.notaGeneralFila, pressed && { opacity: 0.85 }]}
+              onPress={() => setNotaGeneralAbierta(true)}
+            >
+              <Ionicons
+                name={notaGeneral.trim() ? 'document-text' : 'document-text-outline'}
+                size={18}
+                color={notaGeneral.trim() ? ACENTO : NEUTRAL_400}
+              />
+              <Text style={[styles.notaPreview, estilosDoc.notaGeneralTexto]} numberOfLines={2}>
+                {notaGeneral.trim() ? notaGeneral : 'Sin nota general todavía -- toca para agregar una.'}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={NEUTRAL_500} />
+            </Pressable>
+          </View>
+
+          {items.map((item) => {
+            const bloqueado = situacion ? esBloqueado(item, situacion) : false;
+            const tope = situacion ? topeValor(item, situacion) : 0;
+            const valorTexto = item.valor.trim();
+            const marcadoTodoEntregado =
+              !bloqueado && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
+            // Se avisa en el momento, sin esperar el error del servidor --
+            // el backend igual lo vuelve a validar (ver PATCH /items).
+            const excedeTope =
+              !bloqueado && situacion !== null && /^\d+$/.test(valorTexto) && Number(valorTexto) > tope;
+            const notaAbierta = notasAbiertas.has(item.id);
+            // Editable siempre -- tambien en 'actualizable' (documento ya
+            // existente, re-escaneo o "Buscar"): el nombre leido por la IA
+            // la primera vez puede haber quedado mal y recien notarse en
+            // una entrega posterior. El backend ya soporta esta correccion
+            // sin importar la situacion (PATCH /entregas/{id}/items).
+            const puedeEditarDescripcion = true;
+            const descripcionAbierta = puedeEditarDescripcion && descripcionesAbiertas.has(item.id);
+            const descripcionEditada = item.descripcion.trim() !== item.descripcionOriginal.trim();
+            const cantidadLeidaAbierta = cantidadesLeidasAbiertas.has(item.id);
+            const cantidadLeidaEditada = item.cantidad_entregada !== item.cantidadEntregadaOriginal;
+            // Una devolucion es sobre algo ya entregado antes -- no tiene
+            // sentido en un documento recien escaneado sin confirmar
+            // (situacion 'nueva'), ni si todavia no se entrego nada.
+            // item.confirmado cubre el caso donde "Consultar factura"
+            // trae un documento que la IA leyo pero que nadie confirmo
+            // todavia: ahi situacion siempre llega como 'actualizable'
+            // (ver GET /entregas/buscar) y cantidad_entregada ya es el
+            // valor que leyo la IA, no lo que se entrego de verdad.
+            const puedeDevolver = situacion === 'actualizable' && item.cantidad_entregada > 0 && item.confirmado;
+            const devolucionAbierta = devolucionesAbiertas.has(item.id);
+            const draft = devolucionDrafts[item.id] ?? DEVOLUCION_DRAFT_VACIO;
+            const cantidadDevolucionValida =
+              /^\d+$/.test(draft.cantidad.trim()) &&
+              Number(draft.cantidad.trim()) > 0 &&
+              Number(draft.cantidad.trim()) <= item.cantidad_entregada;
+            const puedeRegistrarDevolucion =
+              cantidadDevolucionValida && !!draft.motivo && !!draft.resolucion && !cargando;
+            // El historial de fechas solo tiene sentido para algo que ya
+            // existia antes -- un documento recien escaneado sin confirmar
+            // todavia no tiene nada que mostrar.
+            const puedeVerHistorial = situacion === 'actualizable';
+            const historialAbierto = historialesAbiertos.has(item.id);
+            const eventosHistorial = historial ? historialDeItem(historial, item.id) : [];
+            return (
+              <View
+                key={item.id}
+                style={[
+                  styles.tarjeta,
+                  estilosItem.tarjeta,
+                  marcadoTodoEntregado && estilosItem.tarjetaCompleta,
+                  excedeTope && estilosItem.tarjetaError,
+                ]}
+              >
+                <View style={styles.filaTitulo}>
+                  {descripcionAbierta ? (
+                    <TextInput
+                      value={item.descripcion}
+                      onChangeText={(texto) => actualizarDescripcionItem(item.id, texto)}
+                      placeholder="Nombre del producto"
+                      placeholderTextColor={NEUTRAL_500}
+                      autoFocus
+                      style={[styles.itemDescripcion, styles.inputDescripcion, { flex: 1 }]}
+                    />
+                  ) : (
+                    <Text style={[styles.itemDescripcion, { flex: 1 }]}>
+                      {item.descripcion || 'Producto sin descripción'}
+                    </Text>
+                  )}
+                  {puedeEditarDescripcion ? (
+                    <Pressable onPress={() => alternarDescripcion(item.id)} hitSlop={8}>
+                      <Ionicons
+                        name={descripcionEditada || descripcionAbierta ? 'pencil' : 'pencil-outline'}
+                        size={20}
+                        color={descripcionEditada || descripcionAbierta ? ACENTO : NEUTRAL_400}
+                      />
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {/* Acciones secundarias del item, separadas del lapiz de
+                    arriba (edita el nombre, esta fila no toca el nombre). */}
+                <View style={styles.filaAccionesItem}>
+                  {puedeVerHistorial ? (
+                    <BotonAccionItem
+                      icono={historialAbierto ? 'time' : 'time-outline'}
+                      activo={historialAbierto}
+                      onPress={() => alternarHistorial(item.id)}
+                    />
+                  ) : null}
+                  {puedeDevolver ? (
+                    <BotonAccionItem
+                      icono="arrow-undo-outline"
+                      activo={devolucionAbierta}
+                      onPress={() => alternarDevolucion(item.id)}
+                    />
+                  ) : null}
+                  <BotonAccionItem
+                    icono={item.nota.trim() ? 'document-text' : 'document-text-outline'}
+                    activo={!!item.nota.trim() || notaAbierta}
+                    onPress={() => alternarNota(item.id)}
+                  />
+                </View>
+
+                {historialAbierto ? (
+                  <View style={styles.historialCaja}>
+                    {cargandoHistorial ? (
+                      <ActivityIndicator color="#c8631f" />
+                    ) : eventosHistorial.length === 0 ? (
+                      <Text style={styles.previewSubtexto}>Sin cambios registrados todavía.</Text>
+                    ) : (
+                      eventosHistorial.map((evento, i) => (
+                        <View key={i} style={styles.historialFila}>
+                          <Text style={styles.historialFecha}>
+                            {new Date(evento.fecha).toLocaleString('es-CO', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </Text>
+                          {evento.esDevolucion ? (
+                            <Ionicons name="arrow-undo-outline" size={12} color={NEUTRAL_500} />
+                          ) : null}
+                          <Text style={styles.historialTexto}>{evento.texto}</Text>
+                        </View>
+                      ))
+                    )}
                   </View>
+                ) : null}
+
+                {notaAbierta ? (
+                  <TextInput
+                    value={item.nota}
+                    onChangeText={(texto) => actualizarNotaItem(item.id, texto)}
+                    placeholder="Información adicional de este producto (opcional)"
+                    placeholderTextColor="#6b7688"
+                    style={styles.inputNota}
+                    multiline
+                  />
+                ) : item.nota.trim() ? (
+                  <Pressable onPress={() => alternarNota(item.id)} style={styles.notaPreviewFila}>
+                    <Ionicons name="document-text-outline" size={13} color={NEUTRAL_400} />
+                    <Text style={styles.notaPreview}>{item.nota}</Text>
+                  </Pressable>
+                ) : null}
+
+                {devolucionAbierta ? (
+                  <View style={styles.devolucionCaja}>
+                    <Text style={styles.etiquetaSeccion}>Devolución -- cantidad</Text>
+                    <TextInput
+                      value={draft.cantidad}
+                      onChangeText={(texto) => actualizarDraftDevolucion(item.id, { cantidad: texto })}
+                      keyboardType="number-pad"
+                      placeholder={`Máx. ${item.cantidad_entregada}`}
+                      placeholderTextColor="#6b7688"
+                      style={styles.inputCantidad}
+                    />
+
+                    <Text style={styles.etiquetaSeccion}>Motivo</Text>
+                    <View style={styles.chipsEnvoltorio}>
+                      {MOTIVOS_DEVOLUCION.map((m) => {
+                        const activo = draft.motivo === m.valor;
+                        return (
+                          <Pressable
+                            key={m.valor}
+                            onPress={() => actualizarDraftDevolucion(item.id, { motivo: m.valor })}
+                            style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                          >
+                            <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
+                              {m.texto}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    <Text style={styles.etiquetaSeccion}>Resolución</Text>
+                    <View style={styles.chipsEnvoltorio}>
+                      {(
+                        [
+                          { valor: 'reposicion', texto: 'Repongo', icono: 'repeat-outline' },
+                          { valor: 'reembolso', texto: 'Reembolso', icono: 'cash-outline' },
+                        ] as const
+                      ).map((r) => {
+                        const activo = draft.resolucion === r.valor;
+                        return (
+                          <Pressable
+                            key={r.valor}
+                            onPress={() => actualizarDraftDevolucion(item.id, { resolucion: r.valor })}
+                            style={[styles.chipSede, styles.chipSedeFila, activo && styles.chipSedeActiva]}
+                          >
+                            <Ionicons name={r.icono} size={14} color={activo ? '#fff' : NEUTRAL_400} />
+                            <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
+                              {r.texto}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    {draft.resolucion === 'reposicion' ? (
+                      <Text style={styles.previewSubtexto}>Vuelve a quedar pendiente -- se debe re-entregar.</Text>
+                    ) : draft.resolucion === 'reembolso' ? (
+                      <Text style={styles.previewSubtexto}>
+                        Se devuelve el dinero -- esa cantidad queda cerrada, no vuelve a pendiente.
+                      </Text>
+                    ) : null}
+
+                    <Pressable
+                      disabled={!puedeRegistrarDevolucion}
+                      style={({ pressed }) => [
+                        styles.boton,
+                        styles.botonPrimario,
+                        !puedeRegistrarDevolucion && styles.botonDeshabilitado,
+                        pressed && puedeRegistrarDevolucion && styles.botonPresionado,
+                      ]}
+                      onPress={() => registrarDevolucionItem(item)}
+                    >
+                      <ContenidoBoton icono="arrow-undo-outline" texto="Registrar devolución" />
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {situacion === 'nueva' ? (
+                  <View style={styles.filaConIcono}>
+                    {cantidadLeidaAbierta ? (
+                      <>
+                        <Text style={styles.previewSubtexto}>Cantidad leída:</Text>
+                        <TextInput
+                          value={String(item.cantidad_entregada)}
+                          onChangeText={(texto) => actualizarCantidadLeidaItem(item.id, texto)}
+                          keyboardType="number-pad"
+                          autoFocus
+                          style={[styles.inputCantidad, styles.inputCantidadLeida]}
+                        />
+                      </>
+                    ) : (
+                      <Text style={styles.previewSubtexto}>Cantidad leída: {item.cantidad_entregada}</Text>
+                    )}
+                    <Pressable onPress={() => alternarCantidadLeida(item.id)} hitSlop={8}>
+                      <Ionicons
+                        name={cantidadLeidaEditada || cantidadLeidaAbierta ? 'pencil' : 'pencil-outline'}
+                        size={16}
+                        color={cantidadLeidaEditada || cantidadLeidaAbierta ? ACENTO : NEUTRAL_400}
+                      />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={styles.previewSubtexto}>Pendiente actual: {item.cantidad_pendiente}</Text>
+                )}
+
+                {bloqueado ? null : (
+                  <Pressable
+                    onPress={() => alternarTodoEntregado(item)}
+                    hitSlop={8}
+                    style={[styles.checkboxFila, estilosItem.checkboxFila, marcadoTodoEntregado && estilosItem.checkboxFilaMarcada]}
+                  >
+                    <View style={[styles.checkboxCaja, marcadoTodoEntregado && styles.checkboxCajaMarcada]}>
+                      {marcadoTodoEntregado ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
+                    </View>
+                    <Text style={[styles.checkboxTexto, marcadoTodoEntregado && estilosItem.checkboxTextoMarcado]}>
+                      {situacion === 'nueva'
+                        ? 'Todo entregado (nada pendiente)'
+                        : 'Entregué todo lo que quedaba pendiente'}
+                    </Text>
+                  </Pressable>
+                )}
+
+                <Text style={styles.etiquetaSeccion}>
+                  {situacion === 'nueva' ? 'Cantidad pendiente' : 'Entregado hoy'}
+                </Text>
+                <TextInput
+                  value={item.valor}
+                  onChangeText={(valor) => actualizarValorItem(item.id, valor)}
+                  keyboardType="number-pad"
+                  placeholder="0"
+                  placeholderTextColor={NEUTRAL_500}
+                  editable={!bloqueado && !marcadoTodoEntregado}
+                  style={[
+                    styles.inputCantidad,
+                    estilosItem.inputCantidad,
+                    (bloqueado || marcadoTodoEntregado) && styles.inputCantidadBloqueado,
+                    excedeTope && styles.inputCantidadError,
+                  ]}
+                />
+                {bloqueado ? (
+                  <View style={styles.filaConIcono}>
+                    <Ionicons name="lock-closed-outline" size={13} color={NEUTRAL_500} />
+                    <Text style={styles.previewSubtexto}>Ya entregado — sin nada pendiente de este producto.</Text>
+                  </View>
+                ) : marcadoTodoEntregado ? (
+                  // El input debajo sigue mostrando "cuanto entregaste hoy" (lo
+                  // que realmente se manda al backend), no el pendiente final --
+                  // sin esto no queda claro que tildar el check deja el
+                  // pendiente en 0 al guardar (se ve el numero de hoy, que
+                  // encima suele coincidir con el total si nunca se entrego
+                  // nada de este producto).
+                  <View style={styles.filaConIcono}>
+                    <Ionicons name="checkmark-circle-outline" size={14} color="#34d399" />
+                    <Text style={styles.previewSubtexto}>Vas a entregar los {tope} pendientes — quedará en 0.</Text>
+                  </View>
+                ) : excedeTope ? (
+                  <View style={styles.filaConIcono}>
+                    <Ionicons name="alert-circle-outline" size={14} color="#f87171" />
+                    <Text style={styles.textoErrorInline}>
+                      {situacion === 'nueva'
+                        ? `No puede quedar pendiente más de ${tope} (lo que leyó la IA).`
+                        : `No puedes entregar más de ${tope} — es lo único que queda pendiente.`}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+
+          {items.length === 0 ? (
+            <View style={[styles.tarjeta, styles.filaConIcono]}>
+              <Ionicons name="alert-circle-outline" size={18} color={NEUTRAL_400} />
+              <Text style={[styles.previewSubtexto, { flex: 1 }]}>
+                La IA no encontró productos en la foto — repite la captura con mejor luz/encuadre.
+              </Text>
+            </View>
+          ) : null}
+
+          {documentoCompleto ? (
+            <View style={[styles.badgeEstado, { backgroundColor: 'rgba(52,211,153,0.12)' }]}>
+              <Ionicons name="checkmark-circle" size={22} color="#34d399" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.badgeEstadoTitulo, { color: '#34d399' }]}>Documento completo</Text>
+                <Text style={styles.badgeEstadoMensaje}>
+                  No queda nada pendiente de entregar en este documento.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {necesitaTrasladoConfirmar ? (
+            <View style={[styles.tarjeta, estilosDoc.tarjetaTraslado]}>
+              <View style={styles.filaConIcono}>
+                <Ionicons name="swap-horizontal" size={18} color="#fbbf24" />
+                <Text style={[styles.etiquetaSeccion, { color: '#fbbf24' }]}>Traslado requerido</Text>
+              </View>
+              <Text style={styles.previewSubtexto}>
+                {`El documento "${
+                  formatearIdentificador(
+                    necesitaTrasladoConfirmar.tipo,
+                    necesitaTrasladoConfirmar.indicativo_numero
+                  ) ?? necesitaTrasladoConfirmar.tipo
+                }" pertenece a otra sede -- para confirmarlo desde acá, adjunta una foto del traslado.`}
+              </Text>
+              {fotoTraslado ? (
+                <>
+                  <Pressable onPress={() => setFotoAmpliada(fotoTraslado)}>
+                    <Image source={{ uri: fotoTraslado }} style={styles.preview} resizeMode="cover" />
+                    <View style={styles.iconoAmpliar}>
+                      <Ionicons name="expand-outline" size={16} color={TEXTO_PRIMARIO} />
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
+                    onPress={rotarFotoTraslado}
+                  >
+                    <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
+                  </Pressable>
+                </>
+              ) : (
+                <View style={[styles.preview, styles.previewVacio]}>
+                  <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />
+                  <Text style={styles.previewTexto}>Sin foto de traslado</Text>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                  onPress={tomarFotoTraslado}
+                >
+                  <ContenidoBoton
+                    icono={fotoTraslado ? 'camera-reverse-outline' : 'camera-outline'}
+                    texto={fotoTraslado ? 'Repetir foto' : 'Tomar foto'}
+                  />
                 </Pressable>
                 <Pressable
-                  style={({ pressed }) => [styles.boton, { marginTop: 10 }, pressed && styles.botonPresionado]}
-                  onPress={rotarFotoTraslado}
+                  style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                  onPress={elegirTrasladoDeGaleria}
                 >
-                  <ContenidoBoton icono="reload-outline" texto="Rotar 90°" color={NEUTRAL_400} />
+                  <ContenidoBoton icono="images-outline" texto="Galería" />
                 </Pressable>
-              </>
-            ) : (
-              <View style={[styles.preview, styles.previewVacio]}>
-                <Ionicons name="document-attach-outline" size={36} color={NEUTRAL_400} />
-                <Text style={styles.previewTexto}>Sin foto de traslado</Text>
               </View>
-            )}
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+            </View>
+          ) : null}
+
+          {mensaje ? (
+            <View style={estilosDoc.errorBox}>
+              <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
+              <Text style={[styles.textoErrorInline, { flex: 1 }]}>{mensaje}</Text>
+            </View>
+          ) : null}
+
+          {cargando && itemsConCambioCantidad.length > 0 ? (
+            <View style={[styles.tarjeta, styles.estadoBox]}>
+              <ActivityIndicator color={ACENTO} />
+              <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.acciones}>
+            {itemsAEnviar.length === 0 && !notaGeneralCambio ? null : itemsConCambioCantidad.length === 0 ? (
               <Pressable
-                style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
-                onPress={tomarFotoTraslado}
+                disabled={cargando}
+                style={({ pressed }) => [
+                  styles.boton,
+                  styles.botonPrimario,
+                  estilosDoc.botonPrincipal,
+                  pressed && styles.botonPresionado,
+                ]}
+                onPress={() => confirmar()}
+              >
+                <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
+              </Pressable>
+            ) : (
+              // Firma obligatoria siempre que se toquen cantidades -- parcial o
+              // completa, sin una opcion aparte de confirmar sin firmar (antes
+              // la entrega parcial ofrecia "Confirmar cantidades" sin firma mas
+              // un boton "Firmar" separado).
+              <Pressable
+                disabled={!puedeConfirmar}
+                style={({ pressed }) => [
+                  styles.boton,
+                  styles.botonPrimario,
+                  estilosDoc.botonPrincipal,
+                  !puedeConfirmar && styles.botonDeshabilitado,
+                  pressed && puedeConfirmar && styles.botonPresionado,
+                ]}
+                onPress={() => setMostrandoDatosRetira(true)}
               >
                 <ContenidoBoton
-                  icono={fotoTraslado ? 'camera-reverse-outline' : 'camera-outline'}
-                  texto={fotoTraslado ? 'Repetir foto' : 'Tomar foto'}
+                  icono="create-outline"
+                  texto={cargando ? 'Guardando...' : 'Firmar y confirmar entrega'}
                 />
               </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
-                onPress={elegirTrasladoDeGaleria}
-              >
-                <ContenidoBoton icono="images-outline" texto="Galería" />
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        {mensaje ? (
-          <View style={estilosDoc.errorBox}>
-            <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
-            <Text style={[styles.textoErrorInline, { flex: 1 }]}>{mensaje}</Text>
-          </View>
-        ) : null}
-
-        {cargando && itemsConCambioCantidad.length > 0 ? (
-          <View style={[styles.tarjeta, styles.estadoBox]}>
-            <ActivityIndicator color={ACENTO} />
-            <Text style={styles.mensajeSubiendo}>{mensaje}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.acciones}>
-          {itemsAEnviar.length === 0 && !notaGeneralCambio ? null : itemsConCambioCantidad.length === 0 ? (
+            )}
             <Pressable
               disabled={cargando}
-              style={({ pressed }) => [
-                styles.boton,
-                styles.botonPrimario,
-                estilosDoc.botonPrincipal,
-                pressed && styles.botonPresionado,
-              ]}
-              onPress={() => confirmar()}
-            >
-              <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
-            </Pressable>
-          ) : (
-            // Firma obligatoria siempre que se toquen cantidades -- parcial o
-            // completa, sin una opcion aparte de confirmar sin firmar (antes
-            // la entrega parcial ofrecia "Confirmar cantidades" sin firma mas
-            // un boton "Firmar" separado).
-            <Pressable
-              disabled={!puedeConfirmar}
-              style={({ pressed }) => [
-                styles.boton,
-                styles.botonPrimario,
-                estilosDoc.botonPrincipal,
-                !puedeConfirmar && styles.botonDeshabilitado,
-                pressed && puedeConfirmar && styles.botonPresionado,
-              ]}
-              onPress={() => setMostrandoDatosRetira(true)}
+              style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+              onPress={cancelarConfirmacion}
             >
               <ContenidoBoton
-                icono="create-outline"
-                texto={cargando ? 'Guardando...' : 'Firmar y confirmar entrega'}
+                icono="close-outline"
+                texto={itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}
+                color={NEUTRAL_400}
               />
             </Pressable>
-          )}
-          <Pressable
-            disabled={cargando}
-            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-            onPress={cancelarConfirmacion}
-          >
-            <ContenidoBoton
-              icono="close-outline"
-              texto={itemsAEnviar.length === 0 ? 'Volver' : 'Cancelar'}
-              color={NEUTRAL_400}
-            />
-          </Pressable>
-        </View>
+          </View>
 
-        {/* Nombre/telefono de quien retiro esta factura, por cada visita
-            firmada -- al final de la pantalla, a pedido explicito (antes
-            iba pegado a la nota general, arriba del todo). Es una accion
-            terciaria (de consulta, no de guardado) -- se ve mas chica y
-            discreta que las de acciones arriba, sin dejar de ser un
-            Pressable con el mismo hitSlop implicito de styles.boton. */}
-        <Pressable
-          style={({ pressed }) => [estilosDoc.botonTerciario, pressed && { opacity: 0.7 }]}
-          onPress={abrirDatosEntrega}
-        >
-          <Ionicons name="people-outline" size={16} color={NEUTRAL_400} />
-          <Text style={estilosDoc.botonTerciarioTexto}>Ver datos de entrega</Text>
-        </Pressable>
-      </ScrollView>
+          {/* Nombre/telefono de quien retiro esta factura, por cada visita
+              firmada -- al final de la pantalla, a pedido explicito (antes
+              iba pegado a la nota general, arriba del todo). Es una accion
+              terciaria (de consulta, no de guardado) -- se ve mas chica y
+              discreta que las de acciones arriba, sin dejar de ser un
+              Pressable con el mismo hitSlop implicito de styles.boton. */}
+          <Pressable
+            style={({ pressed }) => [estilosDoc.botonTerciario, pressed && { opacity: 0.7 }]}
+            onPress={abrirDatosEntrega}
+          >
+            <Ionicons name="people-outline" size={16} color={NEUTRAL_400} />
+            <Text style={estilosDoc.botonTerciarioTexto}>Ver datos de entrega</Text>
+          </Pressable>
+        </ScrollView>
+      </EvitarTeclado>
       {mostrandoDatosEntrega ? (
         <Modal
           visible

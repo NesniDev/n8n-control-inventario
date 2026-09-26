@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { fetchEmpleados, fetchSedes, loginConPin, type Lugar, type UsuarioLogin } from './api';
+import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 
 // elegir: elegir lugar (sede o punto, segun quien use esta pantalla),
@@ -202,169 +203,171 @@ export default function PantallaLogin({
         <Text style={styles.marcaTexto}>{titulo}</Text>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {paso === 'pin' ? (
-          <Pressable onPress={volver} hitSlop={8} style={styles.botonVolver}>
-            <Ionicons name="chevron-back" size={20} color={TEXTO_PRIMARIO} />
-            <Text style={styles.botonVolverTexto}>Volver</Text>
-          </Pressable>
-        ) : null}
+      <EvitarTeclado>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          {paso === 'pin' ? (
+            <Pressable onPress={volver} hitSlop={8} style={styles.botonVolver}>
+              <Ionicons name="chevron-back" size={20} color={TEXTO_PRIMARIO} />
+              <Text style={styles.botonVolverTexto}>Volver</Text>
+            </Pressable>
+          ) : null}
 
-        {paso === 'elegir' ? (
-          <View style={styles.seccion}>
-            <Text style={styles.tituloSeccionCentrado}>Elige tu {etiquetaLugar}</Text>
-            <Text style={[styles.subtituloSeccion, styles.subtituloCentrado]}>Desde dónde vas a trabajar hoy</Text>
+          {paso === 'elegir' ? (
+            <View style={styles.seccion}>
+              <Text style={styles.tituloSeccionCentrado}>Elige tu {etiquetaLugar}</Text>
+              <Text style={[styles.subtituloSeccion, styles.subtituloCentrado]}>Desde dónde vas a trabajar hoy</Text>
 
-            {cargandoSedes ? (
-              <ActivityIndicator color={ACENTO} style={styles.spinner} />
-            ) : errorSedes ? (
-              <View style={styles.bloqueError}>
-                <Text style={styles.error}>{errorSedes}</Text>
-                <Pressable onPress={cargarSedes} style={styles.botonReintentar}>
-                  <Text style={styles.botonReintentarTexto}>Reintentar</Text>
-                </Pressable>
-              </View>
-            ) : sedes.length > MAX_TARJETAS ? (
-              // Muchos lugares (ej. los ~25 puntos de Traslados): las
-              // tarjetas lado a lado no entran, se pasa a una lista vertical
-              // con buscador por codigo o nombre.
-              <View style={styles.listaLugares}>
-                <TextInput
-                  value={busquedaLugar}
-                  onChangeText={setBusquedaLugar}
-                  placeholder={`Buscar ${etiquetaLugar}…`}
-                  placeholderTextColor={NEUTRAL_500}
-                  style={styles.inputBuscar}
-                  autoCorrect={false}
-                />
-                {sedes
-                  .filter((sede) => normalizar(sede.nombre).includes(normalizar(busquedaLugar.trim())))
-                  .map((sede) => {
+              {cargandoSedes ? (
+                <ActivityIndicator color={ACENTO} style={styles.spinner} />
+              ) : errorSedes ? (
+                <View style={styles.bloqueError}>
+                  <Text style={styles.error}>{errorSedes}</Text>
+                  <Pressable onPress={cargarSedes} style={styles.botonReintentar}>
+                    <Text style={styles.botonReintentarTexto}>Reintentar</Text>
+                  </Pressable>
+                </View>
+              ) : sedes.length > MAX_TARJETAS ? (
+                // Muchos lugares (ej. los ~25 puntos de Traslados): las
+                // tarjetas lado a lado no entran, se pasa a una lista vertical
+                // con buscador por codigo o nombre.
+                <View style={styles.listaLugares}>
+                  <TextInput
+                    value={busquedaLugar}
+                    onChangeText={setBusquedaLugar}
+                    placeholder={`Buscar ${etiquetaLugar}…`}
+                    placeholderTextColor={NEUTRAL_500}
+                    style={styles.inputBuscar}
+                    autoCorrect={false}
+                  />
+                  {sedes
+                    .filter((sede) => normalizar(sede.nombre).includes(normalizar(busquedaLugar.trim())))
+                    .map((sede) => {
+                      const activa = sedeElegida?.id === sede.id;
+                      return (
+                        <Pressable
+                          key={sede.id}
+                          onPress={() => elegirSede(sede)}
+                          style={({ pressed }) => [
+                            styles.filaPersona,
+                            activa && styles.tarjetaSedeActiva,
+                            pressed && styles.filaPersonaPresionada,
+                          ]}
+                        >
+                          <Ionicons name="business" size={18} color={ACENTO} />
+                          <Text style={styles.filaPersonaTexto} numberOfLines={1}>
+                            {sede.nombre}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={18} color={NEUTRAL_500} />
+                        </Pressable>
+                      );
+                    })}
+                </View>
+              ) : (
+                <View style={styles.filaTarjetas}>
+                  {sedes.map((sede) => {
                     const activa = sedeElegida?.id === sede.id;
                     return (
                       <Pressable
                         key={sede.id}
                         onPress={() => elegirSede(sede)}
                         style={({ pressed }) => [
-                          styles.filaPersona,
+                          styles.tarjetaSede,
                           activa && styles.tarjetaSedeActiva,
-                          pressed && styles.filaPersonaPresionada,
+                          pressed && !activa && styles.tarjetaSedePresionada,
                         ]}
                       >
-                        <Ionicons name="business" size={18} color={ACENTO} />
-                        <Text style={styles.filaPersonaTexto} numberOfLines={1}>
+                        <View style={[styles.tarjetaSedeIcono, activa && styles.tarjetaSedeIconoActivo]}>
+                          <Ionicons name="business" size={22} color={activa ? TEXTO_PRIMARIO : ACENTO} />
+                        </View>
+                        <Text style={[styles.tarjetaSedeTexto, activa && styles.tarjetaSedeTextoActivo]}>
                           {sede.nombre}
                         </Text>
-                        <Ionicons name="chevron-forward" size={18} color={NEUTRAL_500} />
+                        {activa ? (
+                          <View style={styles.marcaSeleccion}>
+                            <Ionicons name="checkmark-circle" size={18} color={ACENTO} />
+                          </View>
+                        ) : null}
                       </Pressable>
                     );
                   })}
-              </View>
-            ) : (
-              <View style={styles.filaTarjetas}>
-                {sedes.map((sede) => {
-                  const activa = sedeElegida?.id === sede.id;
-                  return (
-                    <Pressable
-                      key={sede.id}
-                      onPress={() => elegirSede(sede)}
-                      style={({ pressed }) => [
-                        styles.tarjetaSede,
-                        activa && styles.tarjetaSedeActiva,
-                        pressed && !activa && styles.tarjetaSedePresionada,
-                      ]}
-                    >
-                      <View style={[styles.tarjetaSedeIcono, activa && styles.tarjetaSedeIconoActivo]}>
-                        <Ionicons name="business" size={22} color={activa ? TEXTO_PRIMARIO : ACENTO} />
-                      </View>
-                      <Text style={[styles.tarjetaSedeTexto, activa && styles.tarjetaSedeTextoActivo]}>
-                        {sede.nombre}
-                      </Text>
-                      {activa ? (
-                        <View style={styles.marcaSeleccion}>
-                          <Ionicons name="checkmark-circle" size={18} color={ACENTO} />
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-        ) : null}
-
-        {paso === 'elegir' && accionExtra ? (
-          <Pressable
-            onPress={accionExtra.onPress}
-            style={({ pressed }) => [styles.botonAccionExtra, pressed && { opacity: 0.7 }]}
-          >
-            <Ionicons name={accionExtra.icono} size={16} color={NEUTRAL_400} />
-            <Text style={styles.botonAccionExtraTexto}>{accionExtra.texto}</Text>
-          </Pressable>
-        ) : null}
-
-        {paso === 'pin' && sedeElegida && empleadoElegido ? (
-          <View style={styles.seccion}>
-            {usuarioUnicoPorLugar ? (
-              // La cuenta se llama igual que el lugar -- mostrar avatar +
-              // nombre + badge repetiria lo mismo tres veces.
-              <View style={styles.identidadPin}>
-                <View style={styles.avatarGrande}>
-                  <Ionicons name="business" size={30} color={TEXTO_PRIMARIO} />
                 </View>
-                <Text style={styles.tituloSeccionCentrado}>{sedeElegida.nombre}</Text>
-              </View>
-            ) : (
-              <View style={styles.identidadPin}>
-                <View style={styles.avatarGrande}>
-                  <Text style={styles.avatarGrandeTexto}>{empleadoElegido.nombre.charAt(0).toUpperCase()}</Text>
-                </View>
-                <Text style={styles.tituloSeccionCentrado}>{empleadoElegido.nombre}</Text>
-                <View style={styles.badgeSede}>
-                  <Ionicons name="location" size={12} color={ACENTO} />
-                  <Text style={styles.badgeSedeTexto}>{sedeElegida.nombre}</Text>
-                </View>
-              </View>
-            )}
-
-            <Text style={styles.etiquetaPin}>Ingresa tu PIN</Text>
-
-            <TextInput
-              value={pin}
-              onChangeText={(v) => {
-                setPin(v.replace(/[^0-9]/g, '').slice(0, 6));
-                setErrorLogin(null);
-              }}
-              keyboardType="number-pad"
-              secureTextEntry
-              maxLength={6}
-              autoFocus
-              placeholder="• • • •"
-              placeholderTextColor={NEUTRAL_500}
-              style={styles.input}
-              onSubmitEditing={ingresar}
-            />
-
-            {errorLogin ? <Text style={styles.error}>{errorLogin}</Text> : null}
-
-            <Pressable
-              disabled={pin.length < 4 || cargandoLogin}
-              onPress={ingresar}
-              style={({ pressed }) => [
-                styles.boton,
-                (pin.length < 4 || cargandoLogin) && styles.botonDeshabilitado,
-                pressed && styles.botonPresionado,
-              ]}
-            >
-              {cargandoLogin ? (
-                <ActivityIndicator color={TEXTO_PRIMARIO} />
-              ) : (
-                <Text style={styles.botonTexto}>Ingresar</Text>
               )}
+            </View>
+          ) : null}
+
+          {paso === 'elegir' && accionExtra ? (
+            <Pressable
+              onPress={accionExtra.onPress}
+              style={({ pressed }) => [styles.botonAccionExtra, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name={accionExtra.icono} size={16} color={NEUTRAL_400} />
+              <Text style={styles.botonAccionExtraTexto}>{accionExtra.texto}</Text>
             </Pressable>
-          </View>
-        ) : null}
-      </ScrollView>
+          ) : null}
+
+          {paso === 'pin' && sedeElegida && empleadoElegido ? (
+            <View style={styles.seccion}>
+              {usuarioUnicoPorLugar ? (
+                // La cuenta se llama igual que el lugar -- mostrar avatar +
+                // nombre + badge repetiria lo mismo tres veces.
+                <View style={styles.identidadPin}>
+                  <View style={styles.avatarGrande}>
+                    <Ionicons name="business" size={30} color={TEXTO_PRIMARIO} />
+                  </View>
+                  <Text style={styles.tituloSeccionCentrado}>{sedeElegida.nombre}</Text>
+                </View>
+              ) : (
+                <View style={styles.identidadPin}>
+                  <View style={styles.avatarGrande}>
+                    <Text style={styles.avatarGrandeTexto}>{empleadoElegido.nombre.charAt(0).toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.tituloSeccionCentrado}>{empleadoElegido.nombre}</Text>
+                  <View style={styles.badgeSede}>
+                    <Ionicons name="location" size={12} color={ACENTO} />
+                    <Text style={styles.badgeSedeTexto}>{sedeElegida.nombre}</Text>
+                  </View>
+                </View>
+              )}
+
+              <Text style={styles.etiquetaPin}>Ingresa tu PIN</Text>
+
+              <TextInput
+                value={pin}
+                onChangeText={(v) => {
+                  setPin(v.replace(/[^0-9]/g, '').slice(0, 6));
+                  setErrorLogin(null);
+                }}
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={6}
+                autoFocus
+                placeholder="• • • •"
+                placeholderTextColor={NEUTRAL_500}
+                style={styles.input}
+                onSubmitEditing={ingresar}
+              />
+
+              {errorLogin ? <Text style={styles.error}>{errorLogin}</Text> : null}
+
+              <Pressable
+                disabled={pin.length < 4 || cargandoLogin}
+                onPress={ingresar}
+                style={({ pressed }) => [
+                  styles.boton,
+                  (pin.length < 4 || cargandoLogin) && styles.botonDeshabilitado,
+                  pressed && styles.botonPresionado,
+                ]}
+              >
+                {cargandoLogin ? (
+                  <ActivityIndicator color={TEXTO_PRIMARIO} />
+                ) : (
+                  <Text style={styles.botonTexto}>Ingresar</Text>
+                )}
+              </Pressable>
+            </View>
+          ) : null}
+        </ScrollView>
+      </EvitarTeclado>
 
       {/* Popup de bodegueros -- se abre al tocar una sede, encima de la
           misma pantalla. Cerrarlo (X o tocar afuera) no pierde la sede

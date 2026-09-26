@@ -18,6 +18,7 @@ import {
   MENSAJE_CONSECUTIVO_DUPLICADO,
   MENSAJE_NOVEDAD_YA_RESUELTA,
 } from './errorMessages';
+import EvitarTeclado from './EvitarTeclado';
 import FirmasTraslado from './FirmasTraslado';
 import ModalSelectorPunto from './ModalSelectorPunto';
 import ResumenTraslado from './ResumenTraslado';
@@ -179,178 +180,180 @@ export default function PantallaNovedadDetalle({ route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <HeaderTraslado />
+      <EvitarTeclado>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <HeaderTraslado />
 
-        <View style={[estilos.estado, { backgroundColor: resuelta ? 'rgba(52,211,153,0.14)' : 'rgba(251,191,36,0.14)' }]}>
-          <Ionicons
-            name={resuelta ? 'checkmark-done-circle-outline' : 'time-outline'}
-            size={22}
-            color={resuelta ? VERDE : AMARILLO}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={[estilos.estadoTexto, { color: resuelta ? VERDE : AMARILLO }]}>
-              {resuelta ? 'Novedad resuelta' : 'Novedad pendiente'}
-            </Text>
-            {traslado.recibido_at ? (
-              <Text style={estilos.estadoSub}>Recibido {haceCuanto(traslado.recibido_at)}</Text>
-            ) : null}
-          </View>
-        </View>
-
-        <ResumenTraslado
-          numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
-          origen={traslado.punto_origen_nombre ?? '—'}
-          destino={traslado.punto_destino_nombre ?? '—'}
-          transportador={traslado.transportador_nombre}
-          talonario={traslado.numero_talonario}
-          fecha={traslado.fecha}
-          items={items.map((item) => ({
-            key: item.id,
-            cantidad: item.cantidad,
-            producto: item.producto,
-            marca: item.marca ?? '',
-            presentacion: item.presentacion ?? '',
-          }))}
-          observaciones={traslado.observaciones ?? ''}
-          mostrarProductos={false}
-        />
-
-        {conDiferencia.length > 0 ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Productos con diferencia</Text>
-            {conDiferencia.map((item) => {
-              const llegaron = item.cantidad_recibida ?? 0;
-              const faltan = item.cantidad - llegaron;
-              const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
-              return (
-                <View key={item.id} style={estilos.filaItem}>
-                  <Ionicons name="alert-circle" size={20} color={ROJO} />
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={estilos.producto}>{item.producto}</Text>
-                    {detalle ? <Text style={estilos.detalle}>{detalle}</Text> : null}
-                    <Text style={estilos.cantidadesLinea}>
-                      Enviado {item.cantidad} · Llegó {llegaron}
-                      {faltan > 0 ? ` · Faltan ${faltan}` : ''}
-                    </Text>
-                    {item.novedad ? <Text style={estilos.novedadItem}>{item.novedad}</Text> : null}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {completos.length > 0 ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Productos completos</Text>
-            {completos.map((item) => (
-              <View key={item.id} style={estilos.filaItemCompacta}>
-                <Ionicons name="checkmark-circle-outline" size={16} color={VERDE} />
-                <Text style={estilos.productoCompacto} numberOfLines={1}>
-                  {item.producto}
-                </Text>
-                <Text style={estilos.cantidadCompacta}>{item.cantidad}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {traslado.novedad ? (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Novedad general</Text>
-            <Text style={estilos.novedadGeneralTexto}>{traslado.novedad}</Text>
-          </View>
-        ) : null}
-
-        <FirmasTraslado
-          firmas={[
-            { clave: 'despacha', titulo: 'Despacha', quien: traslado.punto_origen_nombre ?? '', url: traslado.firma_despacha_url },
-            { clave: 'transporta', titulo: 'Transporta', quien: traslado.transportador_nombre, url: traslado.firma_transporta_url },
-            { clave: 'recibe', titulo: 'Recibe', quien: traslado.punto_destino_nombre ?? '', url: traslado.firma_recibe_url },
-          ]}
-        />
-
-        {resuelta ? (
-          <View style={estilos.solucionBox}>
-            <View style={estilos.solucionTituloFila}>
-              <Text style={estilos.solucionTitulo}>Solución</Text>
-              {traslado.consecutivo_solucion ? (
-                <View style={estilos.consecutivoBadge}>
-                  <Text style={estilos.consecutivoBadgeTexto}>{traslado.consecutivo_solucion}</Text>
-                </View>
+          <View style={[estilos.estado, { backgroundColor: resuelta ? 'rgba(52,211,153,0.14)' : 'rgba(251,191,36,0.14)' }]}>
+            <Ionicons
+              name={resuelta ? 'checkmark-done-circle-outline' : 'time-outline'}
+              size={22}
+              color={resuelta ? VERDE : AMARILLO}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[estilos.estadoTexto, { color: resuelta ? VERDE : AMARILLO }]}>
+                {resuelta ? 'Novedad resuelta' : 'Novedad pendiente'}
+              </Text>
+              {traslado.recibido_at ? (
+                <Text style={estilos.estadoSub}>Recibido {haceCuanto(traslado.recibido_at)}</Text>
               ) : null}
             </View>
-            <Text style={estilos.solucionTexto}>{traslado.solucion}</Text>
-            <Text style={estilos.solucionMeta}>
-              Resuelta por {traslado.solucionado_por_nombre ?? 'Supervisión'}
-              {traslado.solucionado_at ? ` · ${haceCuanto(traslado.solucionado_at)}` : ''}
-            </Text>
           </View>
-        ) : (
-          <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Solución</Text>
-            <TextInput
-              value={solucion}
-              onChangeText={setSolucion}
-              placeholder="Qué se hizo: se repuso el faltante, se cobró al transportador, etc."
-              placeholderTextColor={NEUTRAL_500}
-              style={[styles.inputNota, { minHeight: 100, textAlignVertical: 'top' }]}
-              multiline
-              editable={!enviando}
-            />
 
-            <Text style={styles.etiquetaSeccion}>Consecutivo</Text>
-            <View style={estilos.consecutivoFila}>
-              <Pressable
-                onPress={() => setSelectorPuntoVisible(true)}
-                disabled={enviando}
-                style={({ pressed }) => [estilos.consecutivoCodigo, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name="business-outline" size={16} color={ACENTO} />
-                <Text style={estilos.consecutivoCodigoTexto} numberOfLines={1}>
-                  {puntoConsecutivo?.codigo ?? 'Código'}
-                </Text>
-                <Ionicons name="chevron-down" size={14} color={NEUTRAL_400} />
-              </Pressable>
+          <ResumenTraslado
+            numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
+            origen={traslado.punto_origen_nombre ?? '—'}
+            destino={traslado.punto_destino_nombre ?? '—'}
+            transportador={traslado.transportador_nombre}
+            talonario={traslado.numero_talonario}
+            fecha={traslado.fecha}
+            items={items.map((item) => ({
+              key: item.id,
+              cantidad: item.cantidad,
+              producto: item.producto,
+              marca: item.marca ?? '',
+              presentacion: item.presentacion ?? '',
+            }))}
+            observaciones={traslado.observaciones ?? ''}
+            mostrarProductos={false}
+          />
+
+          {conDiferencia.length > 0 ? (
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Productos con diferencia</Text>
+              {conDiferencia.map((item) => {
+                const llegaron = item.cantidad_recibida ?? 0;
+                const faltan = item.cantidad - llegaron;
+                const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
+                return (
+                  <View key={item.id} style={estilos.filaItem}>
+                    <Ionicons name="alert-circle" size={20} color={ROJO} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={estilos.producto}>{item.producto}</Text>
+                      {detalle ? <Text style={estilos.detalle}>{detalle}</Text> : null}
+                      <Text style={estilos.cantidadesLinea}>
+                        Enviado {item.cantidad} · Llegó {llegaron}
+                        {faltan > 0 ? ` · Faltan ${faltan}` : ''}
+                      </Text>
+                      {item.novedad ? <Text style={estilos.novedadItem}>{item.novedad}</Text> : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {completos.length > 0 ? (
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Productos completos</Text>
+              {completos.map((item) => (
+                <View key={item.id} style={estilos.filaItemCompacta}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color={VERDE} />
+                  <Text style={estilos.productoCompacto} numberOfLines={1}>
+                    {item.producto}
+                  </Text>
+                  <Text style={estilos.cantidadCompacta}>{item.cantidad}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {traslado.novedad ? (
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Novedad general</Text>
+              <Text style={estilos.novedadGeneralTexto}>{traslado.novedad}</Text>
+            </View>
+          ) : null}
+
+          <FirmasTraslado
+            firmas={[
+              { clave: 'despacha', titulo: 'Despacha', quien: traslado.punto_origen_nombre ?? '', url: traslado.firma_despacha_url },
+              { clave: 'transporta', titulo: 'Transporta', quien: traslado.transportador_nombre, url: traslado.firma_transporta_url },
+              { clave: 'recibe', titulo: 'Recibe', quien: traslado.punto_destino_nombre ?? '', url: traslado.firma_recibe_url },
+            ]}
+          />
+
+          {resuelta ? (
+            <View style={estilos.solucionBox}>
+              <View style={estilos.solucionTituloFila}>
+                <Text style={estilos.solucionTitulo}>Solución</Text>
+                {traslado.consecutivo_solucion ? (
+                  <View style={estilos.consecutivoBadge}>
+                    <Text style={estilos.consecutivoBadgeTexto}>{traslado.consecutivo_solucion}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={estilos.solucionTexto}>{traslado.solucion}</Text>
+              <Text style={estilos.solucionMeta}>
+                Resuelta por {traslado.solucionado_por_nombre ?? 'Supervisión'}
+                {traslado.solucionado_at ? ` · ${haceCuanto(traslado.solucionado_at)}` : ''}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.tarjeta}>
+              <Text style={styles.etiquetaSeccion}>Solución</Text>
               <TextInput
-                value={numeroConsecutivo}
-                onChangeText={(texto) => setNumeroConsecutivo(texto.replace(/\D/g, '').slice(0, 10))}
-                placeholder="1234"
+                value={solucion}
+                onChangeText={setSolucion}
+                placeholder="Qué se hizo: se repuso el faltante, se cobró al transportador, etc."
                 placeholderTextColor={NEUTRAL_500}
-                keyboardType="number-pad"
-                style={estilos.consecutivoNumero}
+                style={[styles.inputNota, { minHeight: 100, textAlignVertical: 'top' }]}
+                multiline
                 editable={!enviando}
               />
-            </View>
-            {consecutivoPreview ? (
-              <Text style={estilos.consecutivoPreview}>Se guardará como {consecutivoPreview}</Text>
-            ) : null}
 
-            {errorEnvio ? <Text style={styles.textoErrorInline}>{errorEnvio}</Text> : null}
-            <Pressable
-              disabled={!solucionTrim || !consecutivoValido || enviando}
-              onPress={confirmarSolucion}
-              style={({ pressed }) => [
-                styles.boton,
-                styles.botonPrimario,
-                (!solucionTrim || !consecutivoValido || enviando) && styles.botonDeshabilitado,
-                pressed && styles.botonPresionado,
-              ]}
-            >
-              {enviando ? (
-                <ActivityIndicator color={TEXTO_PRIMARIO} />
-              ) : (
-                <ContenidoBoton icono="checkmark-done-outline" texto="Marcar como resuelta" />
-              )}
-            </Pressable>
-          </View>
-        )}
-      </ScrollView>
+              <Text style={styles.etiquetaSeccion}>Consecutivo</Text>
+              <View style={estilos.consecutivoFila}>
+                <Pressable
+                  onPress={() => setSelectorPuntoVisible(true)}
+                  disabled={enviando}
+                  style={({ pressed }) => [estilos.consecutivoCodigo, pressed && { opacity: 0.8 }]}
+                >
+                  <Ionicons name="business-outline" size={16} color={ACENTO} />
+                  <Text style={estilos.consecutivoCodigoTexto} numberOfLines={1}>
+                    {puntoConsecutivo?.codigo ?? 'Código'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color={NEUTRAL_400} />
+                </Pressable>
+                <TextInput
+                  value={numeroConsecutivo}
+                  onChangeText={(texto) => setNumeroConsecutivo(texto.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="1234"
+                  placeholderTextColor={NEUTRAL_500}
+                  keyboardType="number-pad"
+                  style={estilos.consecutivoNumero}
+                  editable={!enviando}
+                />
+              </View>
+              {consecutivoPreview ? (
+                <Text style={estilos.consecutivoPreview}>Se guardará como {consecutivoPreview}</Text>
+              ) : null}
+
+              {errorEnvio ? <Text style={styles.textoErrorInline}>{errorEnvio}</Text> : null}
+              <Pressable
+                disabled={!solucionTrim || !consecutivoValido || enviando}
+                onPress={confirmarSolucion}
+                style={({ pressed }) => [
+                  styles.boton,
+                  styles.botonPrimario,
+                  (!solucionTrim || !consecutivoValido || enviando) && styles.botonDeshabilitado,
+                  pressed && styles.botonPresionado,
+                ]}
+              >
+                {enviando ? (
+                  <ActivityIndicator color={TEXTO_PRIMARIO} />
+                ) : (
+                  <ContenidoBoton icono="checkmark-done-outline" texto="Marcar como resuelta" />
+                )}
+              </Pressable>
+            </View>
+          )}
+        </ScrollView>
+      </EvitarTeclado>
 
       <ModalSelectorPunto
         visible={selectorPuntoVisible}

@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { buscarEntrega } from './api';
+import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import { HeaderEntrega, useEntrega } from './EntregaContext';
 import { ACENTO, ContenidoBoton, NEUTRAL_400, NEUTRAL_500, styles, TEXTO_PRIMARIO } from './tema';
@@ -106,125 +107,127 @@ export default function PantallaBuscar({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <HeaderEntrega />
+      <EvitarTeclado>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <HeaderEntrega />
 
-        {/* Hero -- explica de entrada que hace esta pantalla, antes de
-            mostrar los campos. Puramente informativo, no toca estado. */}
-        <View style={[styles.tarjeta, estilosBuscar.hero]}>
-          <View style={estilosBuscar.heroIcono}>
-            <Ionicons name="receipt-outline" size={28} color={ACENTO} />
+          {/* Hero -- explica de entrada que hace esta pantalla, antes de
+              mostrar los campos. Puramente informativo, no toca estado. */}
+          <View style={[styles.tarjeta, estilosBuscar.hero]}>
+            <View style={estilosBuscar.heroIcono}>
+              <Ionicons name="receipt-outline" size={28} color={ACENTO} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={estilosBuscar.heroTitulo}>Consultar factura</Text>
+              <Text style={styles.previewSubtexto}>
+                Busca un documento ya registrado por tipo y número para cargar o actualizar sus cantidades.
+              </Text>
+            </View>
           </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={estilosBuscar.heroTitulo}>Consultar factura</Text>
-            <Text style={styles.previewSubtexto}>
-              Busca un documento ya registrado por tipo y número para cargar o actualizar sus cantidades.
-            </Text>
-          </View>
-        </View>
 
-        <View style={styles.tarjeta}>
-          <View style={styles.filaConIcono}>
-            <Ionicons name="pricetags-outline" size={15} color={NEUTRAL_400} />
-            <Text style={styles.etiquetaSeccion}>Tipo de documento</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.selectorSedesContenido}
-          >
-            {TIPOS_DOCUMENTO.map((t) => {
-              const activo = !tipoBusquedaCustom && tipoBusqueda === t;
-              return (
-                <Pressable
-                  key={t}
-                  onPress={() => {
-                    setTipoBusquedaCustom(false);
-                    setTipoBusqueda(t);
-                  }}
-                  style={[styles.chipSede, estilosBuscar.chipTipo, activo && styles.chipSedeActiva]}
-                >
-                  <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>{t}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable
-              onPress={() => {
-                setTipoBusquedaCustom(true);
-                setTipoBusqueda('');
-              }}
-              style={[styles.chipSede, estilosBuscar.chipTipo, styles.chipSedeFila, tipoBusquedaCustom && styles.chipSedeActiva]}
+          <View style={styles.tarjeta}>
+            <View style={styles.filaConIcono}>
+              <Ionicons name="pricetags-outline" size={15} color={NEUTRAL_400} />
+              <Text style={styles.etiquetaSeccion}>Tipo de documento</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.selectorSedesContenido}
             >
-              <Ionicons name="add-outline" size={14} color={tipoBusquedaCustom ? '#fff' : NEUTRAL_400} />
-              <Text style={[styles.chipSedeTexto, tipoBusquedaCustom && styles.chipSedeTextoActivo]}>Otro</Text>
-            </Pressable>
-          </ScrollView>
+              {TIPOS_DOCUMENTO.map((t) => {
+                const activo = !tipoBusquedaCustom && tipoBusqueda === t;
+                return (
+                  <Pressable
+                    key={t}
+                    onPress={() => {
+                      setTipoBusquedaCustom(false);
+                      setTipoBusqueda(t);
+                    }}
+                    style={[styles.chipSede, estilosBuscar.chipTipo, activo && styles.chipSedeActiva]}
+                  >
+                    <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>{t}</Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                onPress={() => {
+                  setTipoBusquedaCustom(true);
+                  setTipoBusqueda('');
+                }}
+                style={[styles.chipSede, estilosBuscar.chipTipo, styles.chipSedeFila, tipoBusquedaCustom && styles.chipSedeActiva]}
+              >
+                <Ionicons name="add-outline" size={14} color={tipoBusquedaCustom ? '#fff' : NEUTRAL_400} />
+                <Text style={[styles.chipSedeTexto, tipoBusquedaCustom && styles.chipSedeTextoActivo]}>Otro</Text>
+              </Pressable>
+            </ScrollView>
 
-          {tipoBusquedaCustom ? (
-            <TextInput
-              value={tipoBusqueda}
-              onChangeText={(texto) => setTipoBusqueda(texto.toUpperCase())}
-              placeholder="Escribe el tipo (ej: OT, NC)"
-              placeholderTextColor={NEUTRAL_500}
-              autoCapitalize="characters"
-              style={styles.inputCantidad}
-            />
+            {tipoBusquedaCustom ? (
+              <TextInput
+                value={tipoBusqueda}
+                onChangeText={(texto) => setTipoBusqueda(texto.toUpperCase())}
+                placeholder="Escribe el tipo (ej: OT, NC)"
+                placeholderTextColor={NEUTRAL_500}
+                autoCapitalize="characters"
+                style={styles.inputCantidad}
+              />
+            ) : null}
+          </View>
+
+          <View style={styles.tarjeta}>
+            <View style={styles.filaConIcono}>
+              <Ionicons name="barcode-outline" size={15} color={NEUTRAL_400} />
+              <Text style={styles.etiquetaSeccion}>Indicativo / número</Text>
+            </View>
+            <View style={estilosBuscar.inputConIcono}>
+              <Ionicons name="search" size={18} color={NEUTRAL_500} style={estilosBuscar.inputIcono} />
+              <TextInput
+                value={indicativoBusqueda}
+                onChangeText={setIndicativoBusqueda}
+                placeholder="Ej: 10254"
+                placeholderTextColor={NEUTRAL_500}
+                keyboardType="number-pad"
+                style={[styles.inputCantidad, estilosBuscar.inputConIconoTexto]}
+              />
+            </View>
+          </View>
+
+          {cargando ? (
+            <View style={[styles.tarjeta, styles.estadoBox]}>
+              <ActivityIndicator color={ACENTO} />
+              <Text style={styles.mensajeSubiendo}>{mensaje || 'Buscando...'}</Text>
+            </View>
+          ) : mensaje ? (
+            <View style={estilosBuscar.errorBox}>
+              <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
+              <Text style={[styles.textoErrorInline, { flex: 1 }]}>{mensaje}</Text>
+            </View>
           ) : null}
-        </View>
 
-        <View style={styles.tarjeta}>
-          <View style={styles.filaConIcono}>
-            <Ionicons name="barcode-outline" size={15} color={NEUTRAL_400} />
-            <Text style={styles.etiquetaSeccion}>Indicativo / número</Text>
+          <View style={styles.acciones}>
+            <Pressable
+              disabled={!puedeBuscar}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                estilosBuscar.botonPrincipal,
+                !puedeBuscar && styles.botonDeshabilitado,
+                pressed && puedeBuscar && styles.botonPresionado,
+              ]}
+              onPress={buscarFactura}
+            >
+              <ContenidoBoton icono="search-outline" texto={cargando ? 'Buscando...' : 'Buscar'} />
+            </Pressable>
+            <Pressable style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]} onPress={reiniciar}>
+              <ContenidoBoton icono="chevron-back-outline" texto="Volver" color={NEUTRAL_400} />
+            </Pressable>
           </View>
-          <View style={estilosBuscar.inputConIcono}>
-            <Ionicons name="search" size={18} color={NEUTRAL_500} style={estilosBuscar.inputIcono} />
-            <TextInput
-              value={indicativoBusqueda}
-              onChangeText={setIndicativoBusqueda}
-              placeholder="Ej: 10254"
-              placeholderTextColor={NEUTRAL_500}
-              keyboardType="number-pad"
-              style={[styles.inputCantidad, estilosBuscar.inputConIconoTexto]}
-            />
-          </View>
-        </View>
-
-        {cargando ? (
-          <View style={[styles.tarjeta, styles.estadoBox]}>
-            <ActivityIndicator color={ACENTO} />
-            <Text style={styles.mensajeSubiendo}>{mensaje || 'Buscando...'}</Text>
-          </View>
-        ) : mensaje ? (
-          <View style={estilosBuscar.errorBox}>
-            <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
-            <Text style={[styles.textoErrorInline, { flex: 1 }]}>{mensaje}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.acciones}>
-          <Pressable
-            disabled={!puedeBuscar}
-            style={({ pressed }) => [
-              styles.boton,
-              styles.botonPrimario,
-              estilosBuscar.botonPrincipal,
-              !puedeBuscar && styles.botonDeshabilitado,
-              pressed && puedeBuscar && styles.botonPresionado,
-            ]}
-            onPress={buscarFactura}
-          >
-            <ContenidoBoton icono="search-outline" texto={cargando ? 'Buscando...' : 'Buscar'} />
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]} onPress={reiniciar}>
-            <ContenidoBoton icono="chevron-back-outline" texto="Volver" color={NEUTRAL_400} />
-          </Pressable>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </EvitarTeclado>
     </SafeAreaView>
   );
 }

@@ -4,7 +4,7 @@
 // Tocar el fondo o el boton atras de Android cierra; tocar la tarjeta no
 // propaga al fondo.
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { FUENTE_DISPLAY, NEUTRAL_400, NEUTRAL_700, NEUTRAL_800, NEUTRAL_850, TEXTO_PRIMARIO } from './tema';
@@ -22,7 +22,7 @@ export default function HojaModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCerrar} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <Pressable style={estilos.fondo} onPress={onCerrar}>
           <Pressable style={estilos.hoja} onPress={() => {}}>
             <View style={estilos.encabezado}>

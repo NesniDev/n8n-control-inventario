@@ -21,6 +21,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { buscarConsecutivoTraslado, fetchNovedadesTraslado, type Traslado } from './api';
+import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import { AvisoRol } from './ResumenTraslado';
 import { formatearFechaLarga, haceCuanto } from './SelectorFecha';
@@ -234,121 +235,123 @@ export default function PantallaNovedadesSupervision() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refrescando} onRefresh={refrescar} tintColor={ACENTO} colors={[ACENTO]} />}
-      >
-        <HeaderTraslado />
+      <EvitarTeclado>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refrescando} onRefresh={refrescar} tintColor={ACENTO} colors={[ACENTO]} />}
+        >
+          <HeaderTraslado />
 
-        <AvisoRol
-          icono="shield-checkmark-outline"
-          rol="Supervisión · Novedades"
-          texto="Revisa los traslados que llegaron con diferencia y registra qué se hizo con cada uno."
-        />
-
-        {/* Buscador de consecutivo -- mientras hay texto, reemplaza las
-            pestañas y listas de abajo por los resultados (ver el plan
-            "consecutivo-solucion"). */}
-        <View style={estilos.buscador}>
-          <Ionicons name="search-outline" size={18} color={NEUTRAL_500} />
-          <TextInput
-            value={busqueda}
-            onChangeText={setBusqueda}
-            placeholder="Buscar consecutivo (ej. NPT-1234)"
-            placeholderTextColor={NEUTRAL_500}
-            style={estilos.buscadorInput}
-            autoCapitalize="characters"
-            autoCorrect={false}
+          <AvisoRol
+            icono="shield-checkmark-outline"
+            rol="Supervisión · Novedades"
+            texto="Revisa los traslados que llegaron con diferencia y registra qué se hizo con cada uno."
           />
-          {busqueda ? (
-            <Pressable onPress={() => setBusqueda('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color={NEUTRAL_500} />
-            </Pressable>
-          ) : null}
-        </View>
 
-        {buscandoTexto ? (
-          buscando && resultados.length === 0 ? (
-            <ActivityIndicator color={ACENTO} />
-          ) : errorBusqueda ? (
-            <Text style={styles.textoErrorInline}>{errorBusqueda}</Text>
-          ) : resultados.length === 0 ? (
-            <View style={estilos.vacio}>
-              <Ionicons name="search-outline" size={34} color={NEUTRAL_500} />
-              <Text style={estilos.vacioTitulo}>Sin resultados</Text>
-              <Text style={estilos.vacioTexto}>Ningún consecutivo coincide con “{busqueda.trim()}”.</Text>
-            </View>
-          ) : (
-            resultados.map((t) => (
-              <TarjetaNovedad
-                key={t.id}
-                traslado={t}
-                pestana="resuelta"
-                onPress={() => navigation.navigate('NovedadDetalle', { trasladoId: t.id })}
-              />
-            ))
-          )
-        ) : (
-          <>
-            {/* Pestañas Pendientes / Resueltas, con el total de cada una --
-                mismo patron visual que Enviados/Recibidos en
-                PantallaTrasladoInicio.tsx. */}
-            <View style={estilos.pestanas}>
-              {(['pendiente', 'resuelta'] as Pestana[]).map((p) => {
-                const activa = pestana === p;
-                const total = p === 'pendiente' ? pendientes.length : resueltas.length;
-                return (
-                  <Pressable key={p} onPress={() => setPestana(p)} style={[estilos.pestana, activa && estilos.pestanaActiva]}>
-                    <Ionicons
-                      name={p === 'pendiente' ? 'time-outline' : 'checkmark-done-outline'}
-                      size={16}
-                      color={activa ? TEXTO_PRIMARIO : NEUTRAL_400}
-                    />
-                    <Text style={[estilos.pestanaTexto, activa && estilos.pestanaTextoActiva]}>
-                      {p === 'pendiente' ? 'Pendientes' : 'Resueltas'}
-                    </Text>
-                    <View style={[estilos.pestanaConteo, activa && estilos.pestanaConteoActivo]}>
-                      <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_PRIMARIO }]}>{total}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
+          {/* Buscador de consecutivo -- mientras hay texto, reemplaza las
+              pestañas y listas de abajo por los resultados (ver el plan
+              "consecutivo-solucion"). */}
+          <View style={estilos.buscador}>
+            <Ionicons name="search-outline" size={18} color={NEUTRAL_500} />
+            <TextInput
+              value={busqueda}
+              onChangeText={setBusqueda}
+              placeholder="Buscar consecutivo (ej. NPT-1234)"
+              placeholderTextColor={NEUTRAL_500}
+              style={estilos.buscadorInput}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            {busqueda ? (
+              <Pressable onPress={() => setBusqueda('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color={NEUTRAL_500} />
+              </Pressable>
+            ) : null}
+          </View>
 
-            {cargando && lista.length === 0 ? (
+          {buscandoTexto ? (
+            buscando && resultados.length === 0 ? (
               <ActivityIndicator color={ACENTO} />
-            ) : error ? (
-              <Text style={styles.textoErrorInline}>{error}</Text>
-            ) : lista.length === 0 ? (
+            ) : errorBusqueda ? (
+              <Text style={styles.textoErrorInline}>{errorBusqueda}</Text>
+            ) : resultados.length === 0 ? (
               <View style={estilos.vacio}>
-                <Ionicons
-                  name={pestana === 'pendiente' ? 'checkmark-done-circle-outline' : 'archive-outline'}
-                  size={34}
-                  color={pestana === 'pendiente' ? VERDE : NEUTRAL_500}
-                />
-                <Text style={estilos.vacioTitulo}>
-                  {pestana === 'pendiente' ? 'No hay novedades pendientes' : 'Todavía no hay novedades resueltas'}
-                </Text>
-                <Text style={estilos.vacioTexto}>
-                  {pestana === 'pendiente'
-                    ? 'Cuando un punto reciba un traslado con diferencia, va a aparecer aquí.'
-                    : 'Las novedades que resuelvas van a aparecer aquí con la solución cargada.'}
-                </Text>
+                <Ionicons name="search-outline" size={34} color={NEUTRAL_500} />
+                <Text style={estilos.vacioTitulo}>Sin resultados</Text>
+                <Text style={estilos.vacioTexto}>Ningún consecutivo coincide con “{busqueda.trim()}”.</Text>
               </View>
             ) : (
-              lista.map((t) => (
+              resultados.map((t) => (
                 <TarjetaNovedad
                   key={t.id}
                   traslado={t}
-                  pestana={pestana}
+                  pestana="resuelta"
                   onPress={() => navigation.navigate('NovedadDetalle', { trasladoId: t.id })}
                 />
               ))
-            )}
-          </>
-        )}
-      </ScrollView>
+            )
+          ) : (
+            <>
+              {/* Pestañas Pendientes / Resueltas, con el total de cada una --
+                  mismo patron visual que Enviados/Recibidos en
+                  PantallaTrasladoInicio.tsx. */}
+              <View style={estilos.pestanas}>
+                {(['pendiente', 'resuelta'] as Pestana[]).map((p) => {
+                  const activa = pestana === p;
+                  const total = p === 'pendiente' ? pendientes.length : resueltas.length;
+                  return (
+                    <Pressable key={p} onPress={() => setPestana(p)} style={[estilos.pestana, activa && estilos.pestanaActiva]}>
+                      <Ionicons
+                        name={p === 'pendiente' ? 'time-outline' : 'checkmark-done-outline'}
+                        size={16}
+                        color={activa ? TEXTO_PRIMARIO : NEUTRAL_400}
+                      />
+                      <Text style={[estilos.pestanaTexto, activa && estilos.pestanaTextoActiva]}>
+                        {p === 'pendiente' ? 'Pendientes' : 'Resueltas'}
+                      </Text>
+                      <View style={[estilos.pestanaConteo, activa && estilos.pestanaConteoActivo]}>
+                        <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_PRIMARIO }]}>{total}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {cargando && lista.length === 0 ? (
+                <ActivityIndicator color={ACENTO} />
+              ) : error ? (
+                <Text style={styles.textoErrorInline}>{error}</Text>
+              ) : lista.length === 0 ? (
+                <View style={estilos.vacio}>
+                  <Ionicons
+                    name={pestana === 'pendiente' ? 'checkmark-done-circle-outline' : 'archive-outline'}
+                    size={34}
+                    color={pestana === 'pendiente' ? VERDE : NEUTRAL_500}
+                  />
+                  <Text style={estilos.vacioTitulo}>
+                    {pestana === 'pendiente' ? 'No hay novedades pendientes' : 'Todavía no hay novedades resueltas'}
+                  </Text>
+                  <Text style={estilos.vacioTexto}>
+                    {pestana === 'pendiente'
+                      ? 'Cuando un punto reciba un traslado con diferencia, va a aparecer aquí.'
+                      : 'Las novedades que resuelvas van a aparecer aquí con la solución cargada.'}
+                  </Text>
+                </View>
+              ) : (
+                lista.map((t) => (
+                  <TarjetaNovedad
+                    key={t.id}
+                    traslado={t}
+                    pestana={pestana}
+                    onPress={() => navigation.navigate('NovedadDetalle', { trasladoId: t.id })}
+                  />
+                ))
+              )}
+            </>
+          )}
+        </ScrollView>
+      </EvitarTeclado>
     </SafeAreaView>
   );
 }
