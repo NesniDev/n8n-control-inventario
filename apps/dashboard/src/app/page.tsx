@@ -727,6 +727,18 @@ function FilaRevision({
 // pendiente -- a diferencia de FilaRevision no se puede editar nada, es para
 // entender de un vistazo que paso con el documento (fotos como miniatura en
 // vez de links de texto, historial como linea de tiempo colapsable).
+// Fecha y hora en horario de Colombia, ej. "28 sept 2026, 8:15 a. m." --
+// explicito para que no dependa del idioma/zona del navegador de quien mira.
+const FORMATO_FECHA_HORA = new Intl.DateTimeFormat("es-CO", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "America/Bogota",
+});
+
+function formatearFechaHora(fecha: string | null | undefined): string {
+  return fecha ? FORMATO_FECHA_HORA.format(new Date(fecha)) : "—";
+}
+
 function ModalDetalleEntrega({
   entrega,
   onCerrar,
@@ -779,15 +791,20 @@ function ModalDetalleEntrega({
   // se usa como fallback el ultimo bodeguero de la fila (entrega.bodeguero_nombre).
   // Se excluye punto_venta: tambien genera entrega_actualizada (sin items) al
   // marcar FAIA, pero nunca confirma cantidades, asi que no es bodeguero.
-  const bodeguerosHistorial =
+  // Cada visita de bodega que confirmo cantidades, en orden -- base tanto de
+  // la lista de bodegueros como de la seccion "Fechas" (una fila por entrega,
+  // asi se ve cuando el documento se entrego en varias visitas).
+  const visitasBodega =
     historial === null
       ? null
+      : historial
+          .filter((log) => log.evento === "entrega_actualizada" && log.actor_rol !== "punto_venta")
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const bodeguerosHistorial =
+    visitasBodega === null
+      ? null
       : Array.from(
-          new Map(
-            historial
-              .filter((log) => log.evento === "entrega_actualizada" && log.actor_rol !== "punto_venta")
-              .map((log) => [log.actor_id, log.actor_nombre ?? log.actor_id] as const)
-          ).values()
+          new Map(visitasBodega.map((log) => [log.actor_id, log.actor_nombre ?? log.actor_id] as const)).values()
         );
 
   // Fotos disponibles como miniatura -- solo las que la entrega realmente
@@ -866,12 +883,45 @@ function ModalDetalleEntrega({
               </span>
             </div>
           </div>
-          <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-            <span className="block text-xs text-neutral-500">Capturado</span>
-            <span className="text-neutral-200">
-              {entrega.capturado_at ? new Date(entrega.capturado_at).toLocaleString() : "—"}
-            </span>
-          </div>
+        </div>
+
+        {/* Fechas: cuando se subio el documento (punto de venta u operador
+            que lo creo) y cada entrega de bodega por separado -- si se
+            entrego en varias visitas, aparece una fila por visita. */}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Fechas</span>
+          <ol className="flex flex-col divide-y divide-neutral-800 rounded-md border border-neutral-800 bg-neutral-950 text-sm">
+            <li className="flex items-start justify-between gap-3 px-3 py-2">
+              <div className="flex flex-col">
+                <span className="text-neutral-200">
+                  {entrega.operador_rol === "punto_venta" ? "Subido por punto de venta" : "Capturado"}
+                </span>
+                <span className="text-xs text-neutral-500">{entrega.operador_nombre ?? entrega.operador_id}</span>
+              </div>
+              <span className="whitespace-nowrap text-right text-neutral-300">
+                {formatearFechaHora(entrega.capturado_at)}
+              </span>
+            </li>
+            {visitasBodega === null ? (
+              <li className="px-3 py-2 text-xs text-neutral-500">Cargando entregas...</li>
+            ) : visitasBodega.length === 0 ? (
+              <li className="px-3 py-2 text-xs text-neutral-500">Todavía no se entregó en bodega.</li>
+            ) : (
+              visitasBodega.map((log, i) => (
+                <li key={log.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                  <div className="flex flex-col">
+                    <span className="text-neutral-200">
+                      {visitasBodega.length > 1 ? `Entrega ${i + 1} de ${visitasBodega.length}` : "Entregado en bodega"}
+                    </span>
+                    <span className="text-xs text-neutral-500">{log.actor_nombre ?? log.actor_id ?? "—"}</span>
+                  </div>
+                  <span className="whitespace-nowrap text-right text-emerald-400">
+                    {formatearFechaHora(log.timestamp)}
+                  </span>
+                </li>
+              ))
+            )}
+          </ol>
         </div>
 
         {/* Nota a nivel documento completo (distinta de la nota por
