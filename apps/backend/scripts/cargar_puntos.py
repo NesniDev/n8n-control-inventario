@@ -40,6 +40,7 @@ PUNTOS: list[tuple[str, str]] = [
     ("NVL", "Villa de Leyva"),
     ("PFE", "Paipa"),
     ("SFC", "Samacá"),
+    ("TB", "Chiquinquirá"),
     ("TB2", "Saboyá"),
     ("TB4", "Susa"),
     ("TB9", "Estación (Salidas)"),
