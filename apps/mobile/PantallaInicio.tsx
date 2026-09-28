@@ -1,11 +1,33 @@
 // Tab de Inicio -- lo primero que se ve al abrir la app, ANTES de cualquier
 // login (cada area tiene el suyo), asi que no muestra datos de ninguna sede
-// ni punto: portada a todo el ancho con la imagen de la empresa y, encima, el
-// saludo con la fecha; debajo, el estado de conexion con el backend +
-// version/actualizacion instalada (para saber si se puede trabajar y, en
-// soporte, que version tiene el celular).
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Image, ImageBackground, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+// ni punto: fondo con la imagen de la empresa desenfocada a pantalla completa,
+// brillos de color que se mueven despacio y, encima, tarjetas translucidas
+// ("vidrio"): saludo con la fecha, estado de conexion con el backend,
+// consejos, soporte y version/actualizacion instalada (para saber si se puede
+// trabajar y, en soporte, que version tiene el celular).
+//
+// Todo el efecto sale del core de React Native (Animated + blurRadius de la
+// imagen), sin expo-blur ni expo-linear-gradient: esas traen codigo nativo y
+// obligarian a generar un .apk nuevo; asi sigue llegando por EAS Update.
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  AccessibilityInfo,
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  ImageBackground,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type PressableProps,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -18,9 +40,6 @@ import {
   FUENTE_BODY_SEMI,
   FUENTE_DISPLAY,
   NEUTRAL_400,
-  NEUTRAL_500,
-  NEUTRAL_700,
-  NEUTRAL_850,
   NEUTRAL_900,
   TEXTO_PRIMARIO,
 } from './tema';
@@ -57,6 +76,11 @@ function textoActualizacion(): string {
 
 const LOGO = require('./assets/logo-empresa.jpg');
 
+// Superficie "vidrio" de las tarjetas: translucida sobre el fondo desenfocado
+// y con un borde claro muy suave que marca el canto.
+const VIDRIO = 'rgba(22,29,41,0.55)';
+const BORDE_VIDRIO = 'rgba(255,255,255,0.10)';
+
 // Consejos que rotan en el carrusel de Inicio (ver CarruselConsejos). Para
 // agregar o cambiar consejos, editar esta lista: llega por EAS Update sin
 // tocar el backend.
@@ -87,7 +111,7 @@ const CONSEJOS: { area: AreaConsejo; icono: keyof typeof Ionicons.glyphMap; text
   { area: 'traslados', icono: 'download-outline', texto: 'Revisa «Por recibir» al llegar un vehículo: ahí aparecen los traslados que vienen a tu punto.' },
   { area: 'despachos', icono: 'search-outline', texto: 'Si no tienes la foto a mano, puedes buscar la factura por su número para actualizarla.' },
   { area: 'traslados', icono: 'chatbox-ellipses-outline', texto: 'Usa las observaciones para lo que no está en el papel: horarios, entregas parciales o avisos.' },
-]
+];
 
 // Contacto de soporte -- boton de WhatsApp (link wa.me: abre la app si esta
 // instalada, si no el navegador). Numero en formato internacional sin "+"
@@ -116,39 +140,327 @@ function indiceDelDia(fecha: Date): number {
 
 const SEGUNDOS_POR_CONSEJO = 7;
 
-// Carrusel de consejos: pasa solo al siguiente cada SEGUNDOS_POR_CONSEJO con
-// un fundido (Animated del core, sin librerias), tocar adelanta uno, y los
-// puntos marcan cual se esta viendo. Se pausa cuando Inicio no esta en
-// pantalla (useIsFocused) para no trabajar de fondo.
-function CarruselConsejos() {
+// Preferencias de accesibilidad del sistema: "reducir movimiento" y lector de
+// pantalla (TalkBack). Se escuchan los cambios para no pedir reiniciar la app.
+function usePreferenciaAccesibilidad(
+  consultar: () => Promise<boolean>,
+  evento: 'reduceMotionChanged' | 'screenReaderChanged'
+): boolean {
+  const [activa, setActiva] = useState(false);
+  useEffect(() => {
+    let vigente = true;
+    consultar()
+      .then((v) => vigente && setActiva(v))
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener(evento, setActiva);
+    return () => {
+      vigente = false;
+      sub.remove();
+    };
+  }, [consultar, evento]);
+  return activa;
+}
+
+const useReducirMovimiento = () =>
+  usePreferenciaAccesibilidad(AccessibilityInfo.isReduceMotionEnabled, 'reduceMotionChanged');
+
+// Valor que va y viene entre 0 y 1 sin parar (ida y vuelta suave), para los
+// movimientos de fondo. Se detiene cuando `activo` es false (Inicio fuera de
+// pantalla o "reducir movimiento"), asi no gasta bateria.
+function useVaiven(duracion: number, activo: boolean): Animated.Value {
+  const valor = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!activo) return;
+    const curva = Easing.inOut(Easing.sin);
+    const bucle = Animated.loop(
+      Animated.sequence([
+        Animated.timing(valor, { toValue: 1, duration: duracion, easing: curva, useNativeDriver: true }),
+        Animated.timing(valor, { toValue: 0, duration: duracion, easing: curva, useNativeDriver: true }),
+      ])
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [activo, duracion, valor]);
+  return valor;
+}
+
+// Valor que sube de 0 a 1 y vuelve a empezar -- para los latidos (anillo que
+// se expande y se desvanece).
+function useLatido(duracion: number, activo: boolean): Animated.Value {
+  const valor = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!activo) {
+      valor.setValue(0);
+      return;
+    }
+    const bucle = Animated.loop(
+      Animated.timing(valor, { toValue: 1, duration: duracion, easing: Easing.out(Easing.quad), useNativeDriver: true })
+    );
+    bucle.start();
+    return () => bucle.stop();
+  }, [activo, duracion, valor]);
+  return valor;
+}
+
+// Entrada escalonada de las secciones: cada una aparece subiendo un poco y
+// con fundido, una detras de otra. Con "reducir movimiento" quedan visibles
+// de una.
+function useEntrada(cantidad: number, reducirMovimiento: boolean): Animated.Value[] {
+  const valores = useRef(Array.from({ length: cantidad }, () => new Animated.Value(0))).current;
+  useEffect(() => {
+    if (reducirMovimiento) {
+      valores.forEach((v) => v.setValue(1));
+      return;
+    }
+    Animated.stagger(
+      90,
+      valores.map((v) => Animated.spring(v, { toValue: 1, damping: 16, stiffness: 120, mass: 0.9, useNativeDriver: true }))
+    ).start();
+  }, [reducirMovimiento, valores]);
+  return valores;
+}
+
+const estiloEntrada = (v: Animated.Value) => ({
+  opacity: v,
+  transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+});
+
+// Tarjeta tocable que se "hunde" un poco al presionar (resorte), en vez de
+// solo bajar la opacidad.
+function Presionable({
+  estilo,
+  children,
+  ...props
+}: Omit<PressableProps, 'style' | 'children'> & { estilo?: StyleProp<ViewStyle>; children: ReactNode }) {
+  const escala = useRef(new Animated.Value(1)).current;
+  const animar = (a: number) => Animated.spring(escala, { toValue: a, speed: 40, bounciness: 6, useNativeDriver: true }).start();
+  return (
+    <Pressable {...props} onPressIn={() => animar(0.97)} onPressOut={() => animar(1)}>
+      <Animated.View style={[estilo, { transform: [{ scale: escala }] }]}>{children}</Animated.View>
+    </Pressable>
+  );
+}
+
+// Brillo de color difuminado. React Native no desenfoca Views, asi que se
+// arma con circulos concentricos casi transparentes: la opacidad se acumula
+// hacia el centro y el borde queda suave.
+const CAPAS_BRILLO = [1, 0.84, 0.68, 0.54, 0.4, 0.28];
+
+function Brillo({
+  color,
+  tamano,
+  posicion,
+  vaiven,
+  desplazamiento,
+}: {
+  color: string;
+  tamano: number;
+  posicion: ViewStyle;
+  vaiven: Animated.Value;
+  desplazamiento: { x: number; y: number };
+}) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        { position: 'absolute', width: tamano, height: tamano },
+        posicion,
+        {
+          transform: [
+            { translateX: vaiven.interpolate({ inputRange: [0, 1], outputRange: [0, desplazamiento.x] }) },
+            { translateY: vaiven.interpolate({ inputRange: [0, 1], outputRange: [0, desplazamiento.y] }) },
+            { scale: vaiven.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) },
+          ],
+        },
+      ]}
+    >
+      {CAPAS_BRILLO.map((f) => (
+        <View
+          key={f}
+          style={{
+            position: 'absolute',
+            width: tamano * f,
+            height: tamano * f,
+            borderRadius: (tamano * f) / 2,
+            left: (tamano * (1 - f)) / 2,
+            top: (tamano * (1 - f)) / 2,
+            backgroundColor: color,
+            opacity: 0.05,
+          }}
+        />
+      ))}
+    </Animated.View>
+  );
+}
+
+// Fondo de toda la pantalla: la imagen de la empresa muy desenfocada, un velo
+// oscuro para que el texto se lea, y dos brillos (naranja de la marca y azul)
+// que derivan despacio.
+function Fondo({ animar }: { animar: boolean }) {
+  const { width } = useWindowDimensions();
+  const vaivenA = useVaiven(7000, animar);
+  const vaivenB = useVaiven(9000, animar);
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <ImageBackground source={LOGO} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={30} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(15,21,32,0.74)' }]} />
+      <Brillo
+        color={ACENTO}
+        tamano={width * 1.1}
+        posicion={{ top: -width * 0.45, right: -width * 0.5 }}
+        vaiven={vaivenA}
+        desplazamiento={{ x: -width * 0.12, y: width * 0.1 }}
+      />
+      <Brillo
+        color="#3b82f6"
+        tamano={width}
+        posicion={{ bottom: -width * 0.3, left: -width * 0.55 }}
+        vaiven={vaivenB}
+        desplazamiento={{ x: width * 0.15, y: -width * 0.12 }}
+      />
+    </View>
+  );
+}
+
+// Logo con una flotacion suave hacia arriba y abajo.
+function LogoAnimado({ animar }: { animar: boolean }) {
+  const flotacion = useVaiven(3200, animar);
+  return (
+    <Animated.View
+      style={[
+        estilos.logoZona,
+        { transform: [{ translateY: flotacion.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }) }] },
+      ]}
+    >
+      <View style={estilos.marcoLogo}>
+        <Image source={LOGO} style={estilos.logo} resizeMode="cover" accessibilityLabel="Logo de la empresa" />
+      </View>
+    </Animated.View>
+  );
+}
+
+// Pastilla de estado de conexion (tocar re-verifica). Conectado: el punto
+// verde late; verificando: el icono gira.
+function PastillaConexion({
+  conexion,
+  onReintentar,
+  animar,
+}: {
+  conexion: EstadoConexion;
+  onReintentar: () => void;
+  animar: boolean;
+}) {
+  const info = INFO_CONEXION[conexion];
+  const latido = useLatido(1800, animar && conexion === 'conectado');
+  const giro = useLatido(1000, animar && conexion === 'verificando');
+  return (
+    <Presionable
+      onPress={onReintentar}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel={info.texto}
+      accessibilityHint="Toca para volver a verificar la conexión"
+      accessibilityLiveRegion="polite"
+      estilo={[estilos.pastilla, { borderColor: info.borde }]}
+    >
+      {conexion === 'verificando' ? (
+        <Animated.View
+          style={{ transform: [{ rotate: giro.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}
+        >
+          <Ionicons name="sync-outline" size={13} color={info.color} />
+        </Animated.View>
+      ) : (
+        <View style={estilos.puntoZona}>
+          <Animated.View
+            style={[
+              estilos.punto,
+              {
+                backgroundColor: info.color,
+                opacity: latido.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] }),
+                transform: [{ scale: latido.interpolate({ inputRange: [0, 1], outputRange: [1, 2.6] }) }],
+              },
+            ]}
+          />
+          <View style={[estilos.punto, { backgroundColor: info.color }]} />
+        </View>
+      )}
+      <Text style={[estilos.pastillaTexto, { color: info.color }]}>{info.corto}</Text>
+    </Presionable>
+  );
+}
+
+const INFO_CONEXION: Record<EstadoConexion, { texto: string; corto: string; color: string; borde: string }> = {
+  verificando: { texto: 'Verificando conexión…', corto: 'Verificando…', color: NEUTRAL_400, borde: 'rgba(154,163,181,0.35)' },
+  conectado: { texto: 'Conectado al servidor', corto: 'Conectado', color: '#34d399', borde: 'rgba(52,211,153,0.4)' },
+  sin_conexion: { texto: 'Sin conexión al servidor', corto: 'Sin conexión · Reintentar', color: '#f87171', borde: 'rgba(248,113,113,0.45)' },
+};
+
+// Carrusel de consejos: una barra de progreso se llena en
+// SEGUNDOS_POR_CONSEJO y al completarse pasa al siguiente, que entra
+// deslizandose con fundido (Animated del core, sin librerias); tocar adelanta
+// uno. Se pausa cuando Inicio no esta en pantalla (useIsFocused) para no
+// trabajar de fondo. Con "reducir movimiento" cambia sin deslizar, y con
+// lector de pantalla no avanza solo (el texto cambiaria mientras se esta
+// leyendo): se adelanta tocando.
+function CarruselConsejos({ reducirMovimiento }: { reducirMovimiento: boolean }) {
   const enPantalla = useIsFocused();
+  const lectorPantalla = usePreferenciaAccesibilidad(AccessibilityInfo.isScreenReaderEnabled, 'screenReaderChanged');
   const [indice, setIndice] = useState(() => indiceDelDia(new Date()));
-  const opacidad = useRef(new Animated.Value(1)).current;
+  const [anchoBarra, setAnchoBarra] = useState(0);
+  // -1 = entrando desde la derecha, 0 = visible, 1 = saliendo a la izquierda.
+  const transicion = useRef(new Animated.Value(0)).current;
+  const progreso = useRef(new Animated.Value(0)).current;
 
   const avanzar = useCallback(() => {
-    Animated.timing(opacidad, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+    if (reducirMovimiento) {
       setIndice((i) => (i + 1) % CONSEJOS.length);
-      Animated.timing(opacidad, { toValue: 1, duration: 260, useNativeDriver: true }).start();
+      return;
+    }
+    Animated.timing(transicion, { toValue: 1, duration: 200, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(() => {
+      setIndice((i) => (i + 1) % CONSEJOS.length);
+      transicion.setValue(-1);
+      Animated.spring(transicion, { toValue: 0, damping: 18, stiffness: 160, useNativeDriver: true }).start();
     });
-  }, [opacidad]);
+  }, [transicion, reducirMovimiento]);
 
-  // Se reinicia el temporizador en cada cambio (tambien al tocar), asi un
-  // consejo recien adelantado a mano se ve los segundos completos.
+  // La barra arranca de cero en cada consejo (tambien al tocar), asi uno
+  // recien adelantado a mano se ve los segundos completos.
   useEffect(() => {
-    if (!enPantalla) return;
-    const id = setTimeout(avanzar, SEGUNDOS_POR_CONSEJO * 1000);
-    return () => clearTimeout(id);
-  }, [enPantalla, indice, avanzar]);
+    progreso.setValue(0);
+    if (!enPantalla || lectorPantalla) return;
+    const llenado = Animated.timing(progreso, {
+      toValue: 1,
+      duration: SEGUNDOS_POR_CONSEJO * 1000,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    });
+    llenado.start(({ finished }) => {
+      if (finished) avanzar();
+    });
+    return () => llenado.stop();
+  }, [indice, enPantalla, lectorPantalla, avanzar, progreso]);
 
   const consejo = CONSEJOS[indice];
   const area = AREAS_CONSEJO[consejo.area];
+  const estiloTransicion = {
+    opacity: transicion.interpolate({ inputRange: [-1, 0, 1], outputRange: [0, 1, 0] }),
+    transform: [{ translateX: transicion.interpolate({ inputRange: [-1, 0, 1], outputRange: [18, 0, -18] }) }],
+  };
 
   return (
-    <Pressable onPress={avanzar} style={({ pressed }) => [estilos.consejo, pressed && { opacity: 0.85 }]}>
+    <Presionable
+      onPress={avanzar}
+      accessibilityRole="button"
+      accessibilityLabel={`Consejo ${indice + 1} de ${CONSEJOS.length}, ${area.texto}: ${consejo.texto}`}
+      accessibilityHint="Toca para ver el siguiente consejo"
+      estilo={estilos.tarjeta}
+    >
       <View style={estilos.consejoEncabezado}>
-        <Ionicons name="bulb-outline" size={16} color="#fbbf24" />
-        <Text style={estilos.consejoEtiqueta}>Consejos</Text>
-        <Animated.View style={[estilos.chipArea, { borderColor: area.color, opacity: opacidad }]}>
+        <View style={estilos.consejoIconoBombilla}>
+          <Ionicons name="bulb" size={14} color="#fbbf24" />
+        </View>
+        <Text style={estilos.consejoEtiqueta}>Consejo</Text>
+        <Animated.View style={[estilos.chipArea, { borderColor: area.color }, estiloTransicion]}>
           <Ionicons name={area.icono} size={12} color={area.color} />
           <Text style={[estilos.chipAreaTexto, { color: area.color }]}>{area.texto}</Text>
         </Animated.View>
@@ -156,63 +468,48 @@ function CarruselConsejos() {
           {indice + 1}/{CONSEJOS.length}
         </Text>
       </View>
-      <Animated.View style={[estilos.consejoFila, { opacity: opacidad }]}>
-        <Ionicons name={consejo.icono} size={22} color={NEUTRAL_400} />
+
+      <Animated.View style={[estilos.consejoFila, estiloTransicion]}>
+        <View style={[estilos.consejoIcono, { backgroundColor: `${area.color}1f` }]}>
+          <Ionicons name={consejo.icono} size={22} color={area.color} />
+        </View>
         <Text style={estilos.consejoTexto}>{consejo.texto}</Text>
       </Animated.View>
-      <View style={estilos.puntos}>
-        {CONSEJOS.map((_, i) => (
-          <View key={i} style={[estilos.puntoConsejo, i === indice && estilos.puntoConsejoActivo]} />
-        ))}
-      </View>
-    </Pressable>
-  );
-}
 
-// Fundido de la portada hacia el fondo de la app, sin expo-linear-gradient
-// (trae codigo nativo y obligaria a generar un .apk nuevo; asi sigue
-// llegando por EAS Update). Capas acumuladas: cada una arranca en su altura
-// y llega hasta abajo, con la opacidad justa para que la suma siga la curva
-// (i/N)^2. Asi no hay bordes que se pisen -- con franjas contiguas quedaban
-// lineas visibles (claras si habia hueco, oscuras si se superponian).
-const CAPAS_DEGRADADO = 32;
-const OPACIDADES_CAPAS = Array.from({ length: CAPAS_DEGRADADO }, (_, i) => {
-  const objetivo = (k: number) => Math.pow(k / CAPAS_DEGRADADO, 2);
-  const antes = objetivo(i);
-  const despues = objetivo(i + 1);
-  return 1 - (1 - despues) / (1 - antes);
-});
-
-function Degradado({ alto }: { alto: number }) {
-  const paso = alto / CAPAS_DEGRADADO;
-  return (
-    <View style={[estilos.degradado, { height: alto }]} pointerEvents="none">
-      {OPACIDADES_CAPAS.map((opacidad, i) => (
-        <View
-          key={i}
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: Math.round(i * paso),
-            bottom: 0,
-            backgroundColor: NEUTRAL_900,
-            opacity: opacidad,
-          }}
+      {/* Barra de tiempo hasta el siguiente consejo (decorativa para
+          TalkBack; con lector de pantalla queda vacia porque no avanza solo). */}
+      <View
+        style={estilos.barraFondo}
+        onLayout={(e) => setAnchoBarra(e.nativeEvent.layout.width)}
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden
+      >
+        <Animated.View
+          style={[
+            estilos.barraRelleno,
+            {
+              backgroundColor: area.color,
+              width: anchoBarra,
+              transform: [{ translateX: progreso.interpolate({ inputRange: [0, 1], outputRange: [-anchoBarra, 0] }) }],
+            },
+          ]}
         />
-      ))}
-    </View>
+      </View>
+    </Presionable>
   );
 }
 
 export default function PantallaInicio() {
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const enPantalla = useIsFocused();
+  const reducirMovimiento = useReducirMovimiento();
+  const animar = enPantalla && !reducirMovimiento;
   const [ahora, setAhora] = useState(() => new Date());
   const [conexion, setConexion] = useState<EstadoConexion>('verificando');
+  const entrada = useEntrada(4, reducirMovimiento);
 
-  // Se refresca cada minuto -- para que el saludo y la fecha cambien solos
-  // si la app queda abierta al pasar el mediodia o la medianoche.
+  // Se refresca cada minuto -- para que el saludo y la fecha cambien solos si
+  // la app queda abierta al pasar el mediodia o la medianoche.
   useEffect(() => {
     const id = setInterval(() => setAhora(new Date()), 60000);
     return () => clearInterval(id);
@@ -240,15 +537,7 @@ export default function PantallaInicio() {
     }, [verificarConexion])
   );
 
-  const infoConexion = {
-    verificando: { texto: 'Verificando conexión…', color: NEUTRAL_400, icono: 'sync-outline' as const },
-    conectado: { texto: 'Conectado al servidor', color: '#34d399', icono: 'cloud-done-outline' as const },
-    sin_conexion: { texto: 'Sin conexión al servidor', color: '#f87171', icono: 'cloud-offline-outline' as const },
-  }[conexion];
-
   const { texto: textoSaludo, icono: iconoSaludo } = saludo(ahora.getHours());
-  // Portada mas baja que antes: logo + saludo sin el hueco vacio de abajo.
-  const altoPortada = Math.max(width * 0.86, 340) + insets.top;
   const dia = DIAS[ahora.getDay()];
 
   const abrirWhatsapp = () =>
@@ -259,65 +548,66 @@ export default function PantallaInicio() {
 
   return (
     <View style={estilos.contenedor}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false} bounces={false}>
-        {/* Portada: la imagen de la empresa a todo el ancho como fondo
-            (desenfocada y oscurecida, asi el texto propio del logo no choca
-            con el saludo), con el logo nitido encima y el texto sobre ella.
-            Pasa por debajo de la barra de estado. */}
-        <ImageBackground source={LOGO} style={{ width, height: altoPortada }} resizeMode="cover" blurRadius={18}>
-          <View style={estilos.velo} />
-          <Degradado alto={altoPortada * 0.5} />
+      <Fondo animar={animar} />
 
-          {/* Estado de conexion como pastilla (tocar re-verifica) -- es un
-              dato secundario, no merece una tarjeta entera. */}
-          <Pressable
-            onPress={verificarConexion}
-            hitSlop={8}
-            style={[estilos.pastillaConexion, { top: insets.top + 12, borderColor: infoConexion.color }]}
-          >
-            <View style={[estilos.puntoConexion, { backgroundColor: infoConexion.color }]} />
-            <Text style={[estilos.pastillaConexionTexto, { color: infoConexion.color }]}>
-              {conexion === 'conectado' ? 'Conectado' : conexion === 'sin_conexion' ? 'Sin conexión · Reintentar' : 'Verificando…'}
+      <ScrollView
+        contentContainerStyle={[estilos.scroll, { paddingTop: insets.top + 12 }]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        {/* Barra superior: nombre de la app y estado de conexion. */}
+        <Animated.View style={[estilos.barraSuperior, estiloEntrada(entrada[0])]}>
+          <Text style={estilos.marca}>Despachos El Imperio</Text>
+          <PastillaConexion conexion={conexion} onReintentar={verificarConexion} animar={animar} />
+        </Animated.View>
+
+        {/* Portada: logo, saludo y fecha. */}
+        <Animated.View style={[estilos.portada, estiloEntrada(entrada[1])]}>
+          <LogoAnimado animar={animar} />
+          <View style={estilos.filaSaludo}>
+            <Ionicons name={iconoSaludo} size={26} color={ACENTO} />
+            <Text style={estilos.saludo} accessibilityRole="header">
+              {textoSaludo}
             </Text>
-          </Pressable>
-
-          <View style={[estilos.contenidoPortada, { paddingTop: insets.top + 36 }]}>
-            <View style={estilos.marcoLogo}>
-              <Image source={LOGO} style={estilos.logo} resizeMode="cover" />
-            </View>
-
-            <View style={estilos.textoPortada}>
-              <View style={estilos.filaSaludo}>
-                <Ionicons name={iconoSaludo} size={26} color={ACENTO} />
-                <Text style={estilos.saludo}>{textoSaludo}</Text>
-              </View>
-              <Text style={estilos.fecha}>
-                {dia.charAt(0).toUpperCase() + dia.slice(1)} {ahora.getDate()} de {MESES[ahora.getMonth()]} de{' '}
-                {ahora.getFullYear()}
-              </Text>
-            </View>
           </View>
-        </ImageBackground>
+          <View style={estilos.chipFecha}>
+            <Ionicons name="calendar-outline" size={14} color={NEUTRAL_400} />
+            <Text style={estilos.fecha}>
+              {dia.charAt(0).toUpperCase() + dia.slice(1)} {ahora.getDate()} de {MESES[ahora.getMonth()]} de{' '}
+              {ahora.getFullYear()}
+            </Text>
+          </View>
+        </Animated.View>
 
-        <View style={estilos.cuerpo}>
+        <Animated.View style={[estilos.seccion, estiloEntrada(entrada[2])]}>
           {conexion === 'sin_conexion' ? (
             // Aviso visible solo cuando hace falta: sin servidor no se puede
             // enviar nada, mejor saberlo antes de entrar a un area.
-            <Pressable onPress={verificarConexion} style={estilos.avisoSinConexion}>
+            <Presionable
+              onPress={verificarConexion}
+              accessibilityRole="button"
+              accessibilityLabel="No hay conexión con el servidor. Espera a tener señal antes de enviar."
+              accessibilityHint="Toca para volver a verificar la conexión"
+              estilo={estilos.avisoSinConexion}
+            >
               <Ionicons name="cloud-offline-outline" size={20} color="#f87171" />
               <Text style={estilos.avisoSinConexionTexto}>
                 No hay conexión con el servidor. Espera a tener señal antes de enviar.
               </Text>
               <Ionicons name="refresh" size={18} color="#f87171" />
-            </Pressable>
+            </Presionable>
           ) : null}
 
-          <CarruselConsejos />
+          <CarruselConsejos reducirMovimiento={reducirMovimiento} />
+        </Animated.View>
 
+        <Animated.View style={[estilos.seccion, estiloEntrada(entrada[3])]}>
           {/* Soporte en una sola fila, con el boton de WhatsApp a la derecha. */}
-          <Pressable
+          <Presionable
             onPress={abrirWhatsapp}
-            style={({ pressed }) => [estilos.soporte, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button"
+            accessibilityLabel="¿Algo no funciona? Escríbele a soporte por WhatsApp"
+            estilo={[estilos.tarjeta, estilos.soporte]}
           >
             <View style={estilos.soporteIcono}>
               <Ionicons name="headset-outline" size={20} color={ACENTO} />
@@ -329,9 +619,7 @@ export default function PantallaInicio() {
             <View style={estilos.botonWhatsapp}>
               <Ionicons name="logo-whatsapp" size={22} color="#ffffff" />
             </View>
-          </Pressable>
-
-          <View style={{ flex: 1 }} />
+          </Presionable>
 
           {/* Pie: indicacion para empezar + version, discretos, justo arriba
               del menu de tabs. */}
@@ -342,7 +630,7 @@ export default function PantallaInicio() {
             </View>
             <Text style={estilos.version}>{textoActualizacion()}</Text>
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -350,64 +638,94 @@ export default function PantallaInicio() {
 
 const estilos = StyleSheet.create({
   contenedor: { flex: 1, backgroundColor: NEUTRAL_900 },
-  degradado: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  velo: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,21,32,0.45)' },
-  pastillaConexion: {
-    position: 'absolute',
-    right: 16,
+  scroll: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 20, gap: 18 },
+  seccion: { gap: 12 },
+
+  barraSuperior: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  marca: {
+    flexShrink: 1,
+    color: NEUTRAL_400,
+    fontSize: 12.5,
+    fontFamily: FUENTE_BODY_SEMI,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  pastilla: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
     borderWidth: 1,
-    backgroundColor: 'rgba(15,21,32,0.6)',
+    backgroundColor: VIDRIO,
   },
-  pastillaConexionTexto: { fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
-  puntoConexion: { width: 8, height: 8, borderRadius: 4 },
-  contenidoPortada: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 16, gap: 18 },
+  pastillaTexto: { fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  puntoZona: { width: 8, height: 8, alignItems: 'center', justifyContent: 'center' },
+  punto: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
+
+  portada: { alignItems: 'center', gap: 12, paddingTop: 18, paddingBottom: 6 },
+  logoZona: { width: 132, height: 132, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   marcoLogo: {
-    width: 150,
-    height: 150,
+    width: 120,
+    height: 120,
     borderRadius: 30,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
   logo: { width: '100%', height: '100%' },
-  textoPortada: { alignItems: 'center', gap: 4, paddingHorizontal: 20 },
   filaSaludo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saludo: {
     color: TEXTO_PRIMARIO,
-    fontSize: 32,
+    fontSize: 34,
     fontFamily: FUENTE_DISPLAY,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowRadius: 8,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowRadius: 10,
   },
-  fecha: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI, opacity: 0.85 },
-  cuerpo: { flex: 1, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 16, gap: 12 },
+  chipFecha: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: VIDRIO,
+    borderWidth: 1,
+    borderColor: BORDE_VIDRIO,
+  },
+  fecha: { color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY_SEMI, opacity: 0.9 },
+
+  tarjeta: {
+    gap: 12,
+    padding: 18,
+    borderRadius: 22,
+    backgroundColor: VIDRIO,
+    borderWidth: 1,
+    borderColor: BORDE_VIDRIO,
+  },
   avisoSinConexion: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     padding: 14,
-    borderRadius: 14,
-    backgroundColor: 'rgba(248,113,113,0.10)',
+    borderRadius: 18,
+    backgroundColor: 'rgba(248,113,113,0.12)',
     borderWidth: 1,
     borderColor: 'rgba(248,113,113,0.4)',
   },
-  avisoSinConexionTexto: { flex: 1, color: '#fca5a5', fontSize: 13, fontFamily: FUENTE_BODY },
-  consejo: {
-    gap: 12,
-    padding: 18,
-    borderRadius: 18,
-    backgroundColor: NEUTRAL_850,
-    borderWidth: 1,
-    borderColor: NEUTRAL_700,
+  avisoSinConexionTexto: { flex: 1, color: '#fca5a5', fontSize: 14, fontFamily: FUENTE_BODY },
+
+  consejoEncabezado: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  consejoIconoBombilla: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: 'rgba(251,191,36,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  consejoEncabezado: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  consejoEtiqueta: { color: '#fbbf24', fontSize: 12, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase' },
+  consejoEtiqueta: { color: '#fbbf24', fontSize: 13, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
   chipArea: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -416,37 +734,28 @@ const estilos = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 10,
     borderWidth: 1,
-    marginLeft: 4,
   },
-  chipAreaTexto: { fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI },
-  consejoContador: { marginLeft: 'auto', color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
+  chipAreaTexto: { fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
+  consejoContador: { marginLeft: 'auto', color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
   // Alto minimo fijo: los consejos tienen largos distintos y sin esto la
   // tarjeta "saltaria" de alto en cada cambio.
-  consejoFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, minHeight: 66 },
-  consejoTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY, lineHeight: 22 },
-  puntos: { flexDirection: 'row', justifyContent: 'center', gap: 5 },
-  puntoConsejo: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(251,191,36,0.25)' },
-  puntoConsejoActivo: { width: 16, backgroundColor: '#fbbf24' },
-  soporte: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: NEUTRAL_850,
-    borderWidth: 1,
-    borderColor: NEUTRAL_700,
-  },
+  consejoFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, minHeight: 72 },
+  consejoIcono: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  consejoTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_BODY, lineHeight: 24 },
+  barraFondo: { height: 3, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)' },
+  barraRelleno: { height: 3, borderRadius: 2 },
+
+  soporte: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   soporteIcono: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: 'rgba(200,99,31,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   soporteTitulo: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
-  soporteTexto: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY },
+  soporteTexto: { color: NEUTRAL_400, fontSize: 13.5, fontFamily: FUENTE_BODY },
   botonWhatsapp: {
     width: 46,
     height: 46,
@@ -455,8 +764,9 @@ const estilos = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pie: { alignItems: 'center', gap: 6, paddingTop: 12 },
+
+  pie: { alignItems: 'center', gap: 6, paddingTop: 8 },
   pieIndicacion: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pieIndicacionTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  version: { color: NEUTRAL_500, fontSize: 11.5, fontFamily: FUENTE_BODY },
+  pieIndicacionTexto: { color: NEUTRAL_400, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
+  version: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY },
 });
