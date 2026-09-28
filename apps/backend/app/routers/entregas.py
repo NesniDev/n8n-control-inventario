@@ -34,11 +34,13 @@ from app.models.log import EventoLog
 from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.duplicates import (
     CantidadInvalida,
+    DespachoEnRemisiones,
     EntregaDuplicada,
     ExtraccionIlegible,
     FacturacionRequerida,
     FacturaYaRegistrada,
     NecesitaTrasladoParaConfirmar,
+    RemisionEnDespachos,
     RolNoAutorizado,
     aplicar_actualizacion_items,
     cancelar_entrega_no_confirmada,
@@ -193,6 +195,7 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             items_traslado=items_traslado,
             traslado_tipo=traslado_tipo,
             traslado_indicativo_numero=traslado_indicativo_numero,
+            flujo=payload.flujo,
         )
     except EntregaDuplicada as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -224,6 +227,31 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             status_code=422,
             detail="Este pedido debe ser facturado primero por punto de venta",
         ) from exc
+    except (RemisionEnDespachos, DespachoEnRemisiones) as exc:
+        en_despachos = isinstance(exc, RemisionEnDespachos)
+        await registrar_evento(
+            EventoLog.VALIDACION,
+            entidad_tipo="entrega",
+            entidad_id=payload.hash_evidencia,
+            actor_id=payload.operador_id,
+            sede_id=payload.sede_origen_id,
+            resultado="rechazada_remision_en_despachos" if en_despachos else "rechazada_despacho_en_remisiones",
+            detalle={
+                "tipo": extraido.get("tipo"),
+                "indicativo_numero": extraido.get("indicativo_numero"),
+                "flujo": payload.flujo,
+            },
+        )
+        # 422 (misma trampa de Traefik que FacturacionRequerida). Se responde
+        # con JSONResponse en vez de HTTPException para poder sumar `code` al
+        # lado de `detail` -- el movil distingue el caso por `code`.
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": str(exc),
+                "code": "remision_en_despachos" if en_despachos else "despacho_en_remisiones",
+            },
+        )
     except RolNoAutorizado as exc:
         await registrar_evento(
             EventoLog.VALIDACION,
@@ -232,7 +260,11 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
             actor_id=payload.operador_id,
             sede_id=payload.sede_origen_id,
             resultado="rechazada_rol_no_autorizado",
-            detalle={"tipo": extraido.get("tipo"), "indicativo_numero": extraido.get("indicativo_numero")},
+            detalle={
+                "tipo": extraido.get("tipo"),
+                "indicativo_numero": extraido.get("indicativo_numero"),
+                "flujo": payload.flujo,
+            },
         )
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ExtraccionIlegible as exc:

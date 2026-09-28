@@ -17,6 +17,7 @@ from app.models.entrega import (
     ItemActualizacion,
     ItemEntrega,
     RetiradoPor,
+    TIPOS_REMISION,
     SituacionEntrega,
 )
 from app.models.log import EventoLog
@@ -95,6 +96,25 @@ class FacturaYaRegistrada(Exception):
     def __init__(self, identificador: str):
         self.identificador = identificador
         super().__init__(f"La factura {identificador} ya fue registrada.")
+
+
+class RemisionEnDespachos(Exception):
+    """Una remision (RM2/RM3) se fotografio desde la tab Despachos -- las
+    remisiones tienen su propio flujo (flujo="remision", ver
+    EntregaCreate.flujo). Se dispara antes de tocar la base."""
+
+    def __init__(self, identificador: str):
+        self.identificador = identificador
+        super().__init__(f"El documento {identificador} es una remisión. Usá la pestaña Remisiones.")
+
+
+class DespachoEnRemisiones(Exception):
+    """Espejo de RemisionEnDespachos: un documento que NO es RM2/RM3 se
+    fotografio desde la tab Remisiones. Se dispara antes de tocar la base."""
+
+    def __init__(self, identificador: str):
+        self.identificador = identificador
+        super().__init__(f"El documento {identificador} no es una remisión. Usá la pestaña Despachos.")
 
 
 class _NecesitaTraslado(Exception):
@@ -243,6 +263,7 @@ async def procesar_extraccion(
     items_traslado: list[dict] | None = None,
     traslado_tipo: str | None = None,
     traslado_indicativo_numero: str | None = None,
+    flujo: str = "despacho",
 ) -> tuple[SituacionEntrega, str | None, list[ItemEntrega], EstadoEntrega, str, str, bool, str | None, str | None]:
     """Paso 1 del flujo (ver Figura 1 / docs/architecture.md):
 
@@ -288,6 +309,16 @@ async def procesar_extraccion(
         # que igual persiste como pendiente_revision.
         raise ExtraccionIlegible(identificador)
 
+    # Gate de flujo, antes de tocar la base: cada tab de la app movil solo
+    # acepta sus propios tipos (RM2/RM3 van por "remision", el resto por
+    # "despacho"). Necesita el tipo ya leido por la IA, por eso vive aca y no
+    # en el router.
+    es_remision = tipo in TIPOS_REMISION
+    if flujo == "remision" and not es_remision:
+        raise DespachoEnRemisiones(identificador)
+    if flujo != "remision" and es_remision:
+        raise RemisionEnDespachos(identificador)
+
     async with pool.acquire() as conn:
         # Gate de rol, antes de tocar la base (mismo momento que
         # ExtraccionIlegible/FacturacionRequerida mas abajo). 'faia_viewer' es
@@ -300,6 +331,10 @@ async def procesar_extraccion(
             "select rol from empleados where id::text = $1", operador_id
         )
         if fila_empleado is not None and fila_empleado["rol"] == "faia_viewer":
+            raise RolNoAutorizado()
+        # En Remisiones el bodeguero fotografia directo (no hay facturacion
+        # previa de punto_venta), asi que punto_venta tampoco participa.
+        if flujo == "remision" and fila_empleado is not None and fila_empleado["rol"] == "punto_venta":
             raise RolNoAutorizado()
 
         # Rol "punto_venta" con doble captura: si el documento TODAVIA no
@@ -315,7 +350,12 @@ async def procesar_extraccion(
             tipo,
             indicativo_numero,
         )
-        if not existe and fila_empleado is not None and fila_empleado["rol"] == "operador":
+        if (
+            flujo != "remision"
+            and not existe
+            and fila_empleado is not None
+            and fila_empleado["rol"] == "operador"
+        ):
             raise FacturacionRequerida(identificador)
         # Espejo del gate de arriba: punto_venta puede CREAR (esto no la
         # bloquea) pero no re-tocar un documento que ya existe -- no importa

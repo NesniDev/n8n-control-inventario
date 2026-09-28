@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -25,6 +26,11 @@ class TipoDocumento(StrEnum):
     TB9 = "TB9"
     RM3 = "RM3"
     RM2 = "RM2"
+
+
+# Tipos que se procesan por el flujo de Remisiones (tab propia en la app movil)
+# y no por el de Despachos -- ver EntregaCreate.flujo y procesar_extraccion.
+TIPOS_REMISION = frozenset({TipoDocumento.RM3.value, TipoDocumento.RM2.value})
 
 
 class SituacionEntrega(StrEnum):
@@ -86,6 +92,10 @@ class EntregaCreate(BaseModel):
     indicativo_numero_conocido: str | None = None
     items_conocidos: list[dict] | None = None  # cada uno {"descripcion":, "cantidad":}
     confianza_conocida: dict[str, float] | None = None
+    # Tab de la app movil desde la que se captura: "despacho" (default, asi
+    # siguen funcionando los clientes viejos y el webhook de n8n) o
+    # "remision". Ver el gate de flujo en procesar_extraccion.
+    flujo: Literal["despacho", "remision"] = "despacho"
 
 
 class EntregaRevision(BaseModel):
