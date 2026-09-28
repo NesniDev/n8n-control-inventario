@@ -456,13 +456,22 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       // re-fotografiando en vez de consultando la factura.
       setFirmaUrlConsultada(resultado.firma_url ?? null);
       setItems(
-        resultado.items.map((item) => ({
-          ...item,
-          valor: '',
-          nota: item.nota ?? '',
-          descripcionOriginal: item.descripcion,
-          cantidadEntregadaOriginal: item.cantidad_entregada,
-        }))
+        resultado.items.map((item) => {
+          // En 'nueva' el backend inserta cantidad_entregada = 0 y guarda lo
+          // leido por la IA en cantidad_pendiente (ver procesar_extraccion).
+          // Localmente cantidad_entregada representa la "Cantidad leida" del
+          // documento (ver ItemFormulario en EntregaContext), asi que se
+          // precarga desde cantidad_pendiente.
+          const cantidadLeida = resultado.situacion === 'nueva' ? item.cantidad_pendiente : item.cantidad_entregada;
+          return {
+            ...item,
+            cantidad_entregada: cantidadLeida,
+            valor: '',
+            nota: item.nota ?? '',
+            descripcionOriginal: item.descripcion,
+            cantidadEntregadaOriginal: cantidadLeida,
+          };
+        })
       );
       setMensaje('');
       navigation.navigate('Confirmando');

@@ -626,9 +626,12 @@ export default function PantallaConfirmando({ navigation }: Props) {
         // Mismo criterio para la cantidad leida -- solo tiene sentido en
         // 'nueva' (ver actualizarCantidadLeidaItem); en 'actualizable' la
         // cantidad se maneja aparte, con el delta de entregado_hoy.
+        // Si se corrigio la cantidad leida, el backend no puede derivar lo
+        // entregado (partiria del total mal leido), asi que se manda explicito:
+        // total corregido menos lo que queda pendiente.
         const cantidadEntregadaCorregida =
           situacion === 'nueva' && item.cantidad_entregada !== item.cantidadEntregadaOriginal
-            ? item.cantidad_entregada
+            ? Math.max(0, item.cantidad_entregada - Number(item.valor.trim()))
             : undefined;
         // Un item bloqueado (ver esBloqueado) solo puede estar en
         // itemsAEnviar por tener una nota o descripcion nueva -- no hay
