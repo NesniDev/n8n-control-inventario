@@ -63,6 +63,10 @@ export default function PantallaLogin({
   // LoginSupervision en Navegacion.tsx). Despachos no lo pasa, asi que su
   // login queda exactamente igual que antes de agregar esto.
   accionExtra,
+  // Si viene, solo se ofrecen (y solo entran) usuarios con uno de estos
+  // roles -- lo usa la tab Remisiones (operador/supervisor/admin). Sin esto
+  // el login queda como siempre.
+  rolesPermitidos,
 }: {
   onLogin: (usuario: UsuarioLogin, lugar: Lugar) => void;
   titulo?: string;
@@ -72,7 +76,12 @@ export default function PantallaLogin({
   login?: (pin: string, usuarioId: string) => Promise<UsuarioLogin>;
   usuarioUnicoPorLugar?: boolean;
   accionExtra?: { texto: string; icono: keyof typeof Ionicons.glyphMap; onPress: () => void };
+  rolesPermitidos?: string[];
 }) {
+  const cargarUsuariosPermitidos = async (lugarId: string) => {
+    const lista = await cargarUsuarios(lugarId);
+    return rolesPermitidos ? lista.filter((u) => u.rol !== undefined && rolesPermitidos.includes(u.rol)) : lista;
+  };
   const [paso, setPaso] = useState<PasoLogin>('elegir');
 
   const [sedes, setSedes] = useState<Lugar[]>([]);
@@ -111,7 +120,7 @@ export default function PantallaLogin({
   const cargarEmpleados = (sede: Lugar) => {
     setCargandoEmpleados(true);
     setErrorEmpleados(null);
-    cargarUsuarios(sede.id)
+    cargarUsuariosPermitidos(sede.id)
       .then(setEmpleados)
       .catch((err) => setErrorEmpleados(mensajeError(err, 'empleados')))
       .finally(() => setCargandoEmpleados(false));
@@ -136,7 +145,7 @@ export default function PantallaLogin({
   const entrarConCuentaDelLugar = (sede: Lugar) => {
     setCargandoEmpleados(true);
     setErrorEmpleados(null);
-    cargarUsuarios(sede.id)
+    cargarUsuariosPermitidos(sede.id)
       .then((cuentas) => {
         if (cuentas.length > 0) {
           elegirEmpleado(cuentas[0]);
@@ -182,6 +191,11 @@ export default function PantallaLogin({
       // no tiene rol, asi que esta condicion simplemente nunca se cumple ahi.
       if (empleado.rol === 'faia_viewer') {
         setErrorLogin('Este usuario es solo para ver fotos FAIA -- entrá desde el panel en la computadora.');
+        setPin('');
+        return;
+      }
+      if (rolesPermitidos && (!empleado.rol || !rolesPermitidos.includes(empleado.rol))) {
+        setErrorLogin('Este usuario no tiene acceso a esta sección.');
         setPin('');
         return;
       }

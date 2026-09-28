@@ -19,11 +19,14 @@ import type { DespachosStackParamList } from './Navegacion';
 // para el chip "Consultar factura" -- se puede escribir cualquier otro tipo
 // con el chip "+ Otro".
 const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB9', 'RM3', 'RM2'] as const;
+// Remisiones solo maneja RM3/RM2 (ver flujo en EntregaContext) y Despachos el resto.
+const TIPOS_REMISION: readonly string[] = ['RM3', 'RM2'];
 
 type Props = NativeStackScreenProps<DespachosStackParamList, 'Buscar'>;
 
 export default function PantallaBuscar({ navigation }: Props) {
   const {
+    flujo,
     cargando,
     setCargando,
     sede,
@@ -44,7 +47,9 @@ export default function PantallaBuscar({ navigation }: Props) {
   // Consulta por codigo de factura, sin pasar por una foto. string y no la
   // union de TIPOS_DOCUMENTO: en la practica el tipo real no siempre es uno
   // de esos 7 -- son la sugerencia rapida, no el limite (ver chip "+ Otro").
-  const [tipoBusqueda, setTipoBusqueda] = useState<string>('FEI');
+  const esRemision = flujo === 'remision';
+  const tiposVisibles = TIPOS_DOCUMENTO.filter((t) => TIPOS_REMISION.includes(t) === esRemision);
+  const [tipoBusqueda, setTipoBusqueda] = useState<string>(esRemision ? 'RM3' : 'FEI');
   const [tipoBusquedaCustom, setTipoBusquedaCustom] = useState(false);
   const [indicativoBusqueda, setIndicativoBusqueda] = useState('');
   const [mensaje, setMensaje] = useState('');
@@ -122,7 +127,7 @@ export default function PantallaBuscar({ navigation }: Props) {
               <Ionicons name="receipt-outline" size={28} color={ACENTO} />
             </View>
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={estilosBuscar.heroTitulo}>Consultar factura</Text>
+              <Text style={estilosBuscar.heroTitulo}>{esRemision ? 'Consultar remisión' : 'Consultar factura'}</Text>
               <Text style={styles.previewSubtexto}>
                 Busca un documento ya registrado por tipo y número para cargar o actualizar sus cantidades.
               </Text>
@@ -139,7 +144,7 @@ export default function PantallaBuscar({ navigation }: Props) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.selectorSedesContenido}
             >
-              {TIPOS_DOCUMENTO.map((t) => {
+              {tiposVisibles.map((t) => {
                 const activo = !tipoBusquedaCustom && tipoBusqueda === t;
                 return (
                   <Pressable
@@ -154,6 +159,8 @@ export default function PantallaBuscar({ navigation }: Props) {
                   </Pressable>
                 );
               })}
+              {/* Remisiones solo maneja RM3/RM2 -- sin "Otro". */}
+              {!esRemision ? (
               <Pressable
                 onPress={() => {
                   setTipoBusquedaCustom(true);
@@ -164,6 +171,7 @@ export default function PantallaBuscar({ navigation }: Props) {
                 <Ionicons name="add-outline" size={14} color={tipoBusquedaCustom ? '#fff' : NEUTRAL_400} />
                 <Text style={[styles.chipSedeTexto, tipoBusquedaCustom && styles.chipSedeTextoActivo]}>Otro</Text>
               </Pressable>
+              ) : null}
             </ScrollView>
 
             {tipoBusquedaCustom ? (

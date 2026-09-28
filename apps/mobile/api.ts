@@ -82,7 +82,14 @@ export interface ResultadoEnvio {
 export interface ErrorEnvio {
   status: number;
   detail: string;
+  // Solo en algunos errores de negocio (ej. 'remision_en_despachos' /
+  // 'despacho_en_remisiones' de POST /entregas/procesar) -- ver parsearRespuesta.
+  code?: string;
 }
+
+// Tab desde la que se captura -- viaja en POST /entregas/procesar (ver
+// EntregaCreate.flujo en el backend) y define que tipos acepta cada tab.
+export type Flujo = 'despacho' | 'remision';
 
 export interface Sede {
   id: string;
@@ -121,7 +128,7 @@ async function parsearRespuesta<T>(res: Response): Promise<T> {
     throw { status: res.status, detail: 'Error del servidor, prueba de nuevo.' } as ErrorEnvio;
   }
   if (!res.ok) {
-    throw { status: res.status, detail: body?.detail ?? 'Error desconocido' } as ErrorEnvio;
+    throw { status: res.status, detail: body?.detail ?? 'Error desconocido', code: body?.code } as ErrorEnvio;
   }
   return body as T;
 }
@@ -302,6 +309,8 @@ export async function procesarEntrega(payload: {
   indicativo_numero_conocido?: string;
   items_conocidos?: { descripcion: string; cantidad: number }[];
   confianza_conocida?: Record<string, number>;
+  // Default 'despacho' en el backend si no se manda.
+  flujo?: Flujo;
 }): Promise<ResultadoEnvio> {
   const res = await fetch(`${API_BASE_URL}/entregas/procesar`, {
     method: 'POST',

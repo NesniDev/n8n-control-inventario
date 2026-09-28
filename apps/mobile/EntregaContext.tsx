@@ -13,7 +13,7 @@ import type { NavigationHelpers } from '@react-navigation/native';
 // desde PantallaConfirmando.tsx (foto de traslado al confirmar).
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
-import { cancelarEntrega, type Empleado, type ItemEntrega, type Sede } from './api';
+import { cancelarEntrega, type Empleado, type Flujo, type ItemEntrega, type Sede } from './api';
 import { ACENTO, ESTILO_TAB_BAR, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, type EstadoFinal } from './tema';
 // Type-only -- se borra en compilacion, no genera dependencia circular en
 // runtime (Navegacion.tsx importa EntregaProvider mas abajo, pero solo el
@@ -213,6 +213,9 @@ function VisorFotoZoom({ uri, onCerrar }: { uri: string; onCerrar: () => void })
 }
 
 export interface EntregaContextValue {
+  // Tab desde la que corre esta sesion ('despacho' | 'remision') -- cada tab
+  // tiene su propio EntregaProvider, asi que el estado nunca se mezcla.
+  flujo: Flujo;
   empleado: Empleado | null;
   sede: Sede | null;
   cerrarSesion: () => void;
@@ -274,6 +277,7 @@ export function EntregaProvider({
   empleado,
   sede,
   cerrarSesion,
+  flujo = 'despacho',
   children,
 }: {
   // navigation del stack de Despachos -- llega por el `layout` del Navigator
@@ -283,9 +287,10 @@ export function EntregaProvider({
   empleado: Empleado | null;
   sede: Sede | null;
   cerrarSesion: () => void;
+  flujo?: Flujo;
   children: ReactNode;
 }) {
-  // Navigation de la tab Despachos (el `layout` se renderiza dentro de ella).
+  // Navigation de la tab Despachos/Remisiones (el `layout` se renderiza dentro de ella).
   const navigationTab = useNavigation();
 
   const [entregaId, setEntregaId] = useState<string | null>(null);
@@ -366,6 +371,7 @@ export function EntregaProvider({
   };
 
   const value: EntregaContextValue = {
+    flujo,
     empleado,
     sede,
     cerrarSesion,

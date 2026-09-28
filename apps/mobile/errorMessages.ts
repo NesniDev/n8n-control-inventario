@@ -59,6 +59,31 @@ export function esErrorFacturacionPendiente(err: unknown): boolean {
 export const MENSAJE_FACTURACION_PENDIENTE =
   'Este pedido todavía no fue facturado por punto de venta. Espera a que se cargue la factura antes de despachar.';
 
+// Casos puntuales de la separacion Despachos/Remisiones (ver
+// RemisionEnDespachos / DespachoEnRemisiones en duplicates.py): el backend
+// responde 422 con `code` al lado de `detail`. Igual que la foto ilegible,
+// no se creo nada -- se queda en Captura y se le indica la otra tab.
+export function esErrorRemisionEnDespachos(err: unknown): boolean {
+  return esErrorHttp(err) && err.status === 422 && (err as { code?: unknown }).code === 'remision_en_despachos';
+}
+
+export function esErrorDespachoEnRemisiones(err: unknown): boolean {
+  return esErrorHttp(err) && err.status === 422 && (err as { code?: unknown }).code === 'despacho_en_remisiones';
+}
+
+export const MENSAJE_REMISION_EN_DESPACHOS =
+  'Este documento es una remisión (RM2/RM3). Cámbiate a la pestaña Remisiones para registrarla.';
+
+export const MENSAJE_DESPACHO_EN_REMISIONES =
+  'Este documento no es una remisión. En esta pestaña solo se registran remisiones (RM2/RM3): usa la pestaña Despachos.';
+
+// RolNoAutorizado (403 de POST /entregas/procesar): sin esto caeria en el
+// mensaje generico de 401/403 de mensajeError ("PIN incorrecto o sesión no
+// válida"), que aca confunde -- el PIN esta bien, es el rol el que no puede.
+export function esErrorRolNoAutorizado(err: unknown): boolean {
+  return esErrorHttp(err) && err.status === 403 && typeof err.detail === 'string';
+}
+
 // Caso puntual de punto_venta: fotografio una factura que ya habia
 // registrado antes (ver FacturaYaRegistrada en duplicates.py) -- una
 // factura se factura una sola vez. Igual que esErrorFacturacionPendiente,

@@ -5,7 +5,8 @@
 //   Cada tab maneja SU PROPIO login -- los usuarios de despachos, traslados
 //   y remisiones son distintos, asi que no hay una sesion global: entrar a
 //   una tab no deja logueado en las otras.
-//     -> Despachos: stack Login -> Captura, Buscar, Confirmando, Resultado.
+//     -> Despachos y Remisiones: stack Login -> Captura, Buscar, Confirmando,
+//        Resultado (mismo stack, ver FlujoFoto; cada tab con su sesion).
 // Los ParamList se declaran aca (y no en EntregaContext.tsx) porque son el
 // tipo "de arriba hacia abajo": los consumen las pantallas y EntregaContext.tsx
 // via import type (sin dependencia de runtime, se borra en compilacion).
@@ -22,6 +23,7 @@ import {
   loginPunto,
   loginSupervisor,
   type Empleado,
+  type Flujo,
   type Punto,
   type Sede,
   type Supervisor,
@@ -43,7 +45,6 @@ import PantallaTrasladoRecepcion from './PantallaTrasladoRecepcion';
 import PantallaTrasladoDetalle from './PantallaTrasladoDetalle';
 import PantallaNovedadesSupervision from './PantallaNovedadesSupervision';
 import PantallaNovedadDetalle from './PantallaNovedadDetalle';
-import PantallaRemisiones from './PantallaRemisiones';
 import PantallaInicio from './PantallaInicio';
 import { ACENTO, ESTILO_TAB_BAR, FUENTE_BODY_SEMI, NEUTRAL_500 } from './tema';
 
@@ -81,16 +82,23 @@ export type TabsParamList = {
   Inicio: undefined;
   Despachos: NavigatorScreenParams<DespachosStackParamList>;
   TrasladosPuntos: NavigatorScreenParams<TrasladosStackParamList>;
-  Remisiones: undefined;
+  Remisiones: NavigatorScreenParams<DespachosStackParamList>;
 };
 
 const Tabs = createBottomTabNavigator<TabsParamList>();
+// Un solo tipo de stack para Despachos y Remisiones (mismas pantallas); cada
+// tab instancia su propio Navigator, asi que el estado de navegacion no se
+// comparte.
 const DespachosStack = createNativeStackNavigator<DespachosStackParamList>();
+
+// Roles que pueden entrar a Remisiones (el bodeguero fotografia directo,
+// punto_venta y faia_viewer no participan -- ver procesar_extraccion).
+const ROLES_REMISIONES = ['operador', 'supervisor', 'admin'];
 const TrasladosStack = createNativeStackNavigator<TrasladosStackParamList>();
 
-// Flujo de despachos de bodega (foto de factura/traslado), con su propio
-// login por PIN. La sesion vive aca (y no en App.tsx) porque es solo de esta
-// tab.
+// Flujo de foto de bodega (Despachos: factura/traslado; Remisiones: RM2/RM3),
+// con su propio login por PIN. `flujo` define la tab: la sesion vive aca (y
+// no en App.tsx) porque es solo de esa tab, y cada tab la instancia aparte.
 //
 // EntregaProvider va en el `layout` del Navigator -- NO como hijo de el.
 // @react-navigation/core recorre los `children` de un Navigator con
@@ -103,7 +111,7 @@ const TrasladosStack = createNativeStackNavigator<TrasladosStackParamList>();
 // Login y el resto se alternan como Screen hijos del mismo Navigator
 // (patron "auth flow" estandar de la libreria): React Navigation trata el
 // cambio como una navegacion normal y anima la transicion Login -> Captura.
-function Despachos() {
+function FlujoFoto({ flujo }: { flujo: Flujo }) {
   // Sede y empleado se resuelven juntos en el login (ver PantallaLogin) --
   // un solo estado evita un instante con empleado seteado y sede todavia no.
   const [sesion, setSesion] = useState<{ empleado: Empleado; sede: Sede } | null>(null);
@@ -117,6 +125,7 @@ function Despachos() {
           empleado={sesion?.empleado ?? null}
           sede={sesion?.sede ?? null}
           cerrarSesion={() => setSesion(null)}
+          flujo={flujo}
         >
           {children}
         </EntregaProvider>
@@ -133,6 +142,9 @@ function Despachos() {
               // pasar props aca) son justo fetchEmpleados/loginConPin, que
               // devuelven esos tipos mas ricos.
               onLogin={(empleado, sede) => setSesion({ empleado: empleado as Empleado, sede: sede as Sede })}
+              {...(flujo === 'remision'
+                ? { titulo: 'Remisiones', rolesPermitidos: ROLES_REMISIONES }
+                : {})}
             />
           )}
         </DespachosStack.Screen>
@@ -147,6 +159,9 @@ function Despachos() {
     </DespachosStack.Navigator>
   );
 }
+
+const Despachos = () => <FlujoFoto flujo="despacho" />;
+const Remisiones = () => <FlujoFoto flujo="remision" />;
 
 // Flujo de traslados entre puntos, con su propio login por PIN -- mismo
 // patron que Despachos() de arriba (sesion propia de la tab, Provider en el
@@ -296,7 +311,7 @@ export default function Navegacion() {
       />
       <Tabs.Screen
         name="Remisiones"
-        component={PantallaRemisiones}
+        component={Remisiones}
         options={{
           title: 'Remisiones',
           tabBarIcon: ({ color, size }) => <Ionicons name="document-text-outline" size={size} color={color} />,

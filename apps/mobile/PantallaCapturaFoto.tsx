@@ -17,9 +17,14 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { confirmarItems, procesarEntrega, subirEvidencia, type ResultadoEnvio } from './api';
 import {
   esErrorFacturacionPendiente,
+  esErrorDespachoEnRemisiones,
   esErrorFacturaYaRegistrada,
+  esErrorRemisionEnDespachos,
+  esErrorRolNoAutorizado,
+  MENSAJE_DESPACHO_EN_REMISIONES,
   MENSAJE_FACTURACION_PENDIENTE,
   MENSAJE_FACTURA_YA_REGISTRADA,
+  MENSAJE_REMISION_EN_DESPACHOS,
   mensajeError,
 } from './errorMessages';
 import { comprimirParaEnvio, formatearIdentificador, HeaderEntrega, useEntrega } from './EntregaContext';
@@ -139,14 +144,15 @@ function BotonSobreFoto({
   );
 }
 
-const CONSEJOS_FOTO: { icono: keyof typeof Ionicons.glyphMap; texto: string }[] = [
+const consejosFoto = (esRemision: boolean): { icono: keyof typeof Ionicons.glyphMap; texto: string }[] => [
   { icono: 'sunny-outline', texto: 'Buena luz, sin sombras' },
   { icono: 'scan-outline', texto: 'Documento completo' },
-  { icono: 'eye-outline', texto: 'Número de factura legible' },
+  { icono: 'eye-outline', texto: esRemision ? 'Número de remisión legible' : 'Número de factura legible' },
 ];
 
 export default function PantallaCapturaFoto({ navigation }: Props) {
   const {
+    flujo,
     empleado,
     sede,
     cargando,
@@ -166,6 +172,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
     setNotaGeneralOriginal,
     setNecesitaTrasladoConfirmar,
   } = useEntrega();
+  const esRemision = flujo === 'remision';
   // La sede de trabajo ya se eligio en el login -- puede no ser la sede del
   // perfil del empleado (ej. cubriendo turno en otra).
   const sedeSeleccionada = sede;
@@ -365,6 +372,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
         operador_id: empleado.id,
         capturado_at: new Date().toISOString(),
         traslado_url: trasladoUrl,
+        flujo,
         // Reintento sobre la misma foto (necesitaTraslado ya seteado de un
         // intento anterior): se reenvia la lectura original en vez de dejar
         // que el backend vuelva a leer la factura con IA.
@@ -472,6 +480,26 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
         return; // se queda en Captura, foto sigue puesta, listo para repetir
       }
 
+      // Documento de la otra tab (RM2/RM3 en Despachos, o cualquier otro tipo
+      // en Remisiones): el backend no creo nada -- se queda en Captura y se
+      // le dice a que tab ir.
+      if (esErrorRemisionEnDespachos(err) || esErrorDespachoEnRemisiones(err)) {
+        setCargando(false);
+        Alert.alert(
+          esErrorRemisionEnDespachos(err) ? 'Es una remisión' : 'No es una remisión',
+          esErrorRemisionEnDespachos(err) ? MENSAJE_REMISION_EN_DESPACHOS : MENSAJE_DESPACHO_EN_REMISIONES,
+          [{ text: 'Entendido' }]
+        );
+        return; // se queda en Captura, foto sigue puesta
+      }
+
+      // RolNoAutorizado (403): el rol de este usuario no puede procesar aca.
+      if (esErrorRolNoAutorizado(err)) {
+        setCargando(false);
+        Alert.alert('Sin permiso', err.detail, [{ text: 'Entendido' }]);
+        return;
+      }
+
       // Pedido todavia no facturado por punto de venta: tampoco se creo nada
       // (ver entregas.py) -- misma logica que la foto ilegible, se queda aca
       // para reintentar mas tarde en vez de navegar a Resultado.
@@ -525,7 +553,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
 
         <View style={styles.tarjeta}>
           <View style={styles.filaConIcono}>
-            <Text style={styles.etiquetaSeccion}>Foto de la factura</Text>
+            <Text style={styles.etiquetaSeccion}>{esRemision ? 'Foto de la remisión' : 'Foto de la factura'}</Text>
             {documentoIdentificado ? (
               <Text style={styles.badgeIdentificador}>
                 {formatearIdentificador(documentoIdentificado.tipo, documentoIdentificado.indicativo_numero)}
@@ -542,7 +570,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
             onAmpliar={() => foto && setFotoAmpliada(foto)}
             vacioTitulo="Toca para tomar la foto"
             vacioIcono="camera"
-            consejos={CONSEJOS_FOTO}
+            consejos={consejosFoto(esRemision)}
           />
         </View>
 
@@ -643,7 +671,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
                 }}
               >
                 <Ionicons name="search-outline" size={18} color={NEUTRAL_400} />
-                <Text style={estilosFoto.botonSecundarioTexto}>Consultar factura</Text>
+                <Text style={estilosFoto.botonSecundarioTexto}>{esRemision ? 'Consultar remisión' : 'Consultar factura'}</Text>
               </Pressable>
             ) : null}
           </View>
