@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   EXPORT_CSV_URL,
   EXPORT_XLSX_URL,
+  TIPOS_REMISION,
   actualizarItems,
   eliminarEntrega,
   eliminarTodasLasEntregas,
@@ -1187,6 +1188,9 @@ export default function DashboardPage() {
   const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
     "todas"
   );
+  // Filtro por flujo (despachos vs. remisiones RM2/RM3), aparte del filtro de
+  // estado y del buscador -- se combinan con AND (ver entregasFiltradas).
+  const [filtroFlujo, setFiltroFlujo] = useState<"todos" | "despachos" | "remisiones">("todos");
   // Entrega mostrada en el detalle visual de solo lectura (ver
   // ModalDetalleEntrega mas abajo) -- solo se abre para entregas ya
   // `procesada` sin nada pendiente, donde no tiene sentido el flujo
@@ -1270,6 +1274,10 @@ export default function DashboardPage() {
   // nada nuevo al backend (ver el comentario de limit en lib/api.ts). ---
   const entregasPorId = useMemo(() => new Map((entregas ?? []).map((e) => [e.id, e])), [entregas]);
   const entregasHoy = useMemo(() => (entregas ?? []).filter((e) => esHoy(e.capturado_at)), [entregas]);
+  const remisionesHoy = useMemo(
+    () => entregasHoy.filter((e) => TIPOS_REMISION.includes(e.tipo.toUpperCase())),
+    [entregasHoy]
+  );
   // Ordenadas por capturado_at ascendente -- lo mas viejo esperando primero
   // es lo mas urgente, y es el orden en el que "Necesita tu atención" las
   // muestra (ver mas abajo).
@@ -1322,8 +1330,13 @@ export default function DashboardPage() {
   }, [entregasTabla, filtroEstado]);
 
   // El texto libre ya se filtro en el backend (ver busquedaDebounced /
-  // GET /entregas?busqueda=), asi que aca solo queda aplicar filtroEstado.
-  const entregasFiltradas = entregasPorEstado;
+  // GET /entregas?busqueda=), asi que aca solo quedan filtroEstado (arriba) y
+  // filtroFlujo.
+  const entregasFiltradas = useMemo(() => {
+    if (filtroFlujo === "todos") return entregasPorEstado;
+    const esRemision = (tipo: string) => TIPOS_REMISION.includes(tipo.toUpperCase());
+    return entregasPorEstado?.filter((e) => esRemision(e.tipo) === (filtroFlujo === "remisiones"));
+  }, [entregasPorEstado, filtroFlujo]);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-6 py-10">
@@ -1392,12 +1405,19 @@ export default function DashboardPage() {
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">Cómo va hoy</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <TarjetaResumen
             titulo="Entregas hoy"
             valor={entregasHoy.length}
             tono="neutral"
             detalle={porSedeHoy.length > 0 ? porSedeHoy.map(([sede, n]) => `${sede}: ${n}`).join(" · ") : "Todavía sin movimiento"}
+          />
+          <TarjetaResumen
+            titulo="Remisiones hoy"
+            valor={remisionesHoy.length}
+            tono="neutral"
+            detalle={remisionesHoy.length > 0 ? "RM2 / RM3 capturadas" : "Todavía sin movimiento"}
+            onClick={() => setFiltroFlujo("remisiones")}
           />
           <TarjetaResumen
             titulo="Para revisión"
@@ -1541,6 +1561,29 @@ export default function DashboardPage() {
                   aria-pressed={filtroEstado === opcion.valor}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                     filtroEstado === opcion.valor
+                      ? "bg-neutral-100 text-neutral-900"
+                      : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  }`}
+                >
+                  {opcion.etiqueta}
+                </button>
+              ))}
+            </div>
+            {/* Filtro por flujo: despachos vs. remisiones (RM2/RM3). */}
+            <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
+              {(
+                [
+                  { valor: "todos", etiqueta: "Todos" },
+                  { valor: "despachos", etiqueta: "Despachos" },
+                  { valor: "remisiones", etiqueta: "Remisiones" },
+                ] as const
+              ).map((opcion) => (
+                <button
+                  key={opcion.valor}
+                  onClick={() => setFiltroFlujo(opcion.valor)}
+                  aria-pressed={filtroFlujo === opcion.valor}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    filtroFlujo === opcion.valor
                       ? "bg-neutral-100 text-neutral-900"
                       : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
                   }`}

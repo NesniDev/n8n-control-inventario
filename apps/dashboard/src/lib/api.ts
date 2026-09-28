@@ -11,6 +11,11 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost
 // Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en duplicates.py).
 export type TipoDocumento = "FEI" | "FV1" | "EDP" | "EDV" | "TB9" | "RM3" | "RM2";
 
+// Tipos que se capturan por la tab Remisiones de la app móvil (ver
+// TIPOS_REMISION en apps/backend/app/models/entrega.py) -- los usan la tarjeta
+// "Remisiones hoy" y el filtro Despachos/Remisiones de la tabla.
+export const TIPOS_REMISION: readonly string[] = ["RM3", "RM2"];
+
 export interface ItemEntrega {
   id: string;
   descripcion: string;
