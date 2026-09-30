@@ -1371,6 +1371,12 @@ export default function DashboardPage() {
             >
               Ranking de productos
             </Link>
+            <Link
+              href="/turnos"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+            >
+              Planificación de turnos
+            </Link>
           </div>
         </div>
         <p className="text-sm text-neutral-400">

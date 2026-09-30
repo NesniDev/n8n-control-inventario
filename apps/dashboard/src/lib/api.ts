@@ -401,3 +401,35 @@ export const fetchRankingProductos = (opciones: {
   if (opciones.limit) params.set("limit", String(opciones.limit));
   return getJson<RankingProductosResponse>(`/ranking/productos?${params.toString()}`);
 };
+
+// Carga de trabajo por dia/hora local y bloques de turno sugeridos de una sede
+// (ver GET /turnos/carga y app/services/turnos.py en el backend) -- pagina
+// /turnos. `dia`: 0 = lunes ... 6 = domingo.
+export interface CeldaCarga {
+  dia: number;
+  hora: number;
+  promedio: number;
+  pico: boolean;
+}
+
+export interface BloqueTurno {
+  dia: string;
+  dia_indice: number;
+  hora_inicio: string;
+  hora_fin: string;
+  personal_sugerido: number;
+  carga_maxima: number;
+}
+
+export interface CargaTurnosResponse {
+  sede_id: string;
+  semanas: number;
+  umbral_pico: number | null;
+  celdas: CeldaCarga[];
+  bloques: BloqueTurno[];
+}
+
+export const fetchCargaTurnos = (sedeId: string, semanas: number) =>
+  getJson<CargaTurnosResponse>(
+    `/turnos/carga?${new URLSearchParams({ sede_id: sedeId, semanas: String(semanas) }).toString()}`
+  );

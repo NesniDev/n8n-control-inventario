@@ -1,0 +1,461 @@
+"use client";
+
+// Planificacion de turnos: cuando llega mas trabajo a cada bodega, para
+// saber cuando poner mas gente (ver GET /turnos/carga y
+// app/services/turnos.py en el backend). Calculado en vivo sobre las ultimas
+// semanas, en hora local de la sede. Pantalla de solo lectura.
+//
+// Pensada para quien arma los horarios, no para alguien tecnico: primero un
+// resumen en frases, despues de lo general a lo particular -- que DIA (barras,
+// lo mas facil de leer), a que HORA (grilla dia x hora con 3 niveles con
+// nombre en vez de una escala continua) y por ultimo la lista de horarios a
+// reforzar. El detalle de cada cuadrito se ve al pasar el mouse, al tocarlo
+// (tablet) o con el teclado.
+//
+// Color: un solo tono azul (rampa secuencial de la skill dataviz). El nivel
+// "Mucho trabajo" ademas lleva borde claro, asi no depende solo del color.
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import useSWR from "swr";
+import { fetchCargaTurnos, fetchSedes, type CeldaCarga } from "@/lib/api";
+import { EstadoVacio, ErrorConReintento, TarjetaConHeader } from "@/components/ui";
+
+const AZUL_BARRA = "#3987e5";
+
+// Niveles de la grilla, de menos a mas. "mucho" = hora pico (la calcula el
+// backend: percentil 90 de las horas con trabajo).
+type Nivel = "nada" | "poco" | "normal" | "mucho";
+
+const NIVELES: { nivel: Nivel; etiqueta: string; color: string }[] = [
+  { nivel: "nada", etiqueta: "Sin trabajo", color: "rgb(38 38 38 / 0.6)" },
+  { nivel: "poco", etiqueta: "Poco", color: "#184f95" },
+  { nivel: "normal", etiqueta: "Normal", color: "#3987e5" },
+  { nivel: "mucho", etiqueta: "Mucho trabajo", color: "#b7d3f6" },
+];
+const COLOR_NIVEL = Object.fromEntries(NIVELES.map((n) => [n.nivel, n.color])) as Record<Nivel, string>;
+const ETIQUETA_NIVEL = Object.fromEntries(NIVELES.map((n) => [n.nivel, n.etiqueta])) as Record<Nivel, string>;
+
+const DIAS_CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+const DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+const DIAS_TITULO = DIAS.map((d) => d.charAt(0).toUpperCase() + d.slice(1));
+
+const VENTANAS = [
+  { valor: 4, etiqueta: "4 semanas" },
+  { valor: 8, etiqueta: "8 semanas" },
+  { valor: 12, etiqueta: "12 semanas" },
+] as const;
+
+const formato1 = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 });
+const formato0 = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
+
+const hora = (h: number) => `${h % 24}:00`;
+const rangoHora = (h: number) => `${hora(h)} a ${hora(h + 1)}`;
+
+// "4 documentos" / "1 documento" -- con decimal solo si es menor a 10.
+function documentos(v: number): string {
+  const texto = v < 10 ? formato1.format(v) : formato0.format(v);
+  return `${texto} ${texto === "1" ? "documento" : "documentos"}`;
+}
+
+function nivelDe(celda: CeldaCarga | undefined, umbral: number | null): Nivel {
+  if (!celda || celda.promedio <= 0) return "nada";
+  if (celda.pico) return "mucho";
+  // "Normal" = al menos la mitad de lo que ya cuenta como pico.
+  if (umbral && celda.promedio >= umbral / 2) return "normal";
+  return "poco";
+}
+
+export default function TurnosPage() {
+  const { data: sedes } = useSWR("sedes", fetchSedes);
+  const [sedeElegida, setSedeElegida] = useState<string | null>(null);
+  const [semanas, setSemanas] = useState<number>(8);
+  const [celdaActiva, setCeldaActiva] = useState<{ dia: number; hora: number } | null>(null);
+
+  // Sin "todas las sedes": cada bodega tiene su propio ritmo y mezclarlas no
+  // sirve para armar turnos. Arranca con la primera sede.
+  const sedeId = sedeElegida ?? sedes?.[0]?.id ?? null;
+  const nombreSede = sedes?.find((s) => s.id === sedeId)?.nombre ?? "la sede";
+
+  const { data, error, isLoading, mutate } = useSWR(
+    sedeId ? ["turnos-carga", sedeId, semanas] : null,
+    () => fetchCargaTurnos(sedeId!, semanas),
+    { refreshInterval: 60000 }
+  );
+
+  const celdas = useMemo(() => data?.celdas ?? [], [data]);
+  const umbral = data?.umbral_pico ?? null;
+  const porClave = useMemo(() => new Map(celdas.map((c) => [`${c.dia}-${c.hora}`, c])), [celdas]);
+
+  // Total por dia (suma de sus horas) -- para las barras y el resumen.
+  const totalesDia = useMemo(() => {
+    const totales = Array(7).fill(0) as number[];
+    for (const c of celdas) totales[c.dia] += c.promedio;
+    return totales;
+  }, [celdas]);
+  const maximoDia = Math.max(0, ...totalesDia);
+  const diaMasMovido = maximoDia > 0 ? totalesDia.indexOf(maximoDia) : null;
+  const diaMasTranquilo = maximoDia > 0 ? totalesDia.indexOf(Math.min(...totalesDia)) : null;
+  const horaMasFuerte = celdas.reduce<CeldaCarga | null>((mejor, c) => (!mejor || c.promedio > mejor.promedio ? c : mejor), null);
+
+  // Solo las horas con actividad (y una de margen a cada lado) -- 24 columnas
+  // casi vacias harian cada cuadrito ilegible.
+  const horas = useMemo(() => {
+    if (celdas.length === 0) return [];
+    const minima = Math.max(0, Math.min(...celdas.map((c) => c.hora)) - 1);
+    const maxima = Math.min(23, Math.max(...celdas.map((c) => c.hora)) + 1);
+    return Array.from({ length: maxima - minima + 1 }, (_, i) => minima + i);
+  }, [celdas]);
+
+  const bloques = [...(data?.bloques ?? [])].sort(
+    (a, b) => a.dia_indice - b.dia_indice || a.hora_inicio.localeCompare(b.hora_inicio)
+  );
+
+  // Sin sede todavia (la lista de sedes no llego) tambien es "cargando" --
+  // si no, se veria "Sin datos" durante ese instante.
+  const cargando = !error && !data && (isLoading || !sedeId);
+  const sinDatos = !!data && celdas.length === 0;
+  const historialCorto = !!data && data.semanas > 0 && data.semanas < 6;
+
+  const detalle = celdaActiva ? porClave.get(`${celdaActiva.dia}-${celdaActiva.hora}`) : undefined;
+  const nivelDetalle = celdaActiva ? nivelDe(detalle, umbral) : null;
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full min-w-0 max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex max-w-2xl flex-col gap-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            Control logístico · analítica
+          </p>
+          <h1 className="text-2xl font-semibold text-neutral-100">Planificación de turnos</h1>
+          <p className="text-sm leading-relaxed text-neutral-400">
+            Te muestra <span className="text-neutral-200">cuándo llega más trabajo a la bodega</span>, según los
+            documentos que se registraron en la app. Úsalo para decidir cuándo poner más gente y cuándo alcanza con
+            menos.
+          </p>
+        </div>
+        <Link
+          href="/"
+          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-400"
+        >
+          ← Panel
+        </Link>
+      </header>
+
+      {/* Filtros en una sola fila, con rotulos en palabras. */}
+      <section className="flex flex-wrap items-end gap-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-neutral-400">Bodega</span>
+          <select
+            value={sedeId ?? ""}
+            onChange={(e) => setSedeElegida(e.target.value)}
+            className="cursor-pointer rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200"
+          >
+            {(sedes ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-neutral-400">Mirar las últimas</span>
+          <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
+            {VENTANAS.map((opcion) => (
+              <button
+                key={opcion.valor}
+                onClick={() => setSemanas(opcion.valor)}
+                aria-pressed={semanas === opcion.valor}
+                className={`cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${
+                  semanas === opcion.valor
+                    ? "bg-neutral-100 text-neutral-900"
+                    : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                }`}
+              >
+                {opcion.etiqueta}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {error ? (
+        <ErrorConReintento
+          mensaje="No se pudo cargar la información. Revisa la conexión con el servidor."
+          onReintentar={() => mutate()}
+        />
+      ) : null}
+
+      {historialCorto ? (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <IconoAviso />
+          <p className="leading-relaxed">
+            <span className="font-medium">Todavía hay pocos datos</span> (
+            {data.semanas} {data.semanas === 1 ? "semana" : "semanas"}). Tómalo como una primera idea: los resultados
+            pueden cambiar bastante. Con 6 a 8 semanas de registros ya son confiables.
+          </p>
+        </div>
+      ) : null}
+
+      {/* 1. Resumen en frases -- lo primero que hay que entender. */}
+      <TarjetaConHeader titulo="En resumen" subtitulo={`Lo más importante de ${nombreSede}, en pocas palabras.`}>
+        {cargando ? (
+          <div className="flex flex-col gap-3" aria-busy>
+            {[80, 65, 72].map((ancho) => (
+              <div key={ancho} className="h-4 animate-pulse rounded bg-neutral-800" style={{ width: `${ancho}%` }} />
+            ))}
+          </div>
+        ) : sinDatos || diaMasMovido === null || !horaMasFuerte ? (
+          <EstadoVacio
+            titulo="No hay documentos registrados en este período"
+            ayuda="Prueba mirando más semanas o elige la otra bodega."
+          />
+        ) : (
+          <ul className="flex flex-col gap-3 text-sm leading-relaxed text-neutral-300">
+            <FraseResumen>
+              El día con más trabajo es el <b className="text-neutral-100">{DIAS[diaMasMovido]}</b>: en promedio{" "}
+              {documentos(totalesDia[diaMasMovido])} por semana.
+            </FraseResumen>
+            <FraseResumen>
+              La hora más fuerte es el <b className="text-neutral-100">{DIAS[horaMasFuerte.dia]}</b> de{" "}
+              <b className="text-neutral-100">{rangoHora(horaMasFuerte.hora)}</b>.
+            </FraseResumen>
+            {diaMasTranquilo !== null && diaMasTranquilo !== diaMasMovido ? (
+              <FraseResumen>
+                El día más tranquilo es el <b className="text-neutral-100">{DIAS[diaMasTranquilo]}</b>
+                {totalesDia[diaMasTranquilo] === 0
+                  ? ": no se registra trabajo."
+                  : `: en promedio ${documentos(totalesDia[diaMasTranquilo])} por semana.`}
+              </FraseResumen>
+            ) : null}
+            <FraseResumen>
+              {bloques.length > 0 ? (
+                <>
+                  Conviene tener más gente en{" "}
+                  <b className="text-neutral-100">
+                    {bloques.length} {bloques.length === 1 ? "horario" : "horarios"}
+                  </b>{" "}
+                  de la semana (están en la lista de abajo).
+                </>
+              ) : (
+                "No hay horarios que se destaquen: el trabajo está repartido parejo."
+              )}
+            </FraseResumen>
+          </ul>
+        )}
+      </TarjetaConHeader>
+
+      {/* 2. Que dia -- barras, lo mas facil de leer. */}
+      <TarjetaConHeader
+        titulo="¿Qué día hay más trabajo?"
+        subtitulo="Documentos registrados en promedio cada semana, por día."
+      >
+        {cargando ? (
+          <div className="h-48 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
+        ) : sinDatos ? (
+          <EstadoVacio titulo="Sin datos en este período" />
+        ) : (
+          <ol className="flex flex-col gap-2">
+            {DIAS_TITULO.map((dia, d) => {
+              const total = totalesDia[d];
+              const ancho = maximoDia > 0 ? (total / maximoDia) * 100 : 0;
+              const destacado = d === diaMasMovido;
+              return (
+                <li key={dia} className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-3">
+                  <span className={`text-sm ${destacado ? "font-semibold text-neutral-100" : "text-neutral-400"}`}>
+                    {dia}
+                  </span>
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-800/80">
+                    {total > 0 ? (
+                      <div
+                        className="h-full rounded-full transition-[width] duration-500"
+                        style={{ width: `${Math.max(2, ancho)}%`, backgroundColor: AZUL_BARRA, opacity: destacado ? 1 : 0.7 }}
+                      />
+                    ) : null}
+                  </div>
+                  <span className="w-28 text-right text-sm tabular-nums text-neutral-300">
+                    {total > 0 ? documentos(total) : "sin trabajo"}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </TarjetaConHeader>
+
+      {/* 3. A que hora -- grilla dia x hora con niveles con nombre. */}
+      <TarjetaConHeader
+        titulo="¿A qué hora?"
+        subtitulo="Cada cuadrito es un día a una hora. Toca o pasa el mouse por uno para ver el detalle."
+        // min-w-0: la grilla (min-w-max) se desplaza dentro de la tarjeta en
+        // vez de ensanchar toda la pagina en pantallas chicas.
+        className="min-w-0"
+      >
+        {cargando ? (
+          <div className="h-56 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
+        ) : sinDatos ? (
+          <EstadoVacio titulo="Sin datos en este período" />
+        ) : (
+          <div className="flex min-w-0 flex-col gap-4">
+            {/* Leyenda arriba: primero se aprende a leer, despues se mira. */}
+            <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-300">
+              {NIVELES.map((n) => (
+                <li key={n.nivel} className="flex items-center gap-2">
+                  <span
+                    className={`h-4 w-4 rounded-[4px] ${n.nivel === "mucho" ? "ring-2 ring-inset ring-neutral-100" : ""}`}
+                    style={{ backgroundColor: n.color }}
+                    aria-hidden
+                  />
+                  {n.etiqueta}
+                </li>
+              ))}
+            </ul>
+
+            {/* Linea de detalle -- el dato exacto del cuadrito elegido. */}
+            <p className="min-h-6 rounded-lg bg-neutral-950/60 px-3 py-1.5 text-sm text-neutral-300" aria-live="polite">
+              {celdaActiva && nivelDetalle ? (
+                <>
+                  <span className="font-medium text-neutral-100">
+                    {DIAS_TITULO[celdaActiva.dia]} de {rangoHora(celdaActiva.hora)}
+                  </span>
+                  {" · "}
+                  {nivelDetalle === "nada"
+                    ? "no se registra trabajo"
+                    : `${ETIQUETA_NIVEL[nivelDetalle]}: en promedio ${documentos(detalle!.promedio)} por semana`}
+                </>
+              ) : (
+                <span className="text-neutral-500">Elige un cuadrito para ver cuánto trabajo hay.</span>
+              )}
+            </p>
+
+            <div className="overflow-x-auto pb-1">
+              <div
+                className="grid min-w-max gap-[3px]"
+                style={{ gridTemplateColumns: `3rem repeat(${horas.length}, minmax(2.25rem, 1fr))` }}
+                onMouseLeave={() => setCeldaActiva(null)}
+              >
+                <span />
+                {horas.map((h) => (
+                  <span key={h} className="pb-1 text-center text-[11px] tabular-nums text-neutral-500">
+                    {hora(h)}
+                  </span>
+                ))}
+                {DIAS_CORTOS.map((dia, d) => (
+                  <div key={dia} className="contents">
+                    <span className="flex items-center text-xs text-neutral-400">{dia}</span>
+                    {horas.map((h) => {
+                      const celda = porClave.get(`${d}-${h}`);
+                      const nivel = nivelDe(celda, umbral);
+                      const activa = celdaActiva?.dia === d && celdaActiva?.hora === h;
+                      return (
+                        <button
+                          key={h}
+                          type="button"
+                          aria-label={`${DIAS_TITULO[d]} de ${rangoHora(h)}: ${
+                            nivel === "nada" ? "sin trabajo" : `${ETIQUETA_NIVEL[nivel]}, ${documentos(celda!.promedio)} por semana`
+                          }`}
+                          onMouseEnter={() => setCeldaActiva({ dia: d, hora: h })}
+                          onFocus={() => setCeldaActiva({ dia: d, hora: h })}
+                          onClick={() => setCeldaActiva({ dia: d, hora: h })}
+                          className={`h-9 cursor-pointer rounded-[4px] transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-neutral-300 ${
+                            nivel === "mucho" ? "ring-2 ring-inset ring-neutral-100" : ""
+                          } ${activa ? "outline outline-2 outline-offset-1 outline-neutral-400" : ""}`}
+                          style={{ backgroundColor: COLOR_NIVEL[nivel] }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </TarjetaConHeader>
+
+      {/* 4. Lista accionable -- que hacer con todo lo anterior. */}
+      <TarjetaConHeader
+        titulo="Horarios para reforzar"
+        subtitulo="Los momentos con mucho trabajo. Ahí conviene tener más gente disponible."
+        pildora={data ? `${bloques.length} ${bloques.length === 1 ? "horario" : "horarios"}` : undefined}
+      >
+        {cargando ? (
+          <div className="h-32 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
+        ) : bloques.length === 0 ? (
+          <EstadoVacio titulo="No hay horarios que se destaquen en este período" />
+        ) : (
+          <div className="flex flex-col gap-3">
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {bloques.map((b) => (
+                <li
+                  key={`${b.dia_indice}-${b.hora_inicio}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-neutral-950/50 px-4 py-3"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium text-neutral-100">
+                      {DIAS_TITULO[b.dia_indice]}, de {Number(b.hora_inicio.slice(0, 2))}:00 a{" "}
+                      {Number(b.hora_fin.slice(0, 2))}:00
+                    </span>
+                    <span className="text-xs text-neutral-400">
+                      Hasta {documentos(b.carga_maxima)} por semana en esa franja
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end">
+                    <span className="text-lg font-semibold tabular-nums text-neutral-100">{b.personal_sugerido}</span>
+                    <span className="text-[11px] text-neutral-500">
+                      {b.personal_sugerido === 1 ? "persona sugerida" : "personas sugeridas"}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs leading-relaxed text-neutral-500">
+              Las personas sugeridas son una referencia para arrancar (una por cada dos horas de mucho trabajo
+              seguidas). El sistema no sabe cuántos documentos despacha una persona por hora: ajústalo con tu
+              experiencia.
+            </p>
+          </div>
+        )}
+      </TarjetaConHeader>
+
+      {/* Explicacion del calculo, plegada para no estorbar. */}
+      <details className="group rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-sm text-neutral-400 sm:px-5">
+        <summary className="cursor-pointer list-none font-medium text-neutral-200 marker:hidden">
+          <span className="inline-block transition-transform duration-200 group-open:rotate-90">›</span> ¿Cómo se
+          calcula?
+        </summary>
+        <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 leading-relaxed">
+          <li>
+            Se cuentan los documentos que los bodegueros registraron en la app, según el día y la hora en que se
+            tomó la foto (hora de Colombia).
+          </li>
+          <li>
+            Se miran solo las últimas semanas que elijas arriba, y se saca el promedio por semana. Así un día
+            especialmente raro no pesa tanto.
+          </li>
+          <li>
+            &ldquo;Mucho trabajo&rdquo; son las horas que están entre el 10&nbsp;% más cargado de la semana.
+            &ldquo;Normal&rdquo; es al menos la mitad de eso, y &ldquo;Poco&rdquo;, el resto.
+          </li>
+          <li>No cuentan los documentos rechazados por duplicado.</li>
+        </ul>
+      </details>
+    </main>
+  );
+}
+
+function FraseResumen({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-3">
+      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3987e5]" aria-hidden />
+      <span>{children}</span>
+    </li>
+  );
+}
+
+function IconoAviso() {
+  return (
+    <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
