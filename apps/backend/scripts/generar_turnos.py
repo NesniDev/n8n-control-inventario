@@ -1,8 +1,10 @@
 """Job semanal de analitica predictiva de turnos (Figura 2 del diagrama).
 
-Agrega `entregas` por sede/dia/hora, calcula percentiles p50/p90 de carga
-para detectar picos, y escribe una sugerencia de turnos en
-`shift_recommendations`. Pensado para correr como cron (n8n, o
+Calcula, por sede, la carga de documentos por dia/hora local de las ultimas
+semanas, detecta los picos (percentil 90) y escribe los bloques de turno
+sugeridos en `shift_recommendations` -- una foto por semana ISO. El calculo
+vive en app/services/turnos.py y es el mismo que muestra en vivo el
+dashboard (GET /turnos/carga). Pensado para correr como cron (n8n, o
 `crontab`/Task Scheduler llamando `python scripts/generar_turnos.py`).
 
 Uso:
@@ -10,13 +12,10 @@ Uso:
 """
 
 import asyncio
-import statistics
-from collections import defaultdict
 from datetime import datetime, timezone
 
 from app.db import close_pool, get_pool
-
-DIAS = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
+from app.services.turnos import MODELO, calcular_bloques, cargar_celdas, umbral_pico
 
 
 def _semana_iso(dt: datetime) -> str:
@@ -33,40 +32,10 @@ async def generar_recomendaciones() -> None:
 
     for sede in sedes:
         sede_id = str(sede["id"])
-
-        # Carga por (dia_semana, hora) de todo el historico disponible.
-        entregas = await pool.fetch(
-            "select capturado_at from entregas where sede_origen_id = $1", sede_id
-        )
-
-        conteos: dict[tuple[int, int], int] = defaultdict(int)
-        for entrega in entregas:
-            capturado = entrega["capturado_at"]
-            conteos[(capturado.weekday(), capturado.hour)] += 1
-
-        if not conteos:
+        celdas, _ = await cargar_celdas(pool, sede_id)
+        if not celdas:
             continue
-
-        valores = list(conteos.values())
-        p90 = statistics.quantiles(valores, n=10)[8] if len(valores) >= 2 else max(valores)
-
-        # Bloques cuyo conteo esta en o por encima del p90: son los picos de
-        # demanda que necesitan mas personal.
-        bloques_sugeridos = []
-        for dia_idx in range(7):
-            horas_pico = sorted(
-                h for (d, h), c in conteos.items() if d == dia_idx and c >= p90
-            )
-            if not horas_pico:
-                continue
-            bloques_sugeridos.append(
-                {
-                    "dia": DIAS[dia_idx],
-                    "hora_inicio": f"{min(horas_pico):02d}:00:00",
-                    "hora_fin": f"{max(horas_pico) + 1:02d}:00:00",
-                    "personal_sugerido": max(1, round(len(horas_pico) / 2)),
-                }
-            )
+        bloques_sugeridos = calcular_bloques(celdas, umbral_pico(celdas))
 
         await pool.execute(
             """
@@ -81,7 +50,7 @@ async def generar_recomendaciones() -> None:
             semana_iso,
             bloques_sugeridos,
             ahora,
-            "percentiles_p50_p90",
+            MODELO,
         )
         print(f"[turnos] {sede['nombre']}: {len(bloques_sugeridos)} bloques sugeridos")
 

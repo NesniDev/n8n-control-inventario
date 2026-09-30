@@ -589,6 +589,57 @@ async def listar_entregas(
     return resultado
 
 
+@router.get("/pendientes")
+async def contar_pendientes(sede_id: str) -> dict:
+    """Documentos de la sede con algun producto por entregar -- contador de
+    la pantalla Inicio de la app movil. Separa despachos de remisiones
+    (RM2/RM3, igual que el flujo de remisiones) porque son tabs distintas.
+    Los bloqueados por duplicado no cuentan: no son documentos abiertos."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        select
+            count(*) filter (where e.tipo not in ('RM2', 'RM3')) as despachos,
+            count(*) filter (where e.tipo in ('RM2', 'RM3')) as remisiones
+        from entregas e
+        where e.sede_origen_id = $1
+          and e.estado <> 'duplicado_bloqueado'
+          and exists (
+              select 1 from entrega_items i
+              where i.entrega_id = e.id and i.cantidad_pendiente > 0
+          )
+        """,
+        sede_id,
+    )
+    return {"despachos": row["despachos"], "remisiones": row["remisiones"]}
+
+
+@router.get("/resumen-hoy")
+async def resumen_hoy(operador_id: str, sede_id: str) -> dict:
+    """Documentos que registro hoy este operador en esta sede -- "Hoy
+    registraste N despachos" en Inicio de la app movil. "Hoy" es el dia en
+    la zona horaria de la sede (sedes.timezone), no el UTC del servidor.
+    Cuenta documentos nuevos (filas de entregas), no re-escaneos de uno
+    existente ni bloqueados por duplicado."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        select
+            count(*) filter (where e.tipo not in ('RM2', 'RM3')) as despachos,
+            count(*) filter (where e.tipo in ('RM2', 'RM3')) as remisiones
+        from entregas e
+        join sedes s on s.id::text = e.sede_origen_id
+        where e.operador_id = $1
+          and e.sede_origen_id = $2
+          and e.estado <> 'duplicado_bloqueado'
+          and (e.capturado_at at time zone s.timezone)::date = (now() at time zone s.timezone)::date
+        """,
+        operador_id,
+        sede_id,
+    )
+    return {"despachos": row["despachos"], "remisiones": row["remisiones"]}
+
+
 @router.get("/buscar")
 async def buscar_entrega(tipo: str, indicativo_numero: str, sede_id: str | None = None) -> dict:
     """Consulta directa por codigo de factura (sin pasar por una foto) -- el
