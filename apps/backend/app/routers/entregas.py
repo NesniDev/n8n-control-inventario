@@ -616,23 +616,31 @@ async def contar_pendientes(sede_id: str) -> dict:
 
 @router.get("/resumen-hoy")
 async def resumen_hoy(operador_id: str, sede_id: str) -> dict:
-    """Documentos que registro hoy este operador en esta sede -- "Hoy
-    registraste N despachos" en Inicio de la app movil. "Hoy" es el dia en
-    la zona horaria de la sede (sedes.timezone), no el UTC del servidor.
-    Cuenta documentos nuevos (filas de entregas), no re-escaneos de uno
-    existente ni bloqueados por duplicado."""
+    """Documentos que atendio hoy este operador en esta sede -- cifras "Despachos
+    hoy" / "Remisiones hoy" del Inicio de la app movil. "Hoy" es el dia en la
+    zona horaria de la sede (sedes.timezone), no el UTC del servidor.
+
+    Cuenta documentos distintos que la persona creo (entrega_insertada) o en
+    los que registro algo (entrega_actualizada: fotografiar, confirmar
+    cantidades) hoy, segun el log. No alcanza con los que creo: en Despachos
+    el documento lo crea el mostrador al facturar y el bodeguero lo actualiza
+    al entregar (ver FacturacionRequerida), asi que contando solo creaciones
+    el bodeguero veia 0 despachos. Los bloqueados por duplicado no cuentan."""
     pool = await get_pool()
     row = await pool.fetchrow(
         """
         select
-            count(*) filter (where e.tipo not in ('RM2', 'RM3')) as despachos,
-            count(*) filter (where e.tipo in ('RM2', 'RM3')) as remisiones
-        from entregas e
-        join sedes s on s.id::text = e.sede_origen_id
-        where e.operador_id = $1
-          and e.sede_origen_id = $2
+            count(distinct e.id) filter (where e.tipo not in ('RM2', 'RM3')) as despachos,
+            count(distinct e.id) filter (where e.tipo in ('RM2', 'RM3')) as remisiones
+        from logs l
+        join sedes s on s.id::text = l.sede_id
+        join entregas e on e.id::text = l.entidad_id
+        where l.actor_id = $1
+          and l.sede_id = $2
+          and l.entidad_tipo = 'entrega'
+          and l.evento in ('entrega_insertada', 'entrega_actualizada')
           and e.estado <> 'duplicado_bloqueado'
-          and (e.capturado_at at time zone s.timezone)::date = (now() at time zone s.timezone)::date
+          and (l."timestamp" at time zone s.timezone)::date = (now() at time zone s.timezone)::date
         """,
         operador_id,
         sede_id,
