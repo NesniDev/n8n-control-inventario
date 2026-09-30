@@ -174,9 +174,9 @@ export function HeaderTraslado() {
   const navigation = useNavigation<NavigationHelpers<TrasladosStackParamList>>();
   const { rol, usuario, punto, supervisor, cargando, cerrarSesion, volverAInicio } = useTraslado();
 
-  // Defensivo -- en la practica nunca deberia pasar, estas pantallas solo se
-  // montan post-login (ver Navegacion.tsx), pero TrasladoProvider tambien se
-  // monta durante LoginPunto/LoginSupervision con todo en null.
+  // Defensivo -- en la practica nunca deberia pasar: TrasladoProvider solo se
+  // monta con sesion de punto o supervision iniciada (ver Navegacion.tsx),
+  // pero sus tipos siguen admitiendo todo en null.
   if (rol === 'punto' && (!usuario || !punto)) return null;
   if (rol === 'supervision' && !supervisor) return null;
 

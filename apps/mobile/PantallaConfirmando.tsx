@@ -62,6 +62,7 @@ import {
   NEUTRAL_900,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { DespachosStackParamList } from './Navegacion';
 
@@ -184,7 +185,7 @@ function VisorFirma({
               firmaRef.current?.readSignature();
             }}
           >
-            <ContenidoBoton icono="checkmark-circle-outline" texto="Guardar firma" />
+            <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-circle-outline" texto="Guardar firma" />
           </Pressable>
         </View>
       </SafeAreaView>
@@ -752,7 +753,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     </View>
                   ) : null}
                   {esFaia ? (
-                    <View style={[estilosDoc.pill, { backgroundColor: 'rgba(200,99,31,0.14)' }]}>
+                    <View style={[estilosDoc.pill, { backgroundColor: 'rgba(245,197,66,0.14)' }]}>
                       <Text style={[estilosDoc.pillTexto, { color: ACENTO }]}>FAIA</Text>
                     </View>
                   ) : null}
@@ -896,7 +897,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 {historialAbierto ? (
                   <View style={styles.historialCaja}>
                     {cargandoHistorial ? (
-                      <ActivityIndicator color="#c8631f" />
+                      <ActivityIndicator color="#f5c542" />
                     ) : eventosHistorial.length === 0 ? (
                       <Text style={styles.previewSubtexto}>Sin cambios registrados todavía.</Text>
                     ) : (
@@ -925,7 +926,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     value={item.nota}
                     onChangeText={(texto) => actualizarNotaItem(item.id, texto)}
                     placeholder="Información adicional de este producto (opcional)"
-                    placeholderTextColor="#6b7688"
+                    placeholderTextColor="#8193bb"
                     style={styles.inputNota}
                     multiline
                   />
@@ -944,7 +945,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                       onChangeText={(texto) => actualizarDraftDevolucion(item.id, { cantidad: texto })}
                       keyboardType="number-pad"
                       placeholder={`Máx. ${item.cantidad_entregada}`}
-                      placeholderTextColor="#6b7688"
+                      placeholderTextColor="#8193bb"
                       style={styles.inputCantidad}
                     />
 
@@ -1007,7 +1008,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                       ]}
                       onPress={() => registrarDevolucionItem(item)}
                     >
-                      <ContenidoBoton icono="arrow-undo-outline" texto="Registrar devolución" />
+                      <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="arrow-undo-outline" texto="Registrar devolución" />
                     </Pressable>
                   </View>
                 ) : null}
@@ -1047,7 +1048,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     style={[styles.checkboxFila, estilosItem.checkboxFila, marcadoTodoEntregado && estilosItem.checkboxFilaMarcada]}
                   >
                     <View style={[styles.checkboxCaja, marcadoTodoEntregado && styles.checkboxCajaMarcada]}>
-                      {marcadoTodoEntregado ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
+                      {marcadoTodoEntregado ? <Ionicons name="checkmark" size={16} color={TEXTO_SOBRE_ACENTO} /> : null}
                     </View>
                     <Text style={[styles.checkboxTexto, marcadoTodoEntregado && estilosItem.checkboxTextoMarcado]}>
                       {situacion === 'nueva'
@@ -1206,7 +1207,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 ]}
                 onPress={() => confirmar()}
               >
-                <ContenidoBoton icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
+                <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="document-text-outline" texto={cargando ? 'Guardando...' : 'Guardar nota'} />
               </Pressable>
             ) : (
               // Firma obligatoria siempre que se toquen cantidades -- parcial o
@@ -1225,6 +1226,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 onPress={() => setMostrandoDatosRetira(true)}
               >
                 <ContenidoBoton
+                  color={TEXTO_SOBRE_ACENTO}
                   icono="create-outline"
                   texto={cargando ? 'Guardando...' : 'Firmar y confirmar entrega'}
                 />
@@ -1324,7 +1326,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
                 onPress={() => setMostrandoDatosEntrega(false)}
               >
-                <ContenidoBoton icono="close-outline" texto="Cerrar" />
+                <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="close-outline" texto="Cerrar" />
               </Pressable>
             </ScrollView>
           </View>
@@ -1357,7 +1359,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
                 onPress={() => setNotaGeneralAbierta(false)}
               >
-                <ContenidoBoton icono="checkmark-circle-outline" texto="Listo" />
+                <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-circle-outline" texto="Listo" />
               </Pressable>
             </View>
           </View>
@@ -1381,14 +1383,14 @@ export default function PantallaConfirmando({ navigation }: Props) {
                 value={retiradoNombre}
                 onChangeText={setRetiradoNombre}
                 placeholder="Nombre"
-                placeholderTextColor="#6b7688"
+                placeholderTextColor="#8193bb"
                 style={styles.inputCantidad}
               />
               <TextInput
                 value={retiradoTelefono}
                 onChangeText={setRetiradoTelefono}
                 placeholder="Teléfono"
-                placeholderTextColor="#6b7688"
+                placeholderTextColor="#8193bb"
                 keyboardType="phone-pad"
                 style={styles.inputCantidad}
               />
@@ -1415,7 +1417,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     setMostrandoFirma(true);
                   }}
                 >
-                  <ContenidoBoton icono="arrow-forward-outline" texto="Continuar" />
+                  <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="arrow-forward-outline" texto="Continuar" />
                 </Pressable>
               </View>
             </View>
@@ -1470,7 +1472,7 @@ const estilosDoc = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1532,7 +1534,7 @@ const estilosItem = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: NEUTRAL_800,
   },
-  botonAccionActivo: { backgroundColor: 'rgba(200,99,31,0.14)' },
+  botonAccionActivo: { backgroundColor: 'rgba(245,197,66,0.14)' },
   checkboxFila: {
     padding: 10,
     borderRadius: 12,

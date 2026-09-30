@@ -34,6 +34,7 @@ import {
   NEUTRAL_500,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
@@ -345,9 +346,9 @@ export default function PantallaNovedadDetalle({ route }: Props) {
                 ]}
               >
                 {enviando ? (
-                  <ActivityIndicator color={TEXTO_PRIMARIO} />
+                  <ActivityIndicator color={TEXTO_SOBRE_ACENTO} />
                 ) : (
-                  <ContenidoBoton icono="checkmark-done-outline" texto="Marcar como resuelta" />
+                  <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-done-outline" texto="Marcar como resuelta" />
                 )}
               </Pressable>
             </View>
@@ -393,7 +394,7 @@ const estilos = StyleSheet.create({
   solucionTexto: { color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY },
   solucionMeta: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY },
   consecutivoBadge: {
-    backgroundColor: 'rgba(200,99,31,0.16)',
+    backgroundColor: 'rgba(245,197,66,0.16)',
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderRadius: 8,
@@ -406,7 +407,7 @@ const estilos = StyleSheet.create({
     gap: 6,
     borderWidth: 1,
     borderColor: NEUTRAL_400,
-    backgroundColor: 'rgba(200,99,31,0.10)',
+    backgroundColor: 'rgba(245,197,66,0.10)',
     borderRadius: 12,
     paddingHorizontal: 12,
     minWidth: 96,

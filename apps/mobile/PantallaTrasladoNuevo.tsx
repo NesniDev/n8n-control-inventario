@@ -29,6 +29,7 @@ import {
   NEUTRAL_500,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
@@ -268,7 +269,7 @@ export default function PantallaTrasladoNuevo() {
               ]}
               onPress={() => navigation.navigate('FirmaTransportador')}
             >
-              <ContenidoBoton icono="arrow-forward-outline" texto="Continuar" />
+              <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="arrow-forward-outline" texto="Continuar" />
             </Pressable>
           </View>
         </ScrollView>
@@ -305,7 +306,7 @@ export default function PantallaTrasladoNuevo() {
           style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
           onPress={() => setObservacionesAbiertas(false)}
         >
-          <ContenidoBoton icono="checkmark-outline" texto="Listo" />
+          <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-outline" texto="Listo" />
         </Pressable>
       </HojaModal>
       <ModalProducto
@@ -327,7 +328,7 @@ const estilos = StyleSheet.create({
     height: 44,
     paddingHorizontal: 8,
     borderRadius: 12,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },

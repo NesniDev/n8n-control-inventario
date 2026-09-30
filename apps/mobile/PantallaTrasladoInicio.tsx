@@ -5,7 +5,7 @@
 // estado ya se ve en cada tarjeta (franja + etiqueta de color), en su lugar
 // hay una linea de resumen y la lista va ordenada con lo que pide atencion
 // primero. Tocar una tarjeta abre DetalleTraslado.
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +30,7 @@ import {
   NEUTRAL_850,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
@@ -160,20 +161,24 @@ export default function PantallaTrasladoInicio() {
   const [error, setError] = useState<string | null>(null);
   const [pestana, setPestana] = useState<Pestana>('enviados');
 
-  const cargar = useCallback(async () => {
+  const yaCargado = useRef(false);
+  const cargar = useCallback(async (forzar = false) => {
     if (!punto) return;
-    setCargando(true);
+    // El indicador de carga solo la primera vez: despues la lista queda a la
+    // vista mientras se actualiza (la cache de api.ts la devuelve al instante).
+    if (!yaCargado.current) setCargando(true);
     setError(null);
     try {
       const [listaEnviados, listaLlegadas] = await Promise.all([
-        fetchTrasladosPunto({ origenId: punto.id }),
-        fetchTrasladosPunto({ destinoId: punto.id }),
+        fetchTrasladosPunto({ origenId: punto.id }, { forzar }),
+        fetchTrasladosPunto({ destinoId: punto.id }, { forzar }),
       ]);
       setEnviados(listaEnviados);
       // Lo que llega a este punto se parte en dos: lo que todavia esta en
       // camino va a "Por recibir"; lo ya confirmado, a la pestaña Recibidos.
       setRecibidos(listaLlegadas.filter((t) => t.estado !== 'en_transito'));
       setPorRecibir(listaLlegadas.filter((t) => t.estado === 'en_transito').length);
+      yaCargado.current = true;
     } catch (err) {
       setError(mensajeError(err, 'traslado'));
     } finally {
@@ -190,9 +195,10 @@ export default function PantallaTrasladoInicio() {
     }, [cargar])
   );
 
+  // Deslizar para refrescar: consulta nueva al servidor, sin usar lo guardado.
   const refrescar = async () => {
     setRefrescando(true);
-    await cargar();
+    await cargar(true);
     setRefrescando(false);
   };
 
@@ -215,7 +221,7 @@ export default function PantallaTrasladoInicio() {
             style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
             onPress={() => navigation.navigate('NuevoTraslado')}
           >
-            <ContenidoBoton icono="add-circle-outline" texto="Nuevo traslado" />
+            <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="add-circle-outline" texto="Nuevo traslado" />
           </Pressable>
           <Pressable
             style={({ pressed }) => [
@@ -249,7 +255,7 @@ export default function PantallaTrasladoInicio() {
                   {p === 'enviados' ? 'Enviados' : 'Recibidos'}
                 </Text>
                 <View style={[estilos.pestanaConteo, activa && estilos.pestanaConteoActivo]}>
-                  <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_PRIMARIO }]}>{total}</Text>
+                  <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_SOBRE_ACENTO }]}>{total}</Text>
                 </View>
               </Pressable>
             );

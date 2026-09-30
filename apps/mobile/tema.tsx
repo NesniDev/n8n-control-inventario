@@ -11,15 +11,25 @@
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export const NEUTRAL_900 = '#0f1520'; // fondo
-export const NEUTRAL_850 = '#161d29'; // tarjetas
-export const NEUTRAL_800 = '#1d2635'; // inputs / superficies elevadas
-export const NEUTRAL_700 = '#2a3446'; // borde
-export const BORDE_FUERTE = '#384158'; // borde de mas contraste (checkbox, foco)
-export const NEUTRAL_500 = '#6b7688'; // texto terciario
-export const NEUTRAL_400 = '#9aa3b5'; // texto secundario
+// Paleta de la marca, sacada del logo de la empresa (azul noche, dorado y el
+// verde oficial) -- la misma de MARCA en vidrio.tsx, que usan el login y el
+// Inicio. Los nombres NEUTRAL_* se mantienen para no tocar cada pantalla.
+export const NEUTRAL_900 = '#081633'; // fondo (azul noche)
+export const NEUTRAL_850 = '#0f2350'; // tarjetas
+export const NEUTRAL_800 = '#142c5f'; // inputs / superficies elevadas
+export const NEUTRAL_700 = '#223f7a'; // borde
+export const BORDE_FUERTE = '#2e4f91'; // borde de mas contraste (checkbox, foco)
+export const NEUTRAL_500 = '#8193bb'; // texto terciario
+export const NEUTRAL_400 = '#aebcdb'; // texto secundario
 export const TEXTO_PRIMARIO = '#f5f3ef'; // blanco calido, no #fff puro
-export const ACENTO = '#c8631f';
+// Dorado del logo: acento de iconos, textos destacados y rellenos (botones
+// principales, casillas marcadas, opcion elegida).
+export const ACENTO = '#f5c542';
+// Texto e iconos ENCIMA de un relleno ACENTO: el blanco no se lee sobre el
+// dorado, el azul noche si.
+export const TEXTO_SOBRE_ACENTO = '#0b1d45';
+// Verde oficial de la marca.
+export const VERDE_MARCA = '#3d8e33';
 
 // CSS inyectado dentro del <style> del WebView de <Signature> (ver
 // h5/html.js del paquete) -- el fondo del canvas en si queda blanco
@@ -49,7 +59,13 @@ export const ESTILO_WEB_FIRMA = `
 // Navegacion.tsx porque EntregaContext.tsx tambien lo usa (para ocultar la
 // barra mientras hay un envio en curso) y un import de runtime entre esos dos
 // archivos seria circular.
-export const ESTILO_TAB_BAR = { backgroundColor: NEUTRAL_850, borderTopColor: NEUTRAL_700 };
+// Azul noche del logo (MARCA.noche en vidrio.tsx; no se importa de ahi
+// porque vidrio.tsx ya importa de este archivo) -- misma base que Inicio.
+export const ESTILO_TAB_BAR = {
+  backgroundColor: '#081633',
+  // Filo dorado muy sutil arriba de la barra (oro del logo).
+  borderTopColor: 'rgba(245,197,66,0.28)',
+};
 
 export const FUENTE_DISPLAY = 'SpaceGrotesk_700Bold';
 export const FUENTE_DISPLAY_SEMI = 'SpaceGrotesk_600SemiBold';
@@ -152,7 +168,7 @@ export const styles = StyleSheet.create({
     color: ACENTO,
     fontSize: 12,
     fontFamily: FUENTE_BODY_SEMI,
-    backgroundColor: 'rgba(200,99,31,0.12)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
@@ -259,7 +275,7 @@ export const styles = StyleSheet.create({
   chipSedeActiva: { backgroundColor: ACENTO, borderColor: ACENTO },
   chipSedeFila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chipSedeTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_BOLD },
-  chipSedeTextoActivo: { color: TEXTO_PRIMARIO },
+  chipSedeTextoActivo: { color: TEXTO_SOBRE_ACENTO },
   preview: { width: '100%', height: 300, borderRadius: 14, backgroundColor: NEUTRAL_800 },
   iconoAmpliar: {
     position: 'absolute',

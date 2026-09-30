@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { HeaderTraslado, useTraslado } from './TrasladoContext';
-import { ContenidoBoton, styles } from './tema';
+import { ContenidoBoton, styles, TEXTO_SOBRE_ACENTO } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
 type Props = NativeStackScreenProps<TrasladosStackParamList, 'ResultadoTraslado'>;
@@ -37,7 +37,7 @@ export default function PantallaTrasladoResultado({ route }: Props) {
             style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
             onPress={volverAInicio}
           >
-            <ContenidoBoton icono="home-outline" texto="Ir al inicio" />
+            <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="home-outline" texto="Ir al inicio" />
           </Pressable>
         </View>
       </ScrollView>

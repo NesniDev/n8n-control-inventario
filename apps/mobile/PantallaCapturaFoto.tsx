@@ -40,6 +40,7 @@ import {
   NEUTRAL_800,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { DespachosStackParamList } from './Navegacion';
 
@@ -643,7 +644,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
               ]}
               onPress={enviar}
             >
-              <ContenidoBoton icono="checkmark-circle-outline" texto={cargando ? 'Procesando...' : 'Enviar y procesar'} />
+              <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-circle-outline" texto={cargando ? 'Procesando...' : 'Enviar y procesar'} />
             </Pressable>
           ) : (
             <Pressable
@@ -656,7 +657,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
               ]}
               onPress={tomarFoto}
             >
-              <ContenidoBoton icono="camera-outline" texto="Tomar foto" />
+              <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="camera-outline" texto="Tomar foto" />
             </Pressable>
           )}
 
@@ -731,7 +732,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
                   style={[styles.checkboxFila, estilosModalFactura.checkboxFaia]}
                 >
                   <View style={[styles.checkboxCaja, modalEsFaia && styles.checkboxCajaMarcada]}>
-                    {modalEsFaia ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
+                    {modalEsFaia ? <Ionicons name="checkmark" size={16} color={TEXTO_SOBRE_ACENTO} /> : null}
                   </View>
                   <Text style={styles.checkboxTexto}>Es FAIA</Text>
                 </Pressable>
@@ -747,7 +748,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
                 ]}
                 onPress={cerrarModalPuntoVenta}
               >
-                <ContenidoBoton icono="checkmark-circle-outline" texto={guardandoFaia ? 'Guardando...' : 'Listo'} />
+                <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-circle-outline" texto={guardandoFaia ? 'Guardando...' : 'Listo'} />
               </Pressable>
             </View>
           </View>
@@ -777,19 +778,19 @@ const estilosFoto = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: 'rgba(200,99,31,0.55)',
-    backgroundColor: 'rgba(200,99,31,0.06)',
+    borderColor: 'rgba(245,197,66,0.55)',
+    backgroundColor: 'rgba(245,197,66,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
     padding: 16,
   },
-  vacioPresionado: { backgroundColor: 'rgba(200,99,31,0.14)' },
+  vacioPresionado: { backgroundColor: 'rgba(245,197,66,0.14)' },
   circuloCamara: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: 'rgba(200,99,31,0.16)',
+    backgroundColor: 'rgba(245,197,66,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -821,7 +822,7 @@ const estilosFoto = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(15,21,32,0.78)',
+    backgroundColor: 'rgba(8,22,51,0.78)',
   },
   botonSobreFotoTexto: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
   velo: {
@@ -831,7 +832,7 @@ const estilosFoto = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 14,
-    backgroundColor: 'rgba(15,21,32,0.72)',
+    backgroundColor: 'rgba(8,22,51,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,

@@ -38,6 +38,7 @@ import {
   NEUTRAL_850,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
@@ -169,16 +170,20 @@ export default function PantallaNovedadesSupervision() {
   // simple alcanza.
   const peticionBusqueda = useRef(0);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
+  const yaCargado = useRef(false);
+  const cargar = useCallback(async (forzar = false) => {
+    // El indicador de carga solo la primera vez: despues la lista queda a la
+    // vista mientras se actualiza (la cache de api.ts la devuelve al instante).
+    if (!yaCargado.current) setCargando(true);
     setError(null);
     try {
       const [listaPendientes, listaResueltas] = await Promise.all([
-        fetchNovedadesTraslado('pendiente'),
-        fetchNovedadesTraslado('resuelta'),
+        fetchNovedadesTraslado('pendiente', { forzar }),
+        fetchNovedadesTraslado('resuelta', { forzar }),
       ]);
       setPendientes(listaPendientes);
       setResueltas(listaResueltas);
+      yaCargado.current = true;
     } catch (err) {
       setError(mensajeError(err, 'traslado'));
     } finally {
@@ -195,9 +200,10 @@ export default function PantallaNovedadesSupervision() {
     }, [cargar])
   );
 
+  // Deslizar para refrescar: consulta nueva al servidor, sin usar lo guardado.
   const refrescar = async () => {
     setRefrescando(true);
-    await cargar();
+    await cargar(true);
     setRefrescando(false);
   };
 
@@ -311,7 +317,7 @@ export default function PantallaNovedadesSupervision() {
                         {p === 'pendiente' ? 'Pendientes' : 'Resueltas'}
                       </Text>
                       <View style={[estilos.pestanaConteo, activa && estilos.pestanaConteoActivo]}>
-                        <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_PRIMARIO }]}>{total}</Text>
+                        <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_SOBRE_ACENTO }]}>{total}</Text>
                       </View>
                     </Pressable>
                   );
@@ -371,7 +377,7 @@ const estilos = StyleSheet.create({
   buscadorInput: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
   consecutivoBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(200,99,31,0.16)',
+    backgroundColor: 'rgba(245,197,66,0.16)',
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderRadius: 8,

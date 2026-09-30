@@ -8,7 +8,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import HojaModal from './HojaModal';
 import { nuevoItemDraft, type ItemTrasladoDraft } from './TrasladoContext';
-import { ContenidoBoton, FUENTE_BODY, FUENTE_BODY_SEMI, NEUTRAL_400, NEUTRAL_500, NEUTRAL_700, NEUTRAL_800, styles, TEXTO_PRIMARIO } from './tema';
+import { ContenidoBoton, FUENTE_BODY, FUENTE_BODY_SEMI, NEUTRAL_400, NEUTRAL_500, NEUTRAL_700, NEUTRAL_800, styles, TEXTO_PRIMARIO, TEXTO_SOBRE_ACENTO } from './tema';
 
 export function productoValido(item: ItemTrasladoDraft): boolean {
   return item.producto.trim() !== '' && /^\d+$/.test(item.cantidad.trim()) && Number(item.cantidad.trim()) > 0;
@@ -103,7 +103,7 @@ export default function ModalProducto({
             onCerrar();
           }}
         >
-          <ContenidoBoton icono="checkmark-outline" texto="Guardar" />
+          <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-outline" texto="Guardar" />
         </Pressable>
       </View>
     </HojaModal>

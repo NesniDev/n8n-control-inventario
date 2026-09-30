@@ -11,7 +11,7 @@ import { buscarEntrega } from './api';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import { HeaderEntrega, useEntrega } from './EntregaContext';
-import { ACENTO, ContenidoBoton, NEUTRAL_400, NEUTRAL_500, styles, TEXTO_PRIMARIO } from './tema';
+import { ACENTO, ContenidoBoton, NEUTRAL_400, NEUTRAL_500, styles, TEXTO_PRIMARIO, TEXTO_SOBRE_ACENTO } from './tema';
 import type { DespachosStackParamList } from './Navegacion';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
@@ -228,7 +228,7 @@ export default function PantallaBuscar({ navigation }: Props) {
               ]}
               onPress={buscarFactura}
             >
-              <ContenidoBoton icono="search-outline" texto={cargando ? 'Buscando...' : 'Buscar'} />
+              <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="search-outline" texto={cargando ? 'Buscando...' : 'Buscar'} />
             </Pressable>
             <Pressable style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]} onPress={reiniciar}>
               <ContenidoBoton icono="chevron-back-outline" texto="Volver" color={NEUTRAL_400} />
@@ -246,7 +246,7 @@ const estilosBuscar = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },

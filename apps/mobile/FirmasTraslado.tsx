@@ -152,7 +152,7 @@ const estilos = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 14,
-    backgroundColor: 'rgba(15,21,32,0.75)',
+    backgroundColor: 'rgba(8,22,51,0.75)',
   },
   ampliarTexto: { color: TEXTO_PRIMARIO, fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
   pendiente: {

@@ -1,12 +1,13 @@
 // Navegacion animada -- reemplaza el switch manual por fase que antes vivia
-// en App.tsx/PantallaCaptura. Dos niveles:
-//   Tabs (barra abajo, visible desde que abre la app):
-//     Despachos | TrasladosPuntos | Remisiones
-//   Cada tab maneja SU PROPIO login -- los usuarios de despachos, traslados
-//   y remisiones son distintos, asi que no hay una sesion global: entrar a
-//   una tab no deja logueado en las otras.
-//     -> Despachos y Remisiones: stack Login -> Captura, Buscar, Confirmando,
-//        Resultado (mismo stack, ver FlujoFoto; cada tab con su sesion).
+// en App.tsx/PantallaCaptura. Tres niveles:
+//   Root: Entrada (sin sesion, ver PantallaEntrada.tsx) | Principal (tabs).
+//     La sesion es UNA sola para toda la app (ver SesionContext.tsx): se
+//     entra una vez y cambiar de tab no vuelve a pedir PIN.
+//   Tabs (barra abajo): Inicio | Despachos | TrasladosPuntos | Remisiones
+//     Todas se ven siempre; las que la sesion no puede usar muestran
+//     SinAcceso.tsx en vez de su stack real (ver tieneAcceso).
+//     -> Despachos y Remisiones: stack Captura, Buscar, Confirmando,
+//        Resultado (mismo stack, ver FlujoFoto).
 // Los ParamList se declaran aca (y no en EntregaContext.tsx) porque son el
 // tipo "de arriba hacia abajo": los consumen las pantallas y EntregaContext.tsx
 // via import type (sin dependencia de runtime, se borra en compilacion).
@@ -14,24 +15,16 @@ import { useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
-import {
-  fetchPuntos,
-  fetchSupervisores,
-  fetchUsuariosPunto,
-  loginPunto,
-  loginSupervisor,
-  type Empleado,
-  type Flujo,
-  type Punto,
-  type Sede,
-  type Supervisor,
-  type UsuarioPunto,
-} from './api';
+import type { Flujo } from './api';
 import { EntregaProvider } from './EntregaContext';
 import { TrasladoProvider } from './TrasladoContext';
-import PantallaLogin from './PantallaLogin';
+import { SesionProvider, tieneAcceso, useSesion, type AreaApp, type Sesion } from './SesionContext';
+import PantallaEntrada from './PantallaEntrada';
+import SinAcceso from './SinAcceso';
 import PantallaCapturaFoto from './PantallaCapturaFoto';
 import PantallaBuscar from './PantallaBuscar';
 import PantallaConfirmando from './PantallaConfirmando';
@@ -46,27 +39,24 @@ import PantallaTrasladoDetalle from './PantallaTrasladoDetalle';
 import PantallaNovedadesSupervision from './PantallaNovedadesSupervision';
 import PantallaNovedadDetalle from './PantallaNovedadDetalle';
 import PantallaInicio from './PantallaInicio';
-import { ACENTO, ESTILO_TAB_BAR, FUENTE_BODY_SEMI, NEUTRAL_500 } from './tema';
+import { ESTILO_TAB_BAR, FUENTE_BODY_BOLD } from './tema';
+import { MARCA } from './vidrio';
 
 export type DespachosStackParamList = {
-  Login: undefined;
   Captura: undefined;
   Buscar: undefined;
   Confirmando: undefined;
   Resultado: { mensaje: string };
 };
 
-// LoginPunto -> InicioTraslados -> NuevoTraslado -> FirmaTransportador ->
-// ResultadoTraslado es el camino de CREAR un traslado (bodega origen);
-// BandejaRecepcion -> RecepcionTraslado es el de RECIBIRLO (bodega
-// destino) -- las dos ramas cuelgan de InicioTraslados, no una de la otra.
-// LoginSupervision -> NovedadesSupervision -> NovedadDetalle es el camino de
-// Supervision (Erika revisando y resolviendo novedades, ver
-// TrasladoContext.tsx RolTraslados) -- rama totalmente aparte, sin nada
-// colgando de InicioTraslados.
+// InicioTraslados -> NuevoTraslado -> FirmaTransportador -> ResultadoTraslado
+// es el camino de CREAR un traslado (bodega origen); BandejaRecepcion ->
+// RecepcionTraslado es el de RECIBIRLO (bodega destino) -- las dos ramas
+// cuelgan de InicioTraslados, no una de la otra.
+// NovedadesSupervision -> NovedadDetalle es el camino de Supervision (Erika
+// revisando y resolviendo novedades, ver TrasladoContext.tsx RolTraslados) --
+// rama totalmente aparte, sin nada colgando de InicioTraslados.
 export type TrasladosStackParamList = {
-  LoginPunto: undefined;
-  LoginSupervision: undefined;
   InicioTraslados: undefined;
   NuevoTraslado: undefined;
   FirmaTransportador: undefined;
@@ -85,20 +75,28 @@ export type TabsParamList = {
   Remisiones: NavigatorScreenParams<DespachosStackParamList>;
 };
 
+type RootStackParamList = {
+  Entrada: undefined;
+  Principal: NavigatorScreenParams<TabsParamList>;
+};
+
+const RootStack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<TabsParamList>();
 // Un solo tipo de stack para Despachos y Remisiones (mismas pantallas); cada
 // tab instancia su propio Navigator, asi que el estado de navegacion no se
 // comparte.
 const DespachosStack = createNativeStackNavigator<DespachosStackParamList>();
-
-// Roles que pueden entrar a Remisiones (el bodeguero fotografia directo,
-// punto_venta y faia_viewer no participan -- ver procesar_extraccion).
-const ROLES_REMISIONES = ['operador', 'supervisor', 'admin'];
 const TrasladosStack = createNativeStackNavigator<TrasladosStackParamList>();
 
-// Flujo de foto de bodega (Despachos: factura/traslado; Remisiones: RM2/RM3),
-// con su propio login por PIN. `flujo` define la tab: la sesion vive aca (y
-// no en App.tsx) porque es solo de esa tab, y cada tab la instancia aparte.
+// Titulo e icono de cada area -- los usan la barra de tabs y SinAcceso.
+const AREAS: Record<AreaApp, { titulo: string; icono: keyof typeof Ionicons.glyphMap }> = {
+  Despachos: { titulo: 'Despachos', icono: 'cube-outline' },
+  TrasladosPuntos: { titulo: 'Traslados', icono: 'swap-horizontal' },
+  Remisiones: { titulo: 'Remisiones', icono: 'document-text-outline' },
+};
+
+// Flujo de foto de bodega (Despachos: factura/traslado; Remisiones: RM2/RM3).
+// `flujo` define la tab; la sesion (empleado + sede) llega del login unico.
 //
 // EntregaProvider va en el `layout` del Navigator -- NO como hijo de el.
 // @react-navigation/core recorre los `children` de un Navigator con
@@ -107,14 +105,12 @@ const TrasladosStack = createNativeStackNavigator<TrasladosStackParamList>();
 // 'Screen', 'Group' or 'React.Fragment' as its direct children" en runtime.
 // `layout` ademas le pasa el `navigation` de ESTE stack, que es el que
 // reiniciar() necesita para volver a Captura sin tocar las otras tabs.
-//
-// Login y el resto se alternan como Screen hijos del mismo Navigator
-// (patron "auth flow" estandar de la libreria): React Navigation trata el
-// cambio como una navegacion normal y anima la transicion Login -> Captura.
-function FlujoFoto({ flujo }: { flujo: Flujo }) {
-  // Sede y empleado se resuelven juntos en el login (ver PantallaLogin) --
-  // un solo estado evita un instante con empleado seteado y sede todavia no.
-  const [sesion, setSesion] = useState<{ empleado: Empleado; sede: Sede } | null>(null);
+function FlujoFoto({ flujo, area }: { flujo: Flujo; area: AreaApp }) {
+  const { sesion, cerrarSesion } = useSesion();
+
+  if (sesion.tipo !== 'bodega' || !tieneAcceso(sesion, area)) {
+    return <SinAcceso titulo={AREAS[area].titulo} icono={AREAS[area].icono} />;
+  }
 
   return (
     <DespachosStack.Navigator
@@ -122,63 +118,36 @@ function FlujoFoto({ flujo }: { flujo: Flujo }) {
       layout={({ children, navigation }) => (
         <EntregaProvider
           navigation={navigation}
-          empleado={sesion?.empleado ?? null}
-          sede={sesion?.sede ?? null}
-          cerrarSesion={() => setSesion(null)}
+          empleado={sesion.empleado}
+          sede={sesion.sede}
+          cerrarSesion={cerrarSesion}
           flujo={flujo}
         >
           {children}
         </EntregaProvider>
       )}
     >
-      {!sesion ? (
-        <DespachosStack.Screen name="Login">
-          {() => (
-            <PantallaLogin
-              // PantallaLogin.tsx quedo generalizada (usuario: UsuarioLogin,
-              // lugar: Lugar) para poder loguear tambien Traslados (ver
-              // Traslados() mas abajo) -- el cast de vuelta a Empleado/Sede
-              // es seguro porque los defaults de cargarUsuarios/login (sin
-              // pasar props aca) son justo fetchEmpleados/loginConPin, que
-              // devuelven esos tipos mas ricos.
-              onLogin={(empleado, sede) => setSesion({ empleado: empleado as Empleado, sede: sede as Sede })}
-              {...(flujo === 'remision'
-                ? { titulo: 'Remisiones', rolesPermitidos: ROLES_REMISIONES }
-                : {})}
-            />
-          )}
-        </DespachosStack.Screen>
-      ) : (
-        <>
-          <DespachosStack.Screen name="Captura" component={PantallaCapturaFoto} />
-          <DespachosStack.Screen name="Buscar" component={PantallaBuscar} />
-          <DespachosStack.Screen name="Confirmando" component={PantallaConfirmando} />
-          <DespachosStack.Screen name="Resultado" component={PantallaResultado} />
-        </>
-      )}
+      <DespachosStack.Screen name="Captura" component={PantallaCapturaFoto} />
+      <DespachosStack.Screen name="Buscar" component={PantallaBuscar} />
+      <DespachosStack.Screen name="Confirmando" component={PantallaConfirmando} />
+      <DespachosStack.Screen name="Resultado" component={PantallaResultado} />
     </DespachosStack.Navigator>
   );
 }
 
-const Despachos = () => <FlujoFoto flujo="despacho" />;
-const Remisiones = () => <FlujoFoto flujo="remision" />;
+const Despachos = () => <FlujoFoto flujo="despacho" area="Despachos" />;
+const Remisiones = () => <FlujoFoto flujo="remision" area="Remisiones" />;
 
-// Flujo de traslados entre puntos, con su propio login por PIN -- mismo
-// patron que Despachos() de arriba (sesion propia de la tab, Provider en el
-// `layout` del Navigator, Login alternado como Screen). A diferencia de
-// Despachos, esta tab tiene DOS puntos de entrada post-login colgando
-// directo de InicioTraslados (crear un traslado, o ir a la bandeja de
-// recepcion) -- ver TrasladosStackParamList.
-// Sesion discriminada por rol -- 'punto' guarda usuario+punto (como antes),
-// 'supervision' guarda el supervisor logueado (hoy solo Erika). El stack
-// entero cambia de pantallas segun cual sea (ver el JSX mas abajo), nunca se
-// mezclan.
-type SesionTraslados =
-  | { rol: 'punto'; usuario: UsuarioPunto; punto: Punto }
-  | { rol: 'supervision'; supervisor: Supervisor };
-
+// Flujo de traslados entre puntos -- mismo patron que FlujoFoto (Provider en
+// el `layout` del Navigator). La sesion puede ser de un punto o de
+// Supervision; el stack entero cambia de pantallas segun cual sea (ver el
+// JSX mas abajo), nunca se mezclan.
 function Traslados() {
-  const [sesion, setSesion] = useState<SesionTraslados | null>(null);
+  const { sesion, cerrarSesion } = useSesion();
+
+  if (sesion.tipo === 'bodega' || !tieneAcceso(sesion, 'TrasladosPuntos')) {
+    return <SinAcceso titulo={AREAS.TrasladosPuntos.titulo} icono={AREAS.TrasladosPuntos.icono} />;
+  }
 
   return (
     <TrasladosStack.Navigator
@@ -186,68 +155,17 @@ function Traslados() {
       layout={({ children, navigation }) => (
         <TrasladoProvider
           navigation={navigation}
-          rol={sesion?.rol ?? 'punto'}
-          usuario={sesion?.rol === 'punto' ? sesion.usuario : null}
-          punto={sesion?.rol === 'punto' ? sesion.punto : null}
-          supervisor={sesion?.rol === 'supervision' ? sesion.supervisor : null}
-          cerrarSesion={() => setSesion(null)}
+          rol={sesion.tipo}
+          usuario={sesion.tipo === 'punto' ? sesion.usuario : null}
+          punto={sesion.tipo === 'punto' ? sesion.punto : null}
+          supervisor={sesion.tipo === 'supervision' ? sesion.supervisor : null}
+          cerrarSesion={cerrarSesion}
         >
           {children}
         </TrasladoProvider>
       )}
     >
-      {!sesion ? (
-        <>
-          <TrasladosStack.Screen name="LoginPunto">
-            {({ navigation }) => (
-              <PantallaLogin
-                titulo="Traslados entre puntos"
-                etiquetaLugar="punto"
-                cargarLugares={fetchPuntos}
-                cargarUsuarios={fetchUsuariosPunto}
-                login={loginPunto}
-                usuarioUnicoPorLugar
-                // usuario/punto llegan tipados como UsuarioLogin/Lugar (formas
-                // minimas, ver api.ts) -- el cast de vuelta a UsuarioPunto/
-                // Punto es seguro porque cargarUsuarios/login de arriba son
-                // justo los que devuelven esos tipos mas ricos (mismo criterio
-                // que Despachos() con Empleado/Sede).
-                onLogin={(usuario, punto) =>
-                  setSesion({ rol: 'punto', usuario: usuario as UsuarioPunto, punto: punto as Punto })
-                }
-                accionExtra={{
-                  texto: 'Entrar como Supervisión',
-                  icono: 'shield-checkmark-outline',
-                  onPress: () => navigation.navigate('LoginSupervision'),
-                }}
-              />
-            )}
-          </TrasladosStack.Screen>
-          <TrasladosStack.Screen name="LoginSupervision">
-            {({ navigation }) => (
-              <PantallaLogin
-                titulo="Supervisión de traslados"
-                etiquetaLugar="área"
-                // Un solo "lugar" sintetico -- Supervision no tiene sedes ni
-                // puntos, pero PantallaLogin necesita elegir un lugar antes
-                // de mostrar el popup "¿Quién eres?" con los supervisores.
-                cargarLugares={async () => [{ id: 'supervision', nombre: 'Supervisión' }]}
-                cargarUsuarios={fetchSupervisores}
-                login={loginSupervisor}
-                // usuario llega tipado como UsuarioLogin -- el cast a
-                // Supervisor es seguro porque cargarUsuarios/login de arriba
-                // son justo fetchSupervisores/loginSupervisor.
-                onLogin={(usuario) => setSesion({ rol: 'supervision', supervisor: usuario as Supervisor })}
-                accionExtra={{
-                  texto: 'Volver a puntos',
-                  icono: 'arrow-back',
-                  onPress: () => navigation.goBack(),
-                }}
-              />
-            )}
-          </TrasladosStack.Screen>
-        </>
-      ) : sesion.rol === 'supervision' ? (
+      {sesion.tipo === 'supervision' ? (
         <>
           <TrasladosStack.Screen name="NovedadesSupervision" component={PantallaNovedadesSupervision} />
           <TrasladosStack.Screen name="NovedadDetalle" component={PantallaNovedadDetalle} />
@@ -267,18 +185,47 @@ function Traslados() {
   );
 }
 
-export default function Navegacion() {
+// Colores de la barra de tabs -- paleta del logo (ver MARCA en vidrio.tsx).
+const TAB_INACTIVA = 'rgba(245,243,239,0.55)';
+
+// Icono de una tab: el activo va relleno y en dorado; los inactivos, de
+// contorno y en gris claro. `nombre` es la version de contorno
+// ("home-outline"); la rellena es el mismo nombre sin el sufijo, cuando
+// existe (ej. "swap-horizontal" no tiene variante de contorno).
+function IconoTab({ nombre, activa }: { nombre: keyof typeof Ionicons.glyphMap; activa: boolean }) {
+  const relleno = nombre.replace(/-outline$/, '') as keyof typeof Ionicons.glyphMap;
+  return <Ionicons name={activa ? relleno : nombre} size={22} color={activa ? MARCA.oro : TAB_INACTIVA} />;
+}
+
+// Fondo de la barra: degradado azul -> azul noche, los colores del logo.
+const FondoTabs = () => (
+  <LinearGradient colors={[MARCA.azul, MARCA.noche]} style={StyleSheet.absoluteFill} />
+);
+
+function TabsPrincipales() {
+  // El icono de la tab es siempre el de la seccion, tenga o no acceso la
+  // sesion -- el aviso de "sin acceso" vive solo dentro de la tab (SinAcceso).
+  const opcionesArea = (area: AreaApp) => ({
+    title: AREAS[area].titulo,
+    tabBarIcon: ({ focused }: { focused: boolean }) => <IconoTab nombre={AREAS[area].icono} activa={focused} />,
+  });
+
   return (
     <Tabs.Navigator
-      // Inicio es lo que se ve cada vez que se abre la app -- portada con el
-      // logo, antes de elegir area (ver PantallaInicio.tsx).
+      // Inicio es lo primero que se ve al entrar -- portada con el logo (ver
+      // PantallaInicio.tsx).
       initialRouteName="Inicio"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: ACENTO,
-        tabBarInactiveTintColor: NEUTRAL_500,
+        tabBarActiveTintColor: MARCA.oro,
+        tabBarInactiveTintColor: TAB_INACTIVA,
         tabBarStyle: ESTILO_TAB_BAR,
-        tabBarLabelStyle: { fontFamily: FUENTE_BODY_SEMI },
+        tabBarBackground: FondoTabs,
+        // La tab activa queda dentro de un recuadro redondeado con un brillo
+        // dorado suave (icono + nombre).
+        tabBarActiveBackgroundColor: 'rgba(245,197,66,0.14)',
+        tabBarItemStyle: { borderRadius: 16, marginHorizontal: 5, marginVertical: 5 },
+        tabBarLabelStyle: { fontFamily: FUENTE_BODY_BOLD, fontSize: 11.5 },
         // Sin esto, la barra de tabs queda flotando arriba del teclado en
         // Android (edge-to-edge, ver EvitarTeclado.tsx) cada vez que un campo
         // de texto toma foco.
@@ -290,33 +237,37 @@ export default function Navegacion() {
         component={PantallaInicio}
         options={{
           title: 'Inicio',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
+          tabBarIcon: ({ focused }) => <IconoTab nombre="home-outline" activa={focused} />,
         }}
       />
-      <Tabs.Screen
-        name="Despachos"
-        component={Despachos}
-        options={{
-          title: 'Despachos',
-          tabBarIcon: ({ color, size }) => <Ionicons name="cube-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="TrasladosPuntos"
-        component={Traslados}
-        options={{
-          title: 'Traslados',
-          tabBarIcon: ({ color, size }) => <Ionicons name="swap-horizontal" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="Remisiones"
-        component={Remisiones}
-        options={{
-          title: 'Remisiones',
-          tabBarIcon: ({ color, size }) => <Ionicons name="document-text-outline" size={size} color={color} />,
-        }}
-      />
+      <Tabs.Screen name="Despachos" component={Despachos} options={opcionesArea('Despachos')} />
+      <Tabs.Screen name="TrasladosPuntos" component={Traslados} options={opcionesArea('TrasladosPuntos')} />
+      <Tabs.Screen name="Remisiones" component={Remisiones} options={opcionesArea('Remisiones')} />
     </Tabs.Navigator>
+  );
+}
+
+export default function Navegacion() {
+  // Solo en memoria, igual que antes -- ver SesionContext.tsx.
+  const [sesion, setSesion] = useState<Sesion | null>(null);
+
+  // Entrada y Principal se alternan como Screen hijos del mismo Navigator
+  // (patron "auth flow" estandar de la libreria): React Navigation anima el
+  // cambio, y al cerrar sesion se desmontan todas las tabs -- la proxima
+  // cuenta arranca cada seccion de cero.
+  return (
+    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+      {!sesion ? (
+        <RootStack.Screen name="Entrada">{() => <PantallaEntrada onLogin={setSesion} />}</RootStack.Screen>
+      ) : (
+        <RootStack.Screen name="Principal">
+          {() => (
+            <SesionProvider value={{ sesion, cerrarSesion: () => setSesion(null) }}>
+              <TabsPrincipales />
+            </SesionProvider>
+          )}
+        </RootStack.Screen>
+      )}
+    </RootStack.Navigator>
   );
 }

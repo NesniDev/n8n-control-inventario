@@ -112,7 +112,7 @@ const estilos = StyleSheet.create({
     borderWidth: 1,
     borderColor: NEUTRAL_700,
   },
-  filaActiva: { borderColor: ACENTO, backgroundColor: 'rgba(200,99,31,0.14)' },
+  filaActiva: { borderColor: ACENTO, backgroundColor: 'rgba(245,197,66,0.14)' },
   filaPresionada: { borderColor: NEUTRAL_500 },
   filaTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   vacio: { color: NEUTRAL_500, fontSize: 13, fontFamily: FUENTE_BODY, textAlign: 'center', paddingVertical: 16 },

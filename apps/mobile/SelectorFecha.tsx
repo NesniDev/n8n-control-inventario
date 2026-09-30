@@ -19,6 +19,7 @@ import {
   NEUTRAL_700,
   NEUTRAL_800,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 
 const MESES = [
@@ -164,7 +165,7 @@ const estilos = StyleSheet.create({
   circuloHoy: { borderWidth: 1.5, borderColor: NEUTRAL_700 },
   circuloActivo: { backgroundColor: ACENTO, borderColor: ACENTO },
   numeroDia: { color: NEUTRAL_400, fontSize: 15, fontFamily: FUENTE_BODY },
-  numeroDiaActivo: { color: TEXTO_PRIMARIO, fontFamily: FUENTE_BODY_SEMI },
+  numeroDiaActivo: { color: TEXTO_SOBRE_ACENTO, fontFamily: FUENTE_BODY_SEMI },
   botonHoy: {
     flexDirection: 'row',
     alignItems: 'center',

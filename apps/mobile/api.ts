@@ -12,6 +12,13 @@ import { decode } from 'base64-arraybuffer';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { EVIDENCIA_BUCKET, supabase } from './supabase';
+import { conCache, invalidarCache, type OpcionesCache } from './cache';
+
+// Cuanto vale lo guardado en la cache (ver cache.ts) antes de volver a pedirlo:
+// sedes, personal, puntos y supervisores cambian muy poco; pendientes,
+// traslados, novedades e historial, seguido.
+const VIGENCIA_REFERENCIA = 10 * 60 * 1000;
+const VIGENCIA_CORTA = 30 * 1000;
 
 // En el emulador Android, "localhost" apunta al propio emulador, no a la
 // máquina host — ahí usar la IP de la máquina (o 10.0.2.2). En iOS
@@ -133,12 +140,19 @@ async function parsearRespuesta<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export async function fetchSedes(): Promise<Sede[]> {
-  const res = await fetch(`${API_BASE_URL}/sedes`);
-  if (!res.ok) {
-    throw new Error(`No se pudieron cargar las sedes (${res.status})`);
-  }
-  return res.json();
+export async function fetchSedes(opciones?: OpcionesCache): Promise<Sede[]> {
+  return conCache<Sede[]>(
+    'sedes',
+    VIGENCIA_REFERENCIA,
+    async () => {
+      const res = await fetch(`${API_BASE_URL}/sedes`);
+      if (!res.ok) {
+        throw new Error(`No se pudieron cargar las sedes (${res.status})`);
+      }
+      return res.json();
+    },
+    opciones
+  );
 }
 
 // Ver app/models/empleado.py RolEmpleado -- punto_venta factura primero
@@ -165,13 +179,20 @@ export interface EmpleadoBasico {
 /** Bodegueros activos de una sede, para el paso intermedio del login (elegir
  * quien esta usando el telefono antes de pedir el PIN). Ver GET /empleados
  * en el backend -- ya filtra por sede y ya viene sin datos de PIN. */
-export async function fetchEmpleados(sedeId: string): Promise<EmpleadoBasico[]> {
-  const params = new URLSearchParams({ sede_id: sedeId });
-  const res = await fetch(`${API_BASE_URL}/empleados?${params}`);
-  if (!res.ok) {
-    throw new Error(`No se pudieron cargar los bodegueros (${res.status})`);
-  }
-  return res.json();
+export async function fetchEmpleados(sedeId: string, opciones?: OpcionesCache): Promise<EmpleadoBasico[]> {
+  return conCache<EmpleadoBasico[]>(
+    `empleados:${sedeId}`,
+    VIGENCIA_REFERENCIA,
+    async () => {
+      const params = new URLSearchParams({ sede_id: sedeId });
+      const res = await fetch(`${API_BASE_URL}/empleados?${params}`);
+      if (!res.ok) {
+        throw new Error(`No se pudieron cargar los bodegueros (${res.status})`);
+      }
+      return res.json();
+    },
+    opciones
+  );
 }
 
 /** Login sin correo/contrasena: el bodeguero ya se elige en el paso anterior
@@ -320,7 +341,10 @@ export async function procesarEntrega(payload: {
 
   // 409 = ya estaba todo entregado, nada que actualizar (ver Figura 1);
   // cualquier otro error de negocio llega tambien como { detail } gracias a FastAPI.
-  return parsearRespuesta<ResultadoEnvio>(res);
+  const resultado = await parsearRespuesta<ResultadoEnvio>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('pendientes:', 'resumenHoy:', 'historial:');
+  return resultado;
 }
 
 /**
@@ -340,6 +364,40 @@ export async function buscarEntrega(
   return parsearRespuesta<ResultadoEnvio>(res);
 }
 
+/** Documentos de la sede con productos por entregar, separados por tab --
+ * contador de Inicio (ver GET /entregas/pendientes en el backend). */
+export async function fetchPendientesSede(sedeId: string, opciones?: OpcionesCache): Promise<{ despachos: number; remisiones: number }> {
+  return conCache<{ despachos: number; remisiones: number }>(
+    `pendientes:${sedeId}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const params = new URLSearchParams({ sede_id: sedeId });
+      const res = await fetch(`${API_BASE_URL}/entregas/pendientes?${params}`);
+      return parsearRespuesta<{ despachos: number; remisiones: number }>(res);
+    },
+    opciones
+  );
+}
+
+/** Documentos que registro hoy el operador en su sede -- resumen de Inicio
+ * (ver GET /entregas/resumen-hoy en el backend). */
+export async function fetchResumenHoy(
+  operadorId: string,
+  sedeId: string,
+  opciones?: OpcionesCache
+): Promise<{ despachos: number; remisiones: number }> {
+  return conCache<{ despachos: number; remisiones: number }>(
+    `resumenHoy:${operadorId}:${sedeId}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const params = new URLSearchParams({ operador_id: operadorId, sede_id: sedeId });
+      const res = await fetch(`${API_BASE_URL}/entregas/resumen-hoy?${params}`);
+      return parsearRespuesta<{ despachos: number; remisiones: number }>(res);
+    },
+    opciones
+  );
+}
+
 /**
  * Cancela en la pantalla de confirmacion (paso 2) sin guardar nada -- deshace
  * el insert que hizo procesarEntrega (paso 1). El backend solo borra de
@@ -350,6 +408,7 @@ export async function buscarEntrega(
 export async function cancelarEntrega(entregaId: string, operadorId: string, sedeId: string): Promise<void> {
   const params = new URLSearchParams({ operador_id: operadorId, sede_id: sedeId });
   await fetch(`${API_BASE_URL}/entregas/${entregaId}?${params}`, { method: 'DELETE' });
+  invalidarCache('pendientes:', 'resumenHoy:', `historial:${entregaId}`);
 }
 
 /**
@@ -412,7 +471,10 @@ export async function confirmarItems(
     }),
   });
 
-  return parsearRespuesta<{ id: string; items: ItemEntrega[] }>(res);
+  const resultado = await parsearRespuesta<{ id: string; items: ItemEntrega[] }>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('pendientes:', 'resumenHoy:', `historial:${entregaId}`);
+  return resultado;
 }
 
 // Lista fija -- mismos valores que app.models.devolucion.MotivoDevolucion.
@@ -446,7 +508,10 @@ export async function registrarDevolucion(
     body: JSON.stringify(payload),
   });
 
-  return parsearRespuesta<{ item: ItemEntrega }>(res);
+  const resultado = await parsearRespuesta<{ item: ItemEntrega }>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('pendientes:', 'resumenHoy:', `historial:${entregaId}`);
+  return resultado;
 }
 
 /**
@@ -476,10 +541,17 @@ export interface LogEntry {
 
 /** Historial completo de una entrega (todos sus productos) -- el filtrado
  * por producto se hace del lado del cliente, ver historialDeItem en App.tsx. */
-export async function fetchHistorialEntrega(entregaId: string): Promise<LogEntry[]> {
-  const params = new URLSearchParams({ entidad_id: entregaId, limit: '200' });
-  const res = await fetch(`${API_BASE_URL}/logs?${params}`);
-  return parsearRespuesta<LogEntry[]>(res);
+export async function fetchHistorialEntrega(entregaId: string, opciones?: OpcionesCache): Promise<LogEntry[]> {
+  return conCache<LogEntry[]>(
+    `historial:${entregaId}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const params = new URLSearchParams({ entidad_id: entregaId, limit: '200' });
+      const res = await fetch(`${API_BASE_URL}/logs?${params}`);
+      return parsearRespuesta<LogEntry[]>(res);
+    },
+    opciones
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -509,22 +581,36 @@ export interface UsuarioPunto {
   punto_id: string;
 }
 
-export async function fetchPuntos(): Promise<Punto[]> {
-  const res = await fetch(`${API_BASE_URL}/puntos`);
-  if (!res.ok) {
-    throw new Error(`No se pudieron cargar los puntos (${res.status})`);
-  }
-  return res.json();
+export async function fetchPuntos(opciones?: OpcionesCache): Promise<Punto[]> {
+  return conCache<Punto[]>(
+    'puntos',
+    VIGENCIA_REFERENCIA,
+    async () => {
+      const res = await fetch(`${API_BASE_URL}/puntos`);
+      if (!res.ok) {
+        throw new Error(`No se pudieron cargar los puntos (${res.status})`);
+      }
+      return res.json();
+    },
+    opciones
+  );
 }
 
 /** Usuarios activos de un punto, para el paso intermedio del login (mismo
  * patron que fetchEmpleados). */
-export async function fetchUsuariosPunto(puntoId: string): Promise<UsuarioPuntoBasico[]> {
-  const res = await fetch(`${API_BASE_URL}/puntos/${puntoId}/usuarios`);
-  if (!res.ok) {
-    throw new Error(`No se pudo cargar el personal de este punto (${res.status})`);
-  }
-  return res.json();
+export async function fetchUsuariosPunto(puntoId: string, opciones?: OpcionesCache): Promise<UsuarioPuntoBasico[]> {
+  return conCache<UsuarioPuntoBasico[]>(
+    `usuariosPunto:${puntoId}`,
+    VIGENCIA_REFERENCIA,
+    async () => {
+      const res = await fetch(`${API_BASE_URL}/puntos/${puntoId}/usuarios`);
+      if (!res.ok) {
+        throw new Error(`No se pudo cargar el personal de este punto (${res.status})`);
+      }
+      return res.json();
+    },
+    opciones
+  );
 }
 
 /** Login sin correo/contrasena para usuarios de punto -- mismo mecanismo que
@@ -640,27 +726,47 @@ export async function crearTrasladoPunto(payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  return parsearRespuesta<Traslado>(res);
+  const resultado = await parsearRespuesta<Traslado>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('traslados:', 'traslado:');
+  return resultado;
 }
 
 /** Enviados (origenId) o bandeja por recibir (destinoId) -- ver
  * InicioTraslados/BandejaRecepcion. */
-export async function fetchTrasladosPunto(filtro: {
-  destinoId?: string;
-  origenId?: string;
-  estado?: EstadoTraslado;
-}): Promise<Traslado[]> {
-  const params = new URLSearchParams();
-  if (filtro.destinoId) params.set('destino_id', filtro.destinoId);
-  if (filtro.origenId) params.set('origen_id', filtro.origenId);
-  if (filtro.estado) params.set('estado', filtro.estado);
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos?${params}`);
-  return parsearRespuesta<Traslado[]>(res);
+export async function fetchTrasladosPunto(
+  filtro: {
+    destinoId?: string;
+    origenId?: string;
+    estado?: EstadoTraslado;
+  },
+  opciones?: OpcionesCache
+): Promise<Traslado[]> {
+  return conCache<Traslado[]>(
+    `traslados:${JSON.stringify(filtro)}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const params = new URLSearchParams();
+      if (filtro.destinoId) params.set('destino_id', filtro.destinoId);
+      if (filtro.origenId) params.set('origen_id', filtro.origenId);
+      if (filtro.estado) params.set('estado', filtro.estado);
+      const res = await fetch(`${API_BASE_URL}/traslados-puntos?${params}`);
+      return parsearRespuesta<Traslado[]>(res);
+    },
+    opciones
+  );
 }
 
-export async function fetchTrasladoPunto(id: string): Promise<Traslado> {
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos/${id}`);
-  return parsearRespuesta<Traslado>(res);
+export async function fetchTrasladoPunto(id: string, opciones?: OpcionesCache): Promise<Traslado> {
+  return conCache<Traslado>(
+    `traslado:${id}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const res = await fetch(`${API_BASE_URL}/traslados-puntos/${id}`);
+      return parsearRespuesta<Traslado>(res);
+    },
+    opciones
+  );
 }
 
 export interface ItemRecepcionEnvio {
@@ -682,7 +788,10 @@ export async function registrarRecepcion(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  return parsearRespuesta<Traslado>(res);
+  const resultado = await parsearRespuesta<Traslado>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('traslados:', 'traslado:', 'novedades:');
+  return resultado;
 }
 
 /**
@@ -718,12 +827,19 @@ export interface Supervisor {
   nombre: string;
 }
 
-export async function fetchSupervisores(): Promise<Supervisor[]> {
-  const res = await fetch(`${API_BASE_URL}/supervisores`);
-  if (!res.ok) {
-    throw new Error(`No se pudieron cargar los supervisores (${res.status})`);
-  }
-  return res.json();
+export async function fetchSupervisores(opciones?: OpcionesCache): Promise<Supervisor[]> {
+  return conCache<Supervisor[]>(
+    'supervisores',
+    VIGENCIA_REFERENCIA,
+    async () => {
+      const res = await fetch(`${API_BASE_URL}/supervisores`);
+      if (!res.ok) {
+        throw new Error(`No se pudieron cargar los supervisores (${res.status})`);
+      }
+      return res.json();
+    },
+    opciones
+  );
 }
 
 /** Login sin correo/contrasena para supervisores -- mismo mecanismo que
@@ -744,10 +860,17 @@ export async function loginSupervisor(pin: string, supervisorId: string): Promis
 /** Bandeja de Supervision -- pendientes (el que lleva mas tiempo esperando,
  * primero) o resueltas (la mas reciente, primero); ver
  * GET /traslados-puntos/novedades en el backend. */
-export async function fetchNovedadesTraslado(estado: EstadoNovedad): Promise<Traslado[]> {
-  const params = new URLSearchParams({ estado });
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos/novedades?${params}`);
-  return parsearRespuesta<Traslado[]>(res);
+export async function fetchNovedadesTraslado(estado: EstadoNovedad, opciones?: OpcionesCache): Promise<Traslado[]> {
+  return conCache<Traslado[]>(
+    `novedades:${estado}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const params = new URLSearchParams({ estado });
+      const res = await fetch(`${API_BASE_URL}/traslados-puntos/novedades?${params}`);
+      return parsearRespuesta<Traslado[]>(res);
+    },
+    opciones
+  );
 }
 
 /**
@@ -775,7 +898,10 @@ export async function resolverNovedadTraslado(
       consecutivo_numero: consecutivoNumero,
     }),
   });
-  return parsearRespuesta<Traslado>(res);
+  const resultado = await parsearRespuesta<Traslado>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('novedades:', 'traslados:', 'traslado:');
+  return resultado;
 }
 
 /**

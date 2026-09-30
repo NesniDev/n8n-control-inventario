@@ -15,8 +15,8 @@ import Navegacion from './Navegacion';
 import { ACENTO, styles } from './tema';
 
 export default function App() {
-  // La sesion ya no vive aca: cada tab tiene su propio login (usuarios
-  // distintos por area), ver Navegacion.tsx.
+  // La sesion no vive aca: hay un login unico al abrir la app que vale para
+  // todas las tabs, ver Navegacion.tsx y SesionContext.tsx.
   // Space Grotesk (titulos/labels/numeros) + Manrope (texto de cuerpo) --
   // ver los consts FUENTE_* en tema.tsx. Se cargan una sola vez aca arriba,
   // antes de login o captura, para que ninguna pantalla renderice con la

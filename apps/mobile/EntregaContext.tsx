@@ -422,9 +422,9 @@ export function HeaderEntrega() {
   const route = useRoute();
   const { empleado, sede, cargando, cerrarSesion, reiniciar, cancelarConfirmacion } = useEntrega();
 
-  // Defensivo -- en la practica nunca deberia pasar, esta pantalla solo se
-  // monta post-login (ver Navegacion.tsx), pero EntregaProvider tambien se
-  // monta durante Login con empleado/sede en null.
+  // Defensivo -- en la practica nunca deberia pasar: EntregaProvider solo se
+  // monta con sesion de bodega iniciada (ver Navegacion.tsx), pero sus tipos
+  // siguen admitiendo empleado/sede en null.
   if (!empleado || !sede) return null;
 
   const volverAtras = () => {

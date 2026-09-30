@@ -18,6 +18,7 @@ import {
   NEUTRAL_900,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 
 export default function CampoFirma({
@@ -80,7 +81,7 @@ export default function CampoFirma({
           <ContenidoBoton
             icono={valor ? 'refresh-outline' : 'create-outline'}
             texto={valor ? 'Volver a firmar' : 'Firmar'}
-            color={valor ? NEUTRAL_400 : TEXTO_PRIMARIO}
+            color={valor ? NEUTRAL_400 : TEXTO_SOBRE_ACENTO}
           />
         </Pressable>
       </View>
@@ -133,7 +134,7 @@ export default function CampoFirma({
                   firmaRef.current?.readSignature();
                 }}
               >
-                <ContenidoBoton icono="checkmark-circle-outline" texto="Guardar firma" />
+                <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-circle-outline" texto="Guardar firma" />
               </Pressable>
             </View>
           </SafeAreaView>

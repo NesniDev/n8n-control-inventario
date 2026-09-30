@@ -158,12 +158,12 @@ export default function ResumenTraslado({
 }
 
 const estilos = StyleSheet.create({
-  aviso: { flexDirection: 'row', alignItems: 'center', gap: 12, borderColor: 'rgba(200,99,31,0.45)' },
+  aviso: { flexDirection: 'row', alignItems: 'center', gap: 12, borderColor: 'rgba(245,197,66,0.45)' },
   avisoIcono: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -178,7 +178,7 @@ const estilos = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -203,7 +203,7 @@ const estilos = StyleSheet.create({
     height: 40,
     paddingHorizontal: 6,
     borderRadius: 10,
-    backgroundColor: 'rgba(200,99,31,0.14)',
+    backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },

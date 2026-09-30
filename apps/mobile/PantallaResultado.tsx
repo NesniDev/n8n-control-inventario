@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { HeaderEntrega, useEntrega } from './EntregaContext';
-import { ContenidoBoton, ESTADO_INFO, styles } from './tema';
+import { ContenidoBoton, ESTADO_INFO, styles, TEXTO_SOBRE_ACENTO } from './tema';
 import type { DespachosStackParamList } from './Navegacion';
 
 type Props = NativeStackScreenProps<DespachosStackParamList, 'Resultado'>;
@@ -45,7 +45,7 @@ export default function PantallaResultado({ route }: Props) {
             style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
             onPress={reiniciar}
           >
-            <ContenidoBoton icono="camera-outline" texto="Nueva captura" />
+            <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="camera-outline" texto="Nueva captura" />
           </Pressable>
         </View>
       </ScrollView>

@@ -229,7 +229,7 @@ const estilos = StyleSheet.create({
   solucionTexto: { color: TEXTO_PRIMARIO, fontSize: 13.5, fontFamily: FUENTE_BODY },
   solucionMeta: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY },
   consecutivoBadge: {
-    backgroundColor: 'rgba(200,99,31,0.16)',
+    backgroundColor: 'rgba(245,197,66,0.16)',
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderRadius: 8,

@@ -2,7 +2,7 @@
 // punto -- se refresca cada vez que se vuelve a la pantalla (useFocusEffect)
 // y tirando hacia abajo, asi se ve al toque algo que otra bodega acaba de
 // despachar. Orden: el que lleva mas tiempo esperando, primero.
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,7 @@ import {
   NEUTRAL_500,
   styles,
   TEXTO_PRIMARIO,
+  TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
@@ -84,9 +85,9 @@ function TarjetaPorRecibir({ traslado, onRecibir }: { traslado: Traslado; onReci
         </View>
 
         <View style={estilos.accion}>
-          <Ionicons name="download-outline" size={18} color={TEXTO_PRIMARIO} />
+          <Ionicons name="download-outline" size={18} color={TEXTO_SOBRE_ACENTO} />
           <Text style={estilos.accionTexto}>Revisar y recibir</Text>
-          <Ionicons name="chevron-forward" size={18} color={TEXTO_PRIMARIO} />
+          <Ionicons name="chevron-forward" size={18} color={TEXTO_SOBRE_ACENTO} />
         </View>
       </View>
     </Pressable>
@@ -102,14 +103,18 @@ export default function PantallaTrasladoBandeja() {
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
+  const yaCargado = useRef(false);
+  const cargar = useCallback(async (forzar = false) => {
     if (!punto) return;
-    setCargando(true);
+    // El indicador de carga solo la primera vez: despues la lista queda a la
+    // vista mientras se actualiza (la cache de api.ts la devuelve al instante).
+    if (!yaCargado.current) setCargando(true);
     setError(null);
     try {
-      const lista = await fetchTrasladosPunto({ destinoId: punto.id, estado: 'en_transito' });
+      const lista = await fetchTrasladosPunto({ destinoId: punto.id, estado: 'en_transito' }, { forzar });
       // El que mas espera, arriba.
       setTraslados([...lista].sort((a, b) => a.created_at.localeCompare(b.created_at)));
+      yaCargado.current = true;
     } catch (err) {
       setError(mensajeError(err, 'traslado'));
     } finally {
@@ -123,9 +128,10 @@ export default function PantallaTrasladoBandeja() {
     }, [cargar])
   );
 
+  // Deslizar para refrescar: consulta nueva al servidor, sin usar lo guardado.
   const refrescar = async () => {
     setRefrescando(true);
-    await cargar();
+    await cargar(true);
     setRefrescando(false);
   };
 
@@ -204,7 +210,7 @@ const estilos = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: ACENTO,
   },
-  accionTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
+  accionTexto: { color: TEXTO_SOBRE_ACENTO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   vacio: { alignItems: 'center', gap: 6, paddingVertical: 36 },
   vacioTitulo: { color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_BODY_SEMI },
   vacioTexto: { color: NEUTRAL_500, fontSize: 13, fontFamily: FUENTE_BODY, textAlign: 'center' },
