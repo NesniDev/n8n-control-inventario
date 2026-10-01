@@ -34,3 +34,5 @@ n8n/.env.n8n
 .atl/
 supabase/.temp/
 .vercel
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
