@@ -15,12 +15,12 @@ import { ACENTO, ContenidoBoton, NEUTRAL_400, NEUTRAL_500, styles, TEXTO_PRIMARI
 import type { DespachosStackParamList } from './Navegacion';
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
-// duplicates.py); TB9/RM3/RM2 no tienen sede duena. Solo sugerencia rapida
+// duplicates.py); TB9/RM3/RM2/RSF no tienen sede duena. Solo sugerencia rapida
 // para el chip "Consultar factura" -- se puede escribir cualquier otro tipo
 // con el chip "+ Otro".
-const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB9', 'RM3', 'RM2'] as const;
-// Remisiones solo maneja RM3/RM2 (ver flujo en EntregaContext) y Despachos el resto.
-const TIPOS_REMISION: readonly string[] = ['RM3', 'RM2'];
+const TIPOS_DOCUMENTO = ['FEI', 'FV1', 'EDP', 'EDV', 'TB9', 'RM3', 'RM2', 'RSF'] as const;
+// Remisiones solo maneja RM3/RM2/RSF (ver flujo en EntregaContext) y Despachos el resto.
+const TIPOS_REMISION: readonly string[] = ['RM3', 'RM2', 'RSF'];
 
 type Props = NativeStackScreenProps<DespachosStackParamList, 'Buscar'>;
 
@@ -159,7 +159,7 @@ export default function PantallaBuscar({ navigation }: Props) {
                   </Pressable>
                 );
               })}
-              {/* Remisiones solo maneja RM3/RM2 -- sin "Otro". */}
+              {/* Remisiones solo maneja RM3/RM2/RSF -- sin "Otro". */}
               {!esRemision ? (
               <Pressable
                 onPress={() => {

@@ -95,7 +95,7 @@ const AREAS: Record<AreaApp, { titulo: string; icono: keyof typeof Ionicons.glyp
   Remisiones: { titulo: 'Remisiones', icono: 'document-text-outline' },
 };
 
-// Flujo de foto de bodega (Despachos: factura/traslado; Remisiones: RM2/RM3).
+// Flujo de foto de bodega (Despachos: factura/traslado; Remisiones: RM2/RM3/RSF).
 // `flujo` define la tab; la sesion (empleado + sede) llega del login unico.
 //
 // EntregaProvider va en el `layout` del Navigator -- NO como hijo de el.

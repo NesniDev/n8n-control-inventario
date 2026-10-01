@@ -490,7 +490,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
         return; // se queda en Captura, foto sigue puesta, listo para repetir
       }
 
-      // Documento de la otra tab (RM2/RM3 en Despachos, o cualquier otro tipo
+      // Documento de la otra tab (RM2/RM3/RSF en Despachos, o cualquier otro tipo
       // en Remisiones): el backend no creo nada -- se queda en Captura y se
       // le dice a que tab ir.
       if (esErrorRemisionEnDespachos(err) || esErrorDespachoEnRemisiones(err)) {

@@ -123,7 +123,7 @@ const CONSEJOS: { area: AreaConsejo; icono: keyof typeof Ionicons.glyphMap; text
   { area: 'despachos', icono: 'search-outline', texto: 'Si no tienes la foto a mano, puedes buscar la factura por su número para actualizarla.' },
   { area: 'traslados', icono: 'chatbox-ellipses-outline', texto: 'Usa las observaciones para lo que no está en el papel: horarios, entregas parciales o avisos.' },
   { area: 'general', icono: 'wifi-outline', texto: 'Mira la pastilla de conexión arriba: si dice «Conectado», puedes enviar sin problema.' },
-  { area: 'despachos', icono: 'document-text-outline', texto: 'Las remisiones (RM2 y RM3) se fotografían en la pestaña Remisiones, no en Despachos.' },
+  { area: 'despachos', icono: 'document-text-outline', texto: 'Las remisiones (RM2, RM3 y RSF) se fotografían en la pestaña Remisiones, no en Despachos.' },
   { area: 'traslados', icono: 'location-outline', texto: 'Antes de enviar un traslado, confirma que el punto de destino sea el correcto.' },
   { area: 'general', icono: 'key-outline', texto: 'Tu PIN es personal: no lo compartas con nadie, ni siquiera con un compañero.' },
   { area: 'despachos', icono: 'eye-outline', texto: 'Si la foto sale borrosa, repítela: una foto nítida evita que el documento quede en revisión.' },
@@ -445,7 +445,7 @@ function CarruselConsejos({ reducirMovimiento }: { reducirMovimiento: boolean })
     >
       <View style={estilos.consejoEncabezado}>
         <View style={estilos.consejoIconoBombilla}>
-          <Ionicons name="bulb" size={14} color={MARCA.oro} />
+          <Ionicons name="bulb" size={12} color={MARCA.oro} />
         </View>
         <Text style={estilos.consejoEtiqueta}>Consejo</Text>
         <Animated.View style={[estilos.chipArea, { borderColor: area.color }, estiloTransicion]}>
@@ -459,7 +459,7 @@ function CarruselConsejos({ reducirMovimiento }: { reducirMovimiento: boolean })
 
       <Animated.View style={[estilos.consejoFila, estiloTransicion]}>
         <View style={[estilos.consejoIcono, { backgroundColor: `${area.color}1f` }]}>
-          <Ionicons name={consejo.icono} size={22} color={area.color} />
+          <Ionicons name={consejo.icono} size={18} color={area.color} />
         </View>
         <Text style={estilos.consejoTexto}>{consejo.texto}</Text>
       </Animated.View>
@@ -549,7 +549,7 @@ async function filasBodega(sesion: Sesion, sedeId: string): Promise<Pendiente[]>
   const filas: Pendiente[] = [
     {
       clave: 'despachos',
-      texto: 'Despachos con productos por entregar',
+      texto: 'Despachos por entregar',
       cantidad: conteo.despachos,
       icono: 'cube-outline',
       abrir: (nav) => nav.navigate('Despachos', { screen: 'Captura' }),
@@ -558,7 +558,7 @@ async function filasBodega(sesion: Sesion, sedeId: string): Promise<Pendiente[]>
   if (tieneAcceso(sesion, 'Remisiones')) {
     filas.push({
       clave: 'remisiones',
-      texto: 'Remisiones con productos por entregar',
+      texto: 'Remisiones por entregar',
       cantidad: conteo.remisiones,
       icono: 'document-text-outline',
       abrir: (nav) => nav.navigate('Remisiones', { screen: 'Captura' }),
@@ -639,18 +639,20 @@ function Pendientes() {
               onPress={() => p.abrir(navigation)}
               accessibilityRole="button"
               accessibilityLabel={`${p.texto}: ${p.cantidad}`}
-              // Uno solo ocupa todo el ancho; varios se reparten en dos columnas.
+              // Fila compacta a todo el ancho: icono, texto, numero y flecha.
               estiloContenedor={estilos.mosaicoTocable}
               estilo={[estilos.mosaico, hay && estilos.mosaicoConPendientes]}
             >
               <View style={estilos.mosaicoFila}>
                 <View style={[estilos.mosaicoIcono, hay && estilos.mosaicoIconoActivo]}>
-                  <Ionicons name={p.icono} size={17} color={hay ? MARCA.tinta : NEUTRAL_400} />
+                  <Ionicons name={p.icono} size={15} color={hay ? MARCA.tinta : NEUTRAL_400} />
                 </View>
+                <Text style={estilos.mosaicoTexto} numberOfLines={2}>
+                  {p.texto}
+                </Text>
+                <Text style={[estilos.mosaicoNumero, !hay && estilos.mosaicoNumeroCero]}>{p.cantidad}</Text>
                 <Ionicons name="arrow-forward" size={16} color={hay ? MARCA.oro : NEUTRAL_400} />
               </View>
-              <Text style={[estilos.mosaicoNumero, !hay && estilos.mosaicoNumeroCero]}>{p.cantidad}</Text>
-              <Text style={estilos.mosaicoTexto}>{p.texto}</Text>
             </Presionable>
           );
         })}
@@ -940,46 +942,44 @@ const estilos = StyleSheet.create({
   avisoSinConexionTexto: { flex: 1, color: '#fca5a5', fontSize: 14, fontFamily: FUENTE_BODY },
 
   // Pendientes: mosaicos en dos columnas (uno solo ocupa todo el ancho).
-  mosaicos: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  mosaicoTocable: { flexGrow: 1, flexBasis: '45%' },
+  mosaicos: { gap: 8 },
+  mosaicoTocable: { width: '100%' },
   mosaico: {
-    flex: 1,
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
     backgroundColor: SUPERFICIE,
     borderWidth: 1,
     borderColor: BORDE_SUPERFICIE,
   },
   mosaicoConPendientes: { borderColor: 'rgba(245,197,66,0.45)' },
-  mosaicoFila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  mosaicoFila: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   mosaicoIcono: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   mosaicoIconoActivo: { backgroundColor: MARCA.oro },
-  mosaicoNumero: { color: MARCA.oro, fontSize: 28, fontFamily: FUENTE_DISPLAY, lineHeight: 32 },
+  mosaicoNumero: { color: MARCA.oro, fontSize: 20, fontFamily: FUENTE_DISPLAY, lineHeight: 24 },
   // Cero pendientes = todo al dia: verde de la marca, una buena noticia.
   mosaicoNumeroCero: { color: MARCA.verde },
-  mosaicoTexto: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, lineHeight: 17 },
+  mosaicoTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, lineHeight: 17 },
 
   // Consejo: franja dorada a la izquierda para distinguirlo del resto.
-  consejoTarjeta: { borderLeftWidth: 4, borderLeftColor: MARCA.oro },
+  consejoTarjeta: { borderLeftWidth: 4, borderLeftColor: MARCA.oro, gap: 8, padding: 12, borderRadius: 16 },
   consejoEncabezado: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   consejoIconoBombilla: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 7,
     backgroundColor: 'rgba(245,197,66,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  consejoEtiqueta: { color: MARCA.oro, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
+  consejoEtiqueta: { color: MARCA.oro, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
   chipArea: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -993,9 +993,9 @@ const estilos = StyleSheet.create({
   consejoContador: { marginLeft: 'auto', color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
   // Alto minimo fijo: los consejos tienen largos distintos y sin esto la
   // tarjeta "saltaria" de alto en cada cambio.
-  consejoFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, minHeight: 72 },
-  consejoIcono: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  consejoTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_BODY, lineHeight: 24 },
+  consejoFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, minHeight: 60 },
+  consejoIcono: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  consejoTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY, lineHeight: 20 },
   barraFondo: { height: 3, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)' },
   barraRelleno: { height: 3, borderRadius: 2 },
 

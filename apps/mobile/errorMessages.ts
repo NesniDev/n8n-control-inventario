@@ -72,10 +72,10 @@ export function esErrorDespachoEnRemisiones(err: unknown): boolean {
 }
 
 export const MENSAJE_REMISION_EN_DESPACHOS =
-  'Este documento es una remisión (RM2/RM3). Cámbiate a la pestaña Remisiones para registrarla.';
+  'Este documento es una remisión (RM2, RM3 o RSF). Cámbiate a la pestaña Remisiones para registrarla.';
 
 export const MENSAJE_DESPACHO_EN_REMISIONES =
-  'Este documento no es una remisión. En esta pestaña solo se registran remisiones (RM2/RM3): usa la pestaña Despachos.';
+  'Este documento no es una remisión. En esta pestaña solo se registran remisiones (RM2, RM3 o RSF): usa la pestaña Despachos.';
 
 // RolNoAutorizado (403 de POST /entregas/procesar): sin esto caeria en el
 // mensaje generico de 401/403 de mensajeError ("PIN incorrecto o sesión no

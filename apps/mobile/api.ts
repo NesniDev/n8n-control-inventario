@@ -117,7 +117,7 @@ export interface ResultadoEnvio {
   // que reintentar procesarEntrega con traslado_url para que se registre.
   situacion: 'nueva' | 'actualizable' | 'necesita_traslado';
   estado: 'procesada' | 'pendiente_revision';
-  // FEI (factura) / TB (traslado) / RM3 / RM2 (remision).
+  // FEI (factura) / TB (traslado) / RM3 / RM2 / RSF (remision).
   tipo: string;
   indicativo_numero: string;
   items: ItemEntrega[];
