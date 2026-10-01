@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
@@ -35,6 +36,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Comprime respuestas grandes (ej. /entregas?limit=150 pesa ~230 KB en JSON
+# repetitivo); el dashboard lo repite cada 5 s, asi que el ahorro se nota.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(entregas.router)
 app.include_router(sedes.router)
@@ -65,7 +69,7 @@ async def excepcion_no_manejada(request: Request, exc: Exception) -> JSONRespons
 # a mano este string en cada cambio que valga la pena poder confirmar desde
 # afuera (ver GET /health) -- unica forma de verificar que un deploy en
 # Dokploy realmente tomo el commit esperado sin entrar al panel.
-_BUILD_MARCADOR = "resumen-hoy-atendidos"
+_BUILD_MARCADOR = "gzip-respuestas"
 
 
 @app.get("/health")
