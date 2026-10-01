@@ -11,7 +11,7 @@
 // Los ParamList se declaran aca (y no en EntregaContext.tsx) porque son el
 // tipo "de arriba hacia abajo": los consumen las pantallas y EntregaContext.tsx
 // via import type (sin dependencia de runtime, se borra en compilacion).
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -250,6 +250,9 @@ function TabsPrincipales() {
 export default function Navegacion() {
   // Solo en memoria, igual que antes -- ver SesionContext.tsx.
   const [sesion, setSesion] = useState<Sesion | null>(null);
+  const cerrarSesion = useCallback(() => setSesion(null), []);
+  // Valor memoizado para que los consumidores de la sesion no re-rendericen sin cambios reales.
+  const valorSesion = useMemo(() => (sesion ? { sesion, cerrarSesion } : null), [sesion, cerrarSesion]);
 
   // Entrada y Principal se alternan como Screen hijos del mismo Navigator
   // (patron "auth flow" estandar de la libreria): React Navigation anima el
@@ -257,12 +260,12 @@ export default function Navegacion() {
   // cuenta arranca cada seccion de cero.
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
-      {!sesion ? (
+      {!sesion || !valorSesion ? (
         <RootStack.Screen name="Entrada">{() => <PantallaEntrada onLogin={setSesion} />}</RootStack.Screen>
       ) : (
         <RootStack.Screen name="Principal">
           {() => (
-            <SesionProvider value={{ sesion, cerrarSesion: () => setSesion(null) }}>
+            <SesionProvider value={valorSesion}>
               <TabsPrincipales />
             </SesionProvider>
           )}

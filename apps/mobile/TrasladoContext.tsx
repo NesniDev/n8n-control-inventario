@@ -4,7 +4,7 @@
 // pantallas que arman UN mismo traslado antes de mandarlo al backend).
 // BandejaRecepcion/RecepcionTraslado no usan el borrador -- consultan
 // traslados ya creados, por eso su estado queda local a esas pantallas.
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -122,19 +122,19 @@ export function TrasladoProvider({
   const [draft, setDraft] = useState<TrasladoDraft>(nuevoDraft);
   const [cargando, setCargando] = useState(false);
 
-  const actualizarDraft = (cambios: Partial<TrasladoDraft>) => {
+  const actualizarDraft = useCallback((cambios: Partial<TrasladoDraft>) => {
     setDraft((prev) => ({ ...prev, ...cambios }));
-  };
+  }, []);
 
-  const reiniciarDraft = () => setDraft(nuevoDraft());
+  const reiniciarDraft = useCallback(() => setDraft(nuevoDraft()), []);
 
-  const volverAInicio = () => {
+  const volverAInicio = useCallback(() => {
     reiniciarDraft();
     navigation.reset({
       index: 0,
       routes: [{ name: rol === 'supervision' ? 'NovedadesSupervision' : 'InicioTraslados' }],
     });
-  };
+  }, [reiniciarDraft, navigation, rol]);
 
   // Mismo criterio que EntregaContext.tsx -- oculta la barra de tabs
   // mientras hay una creacion/recepcion en vuelo, para que no se salga a
@@ -145,7 +145,8 @@ export function TrasladoProvider({
     });
   }, [cargando, navigationTab]);
 
-  const value: TrasladoContextValue = {
+  // Valor memoizado para que los consumidores del context no re-rendericen sin cambios reales.
+  const value: TrasladoContextValue = useMemo(() => ({
     rol,
     usuario,
     punto,
@@ -157,7 +158,7 @@ export function TrasladoProvider({
     cargando,
     setCargando,
     volverAInicio,
-  };
+  }), [rol, usuario, punto, supervisor, cerrarSesion, draft, actualizarDraft, reiniciarDraft, cargando, volverAInicio]);
 
   return <TrasladoContext.Provider value={value}>{children}</TrasladoContext.Provider>;
 }

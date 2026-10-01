@@ -3,7 +3,7 @@
 // solo componente gigante (PantallaCaptura, en App.tsx). Lo genuinamente
 // cross-fase queda aca; lo que solo usa una pantalla se quedo local a esa
 // pantalla (ver cada Pantalla*.tsx).
-import { createContext, useContext, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { Alert, Image, Pressable, Modal, PanResponder, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -322,7 +322,7 @@ export function EntregaProvider({
   // limpia a mano aca: se resetea solo porque el reset() de navegacion
   // desmonta la vieja instancia de esas pantallas y monta una Captura nueva
   // desde cero.
-  const reiniciar = () => {
+  const reiniciar = useCallback(() => {
     setEntregaId(null);
     setSituacion(null);
     setEstadoFinal(null);
@@ -336,7 +336,7 @@ export function EntregaProvider({
     setFirmaUrlConsultada(null);
     setFotoAmpliada(null);
     navigation.reset({ index: 0, routes: [{ name: 'Captura' }] });
-  };
+  }, [navigation]);
 
   // Mientras hay un envio en vuelo (subida de evidencia, procesarEntrega,
   // confirmar) se oculta la barra de tabs -- mismo criterio que el bloqueo de
@@ -354,7 +354,7 @@ export function EntregaProvider({
   // esa fila en la base como si se hubiera enviado igual. Solo hace falta
   // avisarle al backend para 'nueva': para 'actualizable' (re-escaneo o
   // consulta) el paso 1 no escribe nada, no hay nada que deshacer.
-  const cancelarConfirmacion = async () => {
+  const cancelarConfirmacion = useCallback(async () => {
     if (situacion === 'nueva' && entregaId && empleado) {
       setCargando(true);
       try {
@@ -368,9 +368,10 @@ export function EntregaProvider({
       }
     }
     reiniciar();
-  };
+  }, [situacion, entregaId, empleado, sede, reiniciar]);
 
-  const value: EntregaContextValue = {
+  // Valor memoizado para que los consumidores del context no re-rendericen sin cambios reales.
+  const value: EntregaContextValue = useMemo(() => ({
     flujo,
     empleado,
     sede,
@@ -403,7 +404,11 @@ export function EntregaProvider({
     setNecesitaTrasladoConfirmar,
     reiniciar,
     cancelarConfirmacion,
-  };
+  }), [
+    flujo, empleado, sede, cerrarSesion, entregaId, situacion, estadoFinal, documentoIdentificado,
+    items, esFaia, notaGeneral, notaGeneralOriginal, evidenciaActual, firmaUrlConsultada,
+    cargando, fotoAmpliada, necesitaTrasladoConfirmar, reiniciar, cancelarConfirmacion,
+  ]);
 
   return (
     <EntregaContext.Provider value={value}>
