@@ -4,8 +4,8 @@
 //   - Encabezado en degradado cielo -> azul con esquinas redondeadas: marca,
 //     conexion con el backend, saludo, sede/punto, calendario con el dia y
 //     las cifras de lo registrado hoy.
-//     Animado: lineas diagonales que se desplazan y un destello de luz (ver
-//     AnimacionEncabezado).
+//     Fondo con lineas diagonales quietas (ver FondoEncabezado) -- antes se
+//     desplazaban y tenian un destello de luz; se quito la animacion.
 //   - Debajo, sobre azul noche: pendientes del area como mosaicos con el
 //     numero grande en dorado, consejo del dia, soporte y version instalada
 //     (para saber si se puede trabajar y, en soporte, que version tiene).
@@ -188,83 +188,28 @@ function usePreferenciaAccesibilidad(
 export const useReducirMovimiento = () =>
   usePreferenciaAccesibilidad(AccessibilityInfo.isReduceMotionEnabled, 'reduceMotionChanged');
 
-// Valor que sube de 0 a 1 y vuelve a empezar -- para los latidos (anillo que
-// se expande y se desvanece).
-// Valor que avanza de 0 a 1 en `duracion` y vuelve a empezar, con una pausa
-// opcional entre vueltas. Se detiene cuando `activo` es false (Inicio fuera de
-// pantalla o "reducir movimiento"), asi no gasta bateria.
-function useCiclo(duracion: number, activo: boolean, pausa = 0): Animated.Value {
-  const valor = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!activo) return;
-    valor.setValue(0);
-    const vuelta = Animated.timing(valor, {
-      toValue: 1,
-      duration: duracion,
-      easing: Easing.linear,
-      useNativeDriver: true,
-    });
-    const bucle = Animated.loop(pausa > 0 ? Animated.sequence([vuelta, Animated.delay(pausa)]) : vuelta);
-    bucle.start();
-    return () => bucle.stop();
-  }, [activo, duracion, pausa, valor]);
-  return valor;
-}
-
 const SEPARACION_LINEAS = 28;
 
-// Animacion del encabezado (nada de circulos): lineas diagonales finas, como
-// surcos de un campo, que se desplazan sin corte -- el grupo avanza
-// exactamente una separacion y vuelve a empezar, asi el salto no se ve --, y
-// un destello de luz que cruza la tarjeta en diagonal cada pocos segundos.
-function AnimacionEncabezado({ animar }: { animar: boolean }) {
+// Fondo del encabezado: lineas diagonales finas, como surcos de un campo.
+// Son quietas -- la animacion que tenian (desplazamiento + destello) se quito
+// para no dibujar en bucle mientras Inicio esta abierto.
+function FondoEncabezado() {
   const { width } = useWindowDimensions();
-  const avanceLineas = useCiclo(5000, animar);
-  const destello = useCiclo(2600, animar, 3400);
   const cantidadLineas = Math.ceil((width * 2.4) / SEPARACION_LINEAS);
 
   return (
     <View style={estilos.animacionEncabezado} pointerEvents="none">
-      <Animated.View
-        style={[
-          estilos.lineas,
-          {
-            width: width * 2.4,
-            left: -width * 0.7,
-            transform: [
-              { rotate: '-28deg' },
-              { translateX: avanceLineas.interpolate({ inputRange: [0, 1], outputRange: [0, SEPARACION_LINEAS] }) },
-            ],
-          },
-        ]}
-      >
+      <View style={[estilos.lineas, { width: width * 2.4, left: -width * 0.7, transform: [{ rotate: '-28deg' }] }]}>
         {Array.from({ length: cantidadLineas }, (_, i) => (
           <View key={i} style={estilos.linea} />
         ))}
-      </Animated.View>
-
-      <Animated.View
-        style={[
-          estilos.destello,
-          {
-            transform: [
-              { translateX: destello.interpolate({ inputRange: [0, 1], outputRange: [-160, width + 160] }) },
-              { rotate: '18deg' },
-            ],
-          },
-        ]}
-      >
-        <LinearGradient
-          colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.18)', 'rgba(255,255,255,0)']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
+      </View>
     </View>
   );
 }
 
+// Valor que sube de 0 a 1 y vuelve a empezar -- para los latidos (anillo que
+// se expande y se desvanece).
 function useLatido(duracion: number, activo: boolean): Animated.Value {
   const valor = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -721,7 +666,7 @@ export default function PantallaInicio() {
             end={{ x: 1, y: 1 }}
             style={[estilos.encabezado, { paddingTop: insets.top + 14 }]}
           >
-            <AnimacionEncabezado animar={animar} />
+            <FondoEncabezado />
 
             <View style={estilos.barraSuperior}>
               <Text style={estilos.marca} numberOfLines={1}>
@@ -850,7 +795,6 @@ const estilos = StyleSheet.create({
     gap: SEPARACION_LINEAS - 1.5,
   },
   linea: { width: 1.5, height: '100%', backgroundColor: 'rgba(255,255,255,0.06)' },
-  destello: { position: 'absolute', top: '-50%', height: '200%', width: 110 },
   barraSuperior: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   marca: {
     flexShrink: 1,
