@@ -6,6 +6,7 @@
 // destello del panel a quien no inicio sesion.
 
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -169,7 +170,10 @@ function BarraUsuario() {
           ) : null}
         </div>
       </div>
-      {cambiando ? <ModalCambiarPassword onCerrar={() => setCambiando(false)} /> : null}
+      {/* Portal al body: el header tiene backdrop-blur, que convierte al header en
+          el contenedor de los position: fixed -- sin esto el modal queda pegado
+          arriba en vez de centrado en la pantalla. */}
+      {cambiando ? createPortal(<ModalCambiarPassword onCerrar={() => setCambiando(false)} />, document.body) : null}
     </header>
   );
 }
