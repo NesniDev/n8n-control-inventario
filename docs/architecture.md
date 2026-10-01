@@ -83,6 +83,9 @@ entrega_items    (id uuid pk, entrega_id fk -> entregas, descripcion,
 turnos                (id uuid pk, empleado_id, sede_id, fecha, hora_inicio, hora_fin, origen)
 shift_recommendations (id uuid pk, sede_id, semana_iso, bloques_sugeridos jsonb, generado_at, modelo_usado)
                        -- unique (sede_id, semana_iso)
+facturas_faltantes    (id uuid pk, tipo, indicativo_numero, sede_id, reportado_por, reportado_at, estado, entrega_id fk -> entregas, cerrada_at, cerrada_por)
+                       -- bodega reporta una factura que el mostrador aun no subio; se resuelve sola al insertarse en entregas
+                       -- unique parcial (tipo, indicativo_numero) where estado = 'pendiente'
 logs (append-only)    (id uuid pk, evento, entidad_tipo, entidad_id, actor_id, sede_id, resultado, detalle jsonb, timestamp)
 ```
 

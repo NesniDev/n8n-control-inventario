@@ -48,3 +48,11 @@ class EventoLog(StrEnum):
     # empleados, puntos, supervisores, tipos de documento) -- el detalle dice
     # que se hizo; nunca incluye PIN ni hash. Ver app/services/usuarios.py.
     ADMIN_CAMBIO = "admin_cambio"
+    # Bodega reporto una factura que punto_venta todavia no subio -- ver
+    # app/services/facturas_faltantes.py.
+    FACTURA_FALTANTE_REPORTADA = "factura_faltante_reportada"
+    # Punto_venta subio la factura reportada (cierre automatico desde
+    # procesar_extraccion en duplicates.py).
+    FACTURA_FALTANTE_RESUELTA = "factura_faltante_resuelta"
+    # Cierre manual del reporte sin que la factura se haya subido.
+    FACTURA_FALTANTE_DESCARTADA = "factura_faltante_descartada"

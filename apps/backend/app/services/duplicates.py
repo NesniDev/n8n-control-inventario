@@ -21,6 +21,7 @@ from app.models.entrega import (
     SituacionEntrega,
 )
 from app.models.log import EventoLog
+from app.services.facturas_faltantes import resolver_por_entrega
 from app.services.logging_service import registrar_evento
 from app.services.productos import sincronizar_producto
 
@@ -391,6 +392,14 @@ async def procesar_extraccion(
                     traslado_indicativo_numero,
                 )
 
+                # Si bodega habia reportado esta factura como faltante, ya
+                # llego: se cierra en la MISMA transaccion del insert (si hay
+                # rollback abajo -- ej. necesita_traslado -- el reporte sigue
+                # pendiente). El log se escribe despues del commit.
+                reportes_resueltos = await resolver_por_entrega(
+                    conn, tipo, indicativo_numero, entrega_id
+                )
+
                 # Si el tipo pertenece a otra sede, se deshace este insert
                 # (la excepcion adentro de la transaccion hace rollback sola)
                 # y se devuelve necesita_traslado en vez de crear el
@@ -531,6 +540,18 @@ async def procesar_extraccion(
                 sede_id=sede_origen_id,
                 resultado="ok",
             )
+            # Ya hubo commit: ahora si se registra el cierre automatico de los
+            # reportes de factura faltante (ver resolver_por_entrega).
+            for reporte_id in reportes_resueltos:
+                await registrar_evento(
+                    EventoLog.FACTURA_FALTANTE_RESUELTA,
+                    entidad_tipo="factura_faltante",
+                    entidad_id=reporte_id,
+                    actor_id=operador_id,
+                    sede_id=sede_origen_id,
+                    resultado="ok",
+                    detalle={"tipo": tipo, "indicativo_numero": indicativo_numero, "entrega_id": str(entrega_id)},
+                )
             # Recien insertada -- default de columna, todavia no hay nada que preservar.
             return SituacionEntrega.NUEVA, str(entrega_id), items, estado, tipo, indicativo_numero, False, None, None
 

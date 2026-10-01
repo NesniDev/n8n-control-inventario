@@ -416,6 +416,41 @@ insert into tipos_documento (codigo, descripcion) values
     ('RSF', 'remision')
 on conflict (codigo) do nothing;
 
+-- Facturas que bodega (operador) reporta como "todavia no subidas" por el
+-- mostrador (punto_venta) de la sede DUENA del tipo de documento (o de la sede
+-- de quien reporta si el tipo no tiene duena) -- ver app/services/facturas_faltantes.py.
+-- sede_id = sede destino (cuyo mostrador debe subirla); sede_reporta_id = sede
+-- de quien reporto (null en filas viejas: se lee como coalesce(sede_reporta_id, sede_id)).
+-- Pasa a 'resuelta' sola cuando punto_venta sube esa factura (insert en
+-- entregas, ver procesar_extraccion); 'descartada' es el cierre manual. El
+-- unique parcial garantiza un solo reporte pendiente por documento aunque dos
+-- bodegueros lo reporten a la vez. entrega_id queda en null si la entrega se borra.
+create table if not exists facturas_faltantes (
+    id uuid primary key default gen_random_uuid(),
+    tipo text not null,
+    indicativo_numero text not null,
+    sede_id text not null,
+    reportado_por text not null,
+    reportado_at timestamptz not null default now(),
+    estado text not null default 'pendiente',
+    entrega_id uuid references entregas(id) on delete set null,
+    cerrada_at timestamptz,
+    cerrada_por text
+);
+
+alter table facturas_faltantes add column if not exists sede_reporta_id text;
+
+alter table facturas_faltantes drop constraint if exists facturas_faltantes_estado_check;
+alter table facturas_faltantes add constraint facturas_faltantes_estado_check
+    check (estado in ('pendiente', 'resuelta', 'descartada'));
+
+create unique index if not exists facturas_faltantes_pendiente_key
+    on facturas_faltantes (tipo, indicativo_numero) where estado = 'pendiente';
+create index if not exists idx_facturas_faltantes_sede_estado
+    on facturas_faltantes (sede_id, estado);
+create index if not exists idx_facturas_faltantes_sede_reporta_estado
+    on facturas_faltantes (sede_reporta_id, estado);
+
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban
 -- agregadas o si la publicacion no existe (p.ej. Postgres self-hosted sin
@@ -449,6 +484,10 @@ begin
         end;
         begin
             alter publication supabase_realtime add table traslado_punto_items;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table facturas_faltantes;
         exception when duplicate_object then null;
         end;
     end if;
