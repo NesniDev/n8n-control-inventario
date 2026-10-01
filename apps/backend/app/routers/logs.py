@@ -3,9 +3,10 @@ del pipeline escribe aqui; este router solo expone lectura para el
 dashboard de trazabilidad.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import get_pool
+from app.services.permisos_dashboard import usuario_dashboard_opcional
 
 router = APIRouter(prefix="/logs", tags=["logs"])
 
@@ -15,7 +16,13 @@ async def listar_logs(
     entidad_id: str | None = None,
     sede_id: str | None = None,
     limit: int = 100,
+    usuario: dict | None = Depends(usuario_dashboard_opcional),
 ) -> list[dict]:
+    # Sin sesion del dashboard solo se puede pedir el historial de UNA entidad
+    # (lo usa la app movil, que no tiene sesion de dashboard). El listado
+    # completo de auditoria exige sesion.
+    if usuario is None and not entidad_id:
+        raise HTTPException(status_code=401, detail="Inicia sesión")
     pool = await get_pool()
     condiciones = []
     valores: list = []

@@ -4,8 +4,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as mutateGlobal } from "swr";
 import { toast } from "sonner";
 import {
-  EXPORT_CSV_URL,
-  EXPORT_XLSX_URL,
+  descargarExport,
+  type FormatoExport,
   TIPOS_REMISION,
   actualizarItems,
   eliminarEntrega,
@@ -1233,6 +1233,18 @@ export default function DashboardPage() {
   const { esAdmin, puedeEditar } = useSesion();
 
   const [limpiezaModalAbierta, setLimpiezaModalAbierta] = useState(false);
+  // Export en curso (los exports piden sesion: se bajan por fetch, no por link).
+  const [descargando, setDescargando] = useState<FormatoExport | null>(null);
+  const descargar = async (formato: FormatoExport) => {
+    setDescargando(formato);
+    try {
+      await descargarExport(formato);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo descargar el archivo");
+    } finally {
+      setDescargando(null);
+    }
+  };
   const [limpiezaResultado, setLimpiezaResultado] = useState<{
     entregas_borradas: number;
     logs_borrados: number;
@@ -1508,18 +1520,23 @@ export default function DashboardPage() {
             <p className="text-xs text-subtle">Historial completo, ordenado por más reciente.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a
-              href={EXPORT_XLSX_URL}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
+            <button
+              type="button"
+              onClick={() => descargar("xlsx")}
+              disabled={descargando !== null}
+              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2 disabled:cursor-wait disabled:opacity-60"
             >
-              <Icono nombre="descarga" className="mr-1.5 inline h-4 w-4 align-text-bottom" />Reporte mensual (Excel)
-            </a>
-            <a
-              href={EXPORT_CSV_URL}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
+              <Icono nombre="descarga" className="mr-1.5 inline h-4 w-4 align-text-bottom" />
+              {descargando === "xlsx" ? "Descargando…" : "Reporte mensual (Excel)"}
+            </button>
+            <button
+              type="button"
+              onClick={() => descargar("csv")}
+              disabled={descargando !== null}
+              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2 disabled:cursor-wait disabled:opacity-60"
             >
-              Descargar CSV (Excel)
-            </a>
+              {descargando === "csv" ? "Descargando…" : "Descargar CSV (Excel)"}
+            </button>
           </div>
         </div>
 

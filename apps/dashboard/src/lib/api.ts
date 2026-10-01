@@ -18,7 +18,8 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost
 // hay sesion y, si el backend responde 401 estando logueado, la sesion murio
 // (expiro o fue revocada) -> se limpia y se manda a /login?expirada=1 (ver
 // expirarSesion en sesion.ts). Los links de descarga (<a href>) no pasan por
-// aca: son GET publicos que no pueden mandar headers.
+// aca: son GET publicos que no pueden mandar headers. Los exports de entregas
+// piden sesion, por eso se descargan con descargarExport (fetch + blob).
 async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = tokenActual();
   const headers = new Headers(init.headers);
@@ -357,14 +358,31 @@ export async function eliminarTodasLasEntregas(): Promise<{ entregas_borradas: n
   return res.json();
 }
 
-// Descarga directa (no XHR) — el navegador la maneja como un archivo, no
-// necesita CORS de fetch.
-export const EXPORT_CSV_URL = `${API_BASE_URL}/entregas/export.csv`;
+// Exports de entregas -- requieren sesion (Authorization: Bearer), asi que no
+// se pueden bajar con un <a href>: se piden por apiFetch y se entregan al
+// navegador como blob.
+// - CSV: una fila por producto (item).
+// - XLSX: reporte mensual real (una hoja por mes, columnas por tipo de
+//   documento), a nivel de documento -- para mandarle el control a un superior.
+export type FormatoExport = "csv" | "xlsx";
 
-// Reporte mensual real en Excel (una hoja por mes, columnas por tipo de
-// documento) -- para que los bodegueros le manden el control a un superior.
-// A diferencia de EXPORT_CSV_URL, es a nivel de documento, no de producto.
-export const EXPORT_XLSX_URL = `${API_BASE_URL}/entregas/export.xlsx`;
+export async function descargarExport(formato: FormatoExport): Promise<void> {
+  const res = await apiFetch(`/entregas/export.${formato}`);
+  if (!res.ok) {
+    throw new Error(await mensajeDeError(res, "No se pudo descargar el archivo"));
+  }
+  // Nombre fijo del lado del cliente: Content-Disposition no es legible desde
+  // otro origen sin expose_headers en el CORS del backend.
+  const nombre = formato === "csv" ? "entregas.csv" : "reporte_mensual.xlsx";
+  const url = URL.createObjectURL(await res.blob());
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  URL.revokeObjectURL(url);
+}
 
 // Catalogo codigo -> nombre de producto (ver apps/backend/app/services/productos.py)
 // -- se auto-completa al procesar/corregir facturas; esto es solo para

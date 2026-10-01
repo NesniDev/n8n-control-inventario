@@ -31,6 +31,7 @@ from app.models.entrega import (
     TipoDocumento,
 )
 from app.models.log import EventoLog
+from app.services.permisos_dashboard import usuario_dashboard
 from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.duplicates import (
     CantidadInvalida,
@@ -570,6 +571,7 @@ async def listar_entregas(
     hasta: datetime | None = None,
     busqueda: str | None = None,
     limit: int = 50,
+    _: dict = Depends(usuario_dashboard),
 ) -> list[dict]:
     pool = await get_pool()
     condiciones: list[str] = []
@@ -849,7 +851,9 @@ async def revisar_entrega(
 
 
 @router.get("/export.csv")
-async def exportar_entregas_csv(sede_id: str | None = None) -> StreamingResponse:
+async def exportar_entregas_csv(
+    sede_id: str | None = None, _: dict = Depends(usuario_dashboard)
+) -> StreamingResponse:
     """CSV de todas las entregas para llevar control en Excel/Sheets -- una
     fila por producto (item), con los datos del documento repetidos. Se abre
     directo con doble click (Excel detecta la coma como separador) o se
@@ -886,7 +890,9 @@ async def exportar_entregas_csv(sede_id: str | None = None) -> StreamingResponse
 
 
 @router.get("/export.xlsx")
-async def exportar_reporte_mensual(sede_id: str | None = None) -> StreamingResponse:
+async def exportar_reporte_mensual(
+    sede_id: str | None = None, _: dict = Depends(usuario_dashboard)
+) -> StreamingResponse:
     """Reporte mensual para mandarle a un superior -- un Excel real con una
     hoja por mes (todo el historico) y, dentro de cada hoja, un bloque
     Fecha+Número por tipo de documento (ver app/services/reportes.py). A
