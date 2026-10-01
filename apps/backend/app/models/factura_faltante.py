@@ -58,3 +58,4 @@ class FacturaFaltante(BaseModel):
     entrega_id: str | None = None
     cerrada_at: datetime | None = None
     cerrada_por: str | None = None
+    cerrada_por_nombre: str | None = None
