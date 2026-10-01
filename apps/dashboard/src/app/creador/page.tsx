@@ -44,13 +44,13 @@ import {
 } from "@/lib/api";
 import { useSesion } from "@/lib/SesionProvider";
 import { ETIQUETA_ROL, type RolDashboard } from "@/lib/sesion";
-import { ErrorConReintento, EstadoVacio, TarjetaConHeader } from "@/components/ui";
+import { ErrorConReintento, EstadoVacio, Icono, TarjetaConHeader } from "@/components/ui";
 
 const INPUT =
-  "rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200 [color-scheme:dark] disabled:opacity-50";
+  "rounded-lg border border-line bg-page px-2 py-1.5 text-xs text-ink [color-scheme:dark] disabled:opacity-50";
 const BOTON_PRIMARIO =
-  "rounded-md bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50";
-const BOTON_LINK = "text-xs font-medium text-neutral-400 hover:text-neutral-100 disabled:opacity-50";
+  "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-md bg-brand-gold px-3 py-1.5 text-xs font-semibold text-brand-ink transition hover:bg-gold-hover disabled:opacity-50";
+const BOTON_LINK = "text-xs font-medium text-muted hover:text-ink disabled:opacity-50";
 
 const ROLES: { valor: RolEmpleado; etiqueta: string }[] = [
   { valor: "operador", etiqueta: "Bodeguero" },
@@ -79,7 +79,7 @@ const PASSWORD_MIN = 8;
 function Campo({ etiqueta, children, className = "" }: { etiqueta: string; children: ReactNode; className?: string }) {
   return (
     <label className={`flex flex-col gap-1 ${className}`}>
-      <span className="text-[10px] leading-none text-neutral-500">{etiqueta}</span>
+      <span className="text-[10px] leading-none text-muted">{etiqueta}</span>
       {children}
     </label>
   );
@@ -89,7 +89,7 @@ function Insignia({ activo }: { activo: boolean }) {
   return (
     <span
       className={`rounded-full border px-2 py-0.5 text-[10px] ${
-        activo ? "border-emerald-500/30 text-emerald-400" : "border-neutral-700 text-neutral-500"
+        activo ? "border-ok/50 text-ok-fg" : "border-line-strong text-muted"
       }`}
     >
       {activo ? "Activo" : "Inactivo"}
@@ -153,7 +153,7 @@ function CambiarPin({ onGuardar }: { onGuardar: (pin: string) => Promise<unknown
           setAbierto(false);
           setPin("");
         }}
-        className="text-xs text-neutral-600 hover:text-neutral-400"
+        className="text-xs text-subtle hover:text-soft"
       >
         Cancelar
       </button>
@@ -162,12 +162,12 @@ function CambiarPin({ onGuardar }: { onGuardar: (pin: string) => Promise<unknown
 }
 
 function Cargando() {
-  return <p className="py-6 text-center text-xs text-neutral-500">Cargando…</p>;
+  return <p className="py-6 text-center text-xs text-muted">Cargando…</p>;
 }
 
 function Lista({ vacio, children }: { vacio: boolean; children: ReactNode }) {
   if (vacio) return <EstadoVacio titulo="Todavía no hay registros." />;
-  return <ul className="flex flex-col divide-y divide-neutral-800">{children}</ul>;
+  return <ul className="flex flex-col divide-y divide-line">{children}</ul>;
 }
 
 const FILA = "flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-2.5 text-sm";
@@ -239,16 +239,16 @@ function SeccionSedes() {
                   >
                     Guardar
                   </button>
-                  <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                  <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoId(null)}>
                     Cancelar
                   </button>
                 </>
               ) : (
                 <>
-                  <span className="font-mono text-xs text-neutral-500">{sede.codigo}</span>
-                  <span className="min-w-[140px] flex-1 text-neutral-200">
+                  <span className="font-mono text-xs text-muted">{sede.codigo}</span>
+                  <span className="min-w-[140px] flex-1 text-ink">
                     {sede.nombre}
-                    {sede.direccion ? <span className="ml-2 text-xs text-neutral-500">{sede.direccion}</span> : null}
+                    {sede.direccion ? <span className="ml-2 text-xs text-muted">{sede.direccion}</span> : null}
                   </span>
                   <Insignia activo={sede.activa} />
                   <button
@@ -388,15 +388,15 @@ function SeccionEmpleados() {
                   <button className={BOTON_LINK} disabled={!edit.nombre.trim()} onClick={() => guardarEdicion(empleado)}>
                     Guardar
                   </button>
-                  <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                  <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoId(null)}>
                     Cancelar
                   </button>
                 </>
               ) : (
                 <>
-                  <span className="min-w-[140px] flex-1 text-neutral-200">
+                  <span className="min-w-[140px] flex-1 text-ink">
                     {empleado.nombre}
-                    <span className="ml-2 text-xs text-neutral-500">
+                    <span className="ml-2 text-xs text-muted">
                       {nombreSede(empleado.sede_id)} · {etiquetaRol(empleado.rol)}
                     </span>
                   </span>
@@ -456,7 +456,7 @@ function UsuariosDePunto({ puntoId }: { puntoId: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-page/50 p-3">
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Nombre del usuario" className="min-w-[160px] flex-1">
           <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
@@ -498,13 +498,13 @@ function UsuariosDePunto({ puntoId }: { puntoId: string }) {
                   >
                     Guardar
                   </button>
-                  <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                  <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoId(null)}>
                     Cancelar
                   </button>
                 </>
               ) : (
                 <>
-                  <span className="min-w-[140px] flex-1 text-neutral-200">{usuario.nombre}</span>
+                  <span className="min-w-[140px] flex-1 text-ink">{usuario.nombre}</span>
                   <Insignia activo={usuario.estado === "activo"} />
                   <button
                     className={BOTON_LINK}
@@ -589,13 +589,13 @@ function SeccionPuntos() {
                     >
                       Guardar
                     </button>
-                    <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                    <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoId(null)}>
                       Cancelar
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="min-w-[160px] flex-1 text-neutral-200">{punto.nombre}</span>
+                    <span className="min-w-[160px] flex-1 text-ink">{punto.nombre}</span>
                     <Insignia activo={punto.activo} />
                     <button className={BOTON_LINK} onClick={() => setAbiertoId(abiertoId === punto.id ? null : punto.id)}>
                       {abiertoId === punto.id ? "Ocultar usuarios" : "Usuarios"}
@@ -696,13 +696,13 @@ function SeccionSupervisores() {
                   >
                     Guardar
                   </button>
-                  <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                  <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoId(null)}>
                     Cancelar
                   </button>
                 </>
               ) : (
                 <>
-                  <span className="min-w-[140px] flex-1 text-neutral-200">{sup.nombre}</span>
+                  <span className="min-w-[140px] flex-1 text-ink">{sup.nombre}</span>
                   <Insignia activo={sup.estado === "activo"} />
                   <button
                     className={BOTON_LINK}
@@ -784,7 +784,7 @@ function SeccionTipos() {
         <Lista vacio={data.length === 0}>
           {data.map((tipo) => (
             <li key={tipo.codigo} className={FILA}>
-              <span className="w-16 shrink-0 font-mono text-xs text-neutral-300">{tipo.codigo}</span>
+              <span className="w-16 shrink-0 font-mono text-xs text-soft">{tipo.codigo}</span>
               {editandoCodigo === tipo.codigo ? (
                 <>
                   <input value={descripcionEdit} onChange={(e) => setDescripcionEdit(e.target.value)} className={`${INPUT} min-w-[160px] flex-1`} />
@@ -799,13 +799,13 @@ function SeccionTipos() {
                   >
                     Guardar
                   </button>
-                  <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoCodigo(null)}>
+                  <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoCodigo(null)}>
                     Cancelar
                   </button>
                 </>
               ) : (
                 <>
-                  <span className="min-w-[160px] flex-1 text-neutral-400">{tipo.descripcion || "—"}</span>
+                  <span className="min-w-[160px] flex-1 text-muted">{tipo.descripcion || "—"}</span>
                   <Insignia activo={tipo.activo} />
                   <button
                     className={BOTON_LINK}
@@ -882,7 +882,7 @@ function RestablecerPassword({ onGuardar }: { onGuardar: (password: string) => P
           setAbierto(false);
           setPassword("");
         }}
-        className="text-xs text-neutral-600 hover:text-neutral-400"
+        className="text-xs text-subtle hover:text-soft"
       >
         Cancelar
       </button>
@@ -995,7 +995,7 @@ function SeccionUsuariosDashboard() {
               <li key={u.id} className={FILA}>
                 {editandoId === u.id ? (
                   <>
-                    <span className="font-mono text-xs text-neutral-500">{u.usuario}</span>
+                    <span className="font-mono text-xs text-muted">{u.usuario}</span>
                     <input value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })} className={`${INPUT} min-w-[140px] flex-1`} />
                     <select value={edit.rol} onChange={(e) => setEdit({ ...edit, rol: e.target.value as RolDashboard })} className={INPUT}>
                       {ROLES_DASHBOARD.map((r) => (
@@ -1007,21 +1007,21 @@ function SeccionUsuariosDashboard() {
                     <button className={BOTON_LINK} disabled={!edit.nombre.trim()} onClick={() => guardarEdicion(u)}>
                       Guardar
                     </button>
-                    <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                    <button className="text-xs text-subtle hover:text-soft" onClick={() => setEditandoId(null)}>
                       Cancelar
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="min-w-[160px] flex-1 text-neutral-200">
+                    <span className="min-w-[160px] flex-1 text-ink">
                       {u.nombre}
-                      {esYo ? <span className="ml-1 text-xs text-neutral-500">(tú)</span> : null}
-                      <span className="ml-2 font-mono text-xs text-neutral-500">{u.usuario}</span>
-                      <span className="ml-2 text-xs text-neutral-500">{ETIQUETA_ROL[u.rol]}</span>
-                      <span className="block text-[11px] text-neutral-600">
+                      {esYo ? <span className="ml-1 text-xs text-muted">(tú)</span> : null}
+                      <span className="ml-2 font-mono text-xs text-muted">{u.usuario}</span>
+                      <span className="ml-2 text-xs text-muted">{ETIQUETA_ROL[u.rol]}</span>
+                      <span className="block text-[11px] text-subtle">
                         Último ingreso: {fechaCorta(u.ultimo_login_at) ?? "nunca"}
                         {bloqueado ? (
-                          <span className="ml-2 text-amber-400">Bloqueado hasta {fechaCorta(bloqueado)}</span>
+                          <span className="ml-2 text-warn">Bloqueado hasta {fechaCorta(bloqueado)}</span>
                         ) : null}
                       </span>
                     </span>
@@ -1067,38 +1067,32 @@ export default function CreadorPage() {
   // una pantalla que no puede cargar nada.
   if (!esAdmin) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
-        <h1 className="text-2xl font-semibold text-neutral-100">Administración</h1>
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+      <main className="mx-auto flex w-full flex-1 max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
+        <h1 className="text-2xl font-semibold text-ink">Administración</h1>
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
           No tienes permiso para ver esta sección. Solo los administradores pueden acceder.
         </div>
         <Link
           href="/"
-          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+          className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
         >
-          ← Volver al panel
+          <Icono nombre="izquierda" className="mr-1.5 inline h-3.5 w-3.5 align-text-bottom" />Volver al panel
         </Link>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+    <main className="mx-auto flex w-full flex-1 max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Control logístico · administración</p>
-          <h1 className="text-2xl font-semibold text-neutral-100">Administración</h1>
-          <p className="text-sm text-neutral-400">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Control logístico · administración</p>
+          <h1 className="text-2xl font-semibold text-ink">Administración</h1>
+          <p className="text-sm text-muted">
             Cree y gestione sedes, empleados, puntos, supervisores, tipos de documento y usuarios del dashboard. Nada se borra: desactivar
             solo oculta el registro en las aplicaciones.
           </p>
         </div>
-        <Link
-          href="/"
-          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-        >
-          ← Panel
-        </Link>
       </header>
 
       <nav className="flex flex-wrap gap-1.5" aria-label="Secciones">
@@ -1109,8 +1103,8 @@ export default function CreadorPage() {
             aria-current={pestana === p.id ? "page" : undefined}
             className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
               pestana === p.id
-                ? "border-neutral-500 bg-neutral-800 text-neutral-100"
-                : "border-neutral-800 text-neutral-400 hover:bg-neutral-900"
+                ? "border-brand-gold bg-surface-2 text-ink"
+                : "border-line text-muted hover:bg-surface-2"
             }`}
           >
             {p.etiqueta}

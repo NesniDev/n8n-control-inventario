@@ -23,14 +23,23 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="en"
+      lang="es"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <SesionProvider>
           <GuardaSesion>{children}</GuardaSesion>
         </SesionProvider>
-        <Toaster theme="dark" />
+        <Toaster
+          theme="dark"
+          toastOptions={{
+            style: {
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-line-strong)",
+              color: "var(--color-ink)",
+            },
+          }}
+        />
       </body>
     </html>
   );

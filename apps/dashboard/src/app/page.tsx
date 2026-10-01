@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import useSWR, { mutate as mutateGlobal } from "swr";
 import { toast } from "sonner";
 import {
@@ -24,7 +23,7 @@ import {
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { useSesion } from "@/lib/SesionProvider";
-import { EstadoVacio, TarjetaConHeader } from "@/components/ui";
+import { EstadoVacio, Icono, TarjetaConHeader } from "@/components/ui";
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
 // el backend); TB9/RM3/RM2/RSF no tienen sede dueña -- sugerencia rápida del
@@ -84,15 +83,15 @@ function fechasCalendarioAISO(desde: string, hasta: string): { desde?: string; h
 // vistazo si falta algo sin tener que abrir la fila.
 function estadoVisual(entrega: Entrega): { etiqueta: string; clase: string } {
   if (entrega.estado === "pendiente_revision") {
-    return { etiqueta: "Pendiente de revisión", clase: "bg-amber-500/15 text-amber-400" };
+    return { etiqueta: "Pendiente de revisión", clase: "border border-warn/40 bg-warn/10 text-warn" };
   }
   if (entrega.estado === "duplicado_bloqueado") {
-    return { etiqueta: "Duplicado bloqueado", clase: "bg-red-500/15 text-red-400" };
+    return { etiqueta: "Duplicado bloqueado", clase: "border border-danger/40 bg-danger/10 text-danger" };
   }
   if (tienePendiente(entrega)) {
-    return { etiqueta: "Pendiente", clase: "bg-amber-500/15 text-amber-400" };
+    return { etiqueta: "Pendiente", clase: "border border-warn/40 bg-warn/10 text-warn" };
   }
-  return { etiqueta: "Procesada", clase: "bg-emerald-500/15 text-emerald-400" };
+  return { etiqueta: "Procesada", clase: "border border-ok/50 bg-ok/15 text-ok-fg" };
 }
 
 // Convierte un ISO del backend al formato que espera <input type="datetime-local">
@@ -153,7 +152,7 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
       const resolucion = detalle.resolucion === "reposicion" ? "repuesto" : "reembolsado";
       eventos.push({
         fecha: log.timestamp,
-        texto: `↩️ Devolución de ${detalle.cantidad} (${detalle.motivo}) — ${resolucion}`,
+        texto: `Devolución de ${detalle.cantidad} (${detalle.motivo}) — ${resolucion}`,
       });
     }
   }
@@ -223,15 +222,15 @@ const TONO_ACENTO: Record<Tono, string> = {
 };
 
 const TONO_TEXTO: Record<Tono, string> = {
-  neutral: "text-neutral-100",
-  bien: "text-emerald-400",
-  atencion: "text-amber-400",
-  alerta: "text-red-400",
+  neutral: "text-ink",
+  bien: "text-ok-fg",
+  atencion: "text-warn",
+  alerta: "text-danger",
 };
 
 // Tarjeta de resumen (KPI) -- una idea, un numero grande, sin que haga falta
 // leer una tabla para entender como viene el dia. Mismo cascaron que
-// Indicador (rounded-xl border-neutral-800 bg-neutral-900/60 p-4), pero con
+// Indicador (rounded-xl border-line bg-surface p-4), pero con
 // valor mas chico (estos numeros suelen ser de 1-2 digitos) y clickeable.
 function TarjetaResumen({
   titulo,
@@ -252,16 +251,16 @@ function TarjetaResumen({
   return (
     <Contenedor
       onClick={onClick}
-      className={`flex flex-col gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-left ${
-        onClick ? "cursor-pointer transition hover:bg-neutral-900" : ""
+      className={`flex flex-col gap-1.5 rounded-xl border border-line bg-surface p-4 text-left ${
+        onClick ? "cursor-pointer transition hover:bg-surface-2" : ""
       }`}
     >
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: TONO_ACENTO[tono] }} aria-hidden />
-        <span className="text-xs font-medium text-neutral-400">{titulo}</span>
+        <span className="text-xs font-medium text-muted">{titulo}</span>
       </div>
       <span className={`text-2xl font-semibold tabular-nums ${TONO_TEXTO[tono]}`}>{valor}</span>
-      {detalle ? <span className="truncate text-xs text-neutral-500">{detalle}</span> : null}
+      {detalle ? <span className="truncate text-xs text-muted">{detalle}</span> : null}
     </Contenedor>
   );
 }
@@ -283,23 +282,23 @@ function ModalConfirmar({
   onCerrar: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onCerrar}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 backdrop-blur-sm px-4" onClick={onCerrar}>
       <div
-        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-neutral-800 bg-neutral-900 p-5"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-line bg-surface p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-neutral-100">{titulo}</h3>
-        <p className="text-sm text-neutral-400">{mensaje}</p>
+        <h3 className="text-lg font-semibold text-ink">{titulo}</h3>
+        <p className="text-sm text-muted">{mensaje}</p>
         <div className="flex justify-end gap-2">
           <button
             onClick={onCerrar}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+            className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
           >
             Cancelar
           </button>
           <button
             onClick={onConfirmar}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
+            className="rounded-md bg-danger-solid px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
           >
             {textoConfirmar}
           </button>
@@ -457,32 +456,32 @@ function FilaRevision({
   };
 
   return (
-    <tr className="bg-amber-500/5">
+    <tr className="bg-warn/5">
       <td colSpan={11} className="px-4 py-3">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
             <span>Revisar antes de aprobar — campos con baja confianza de la IA:</span>
             {camposBajaConfianza.length > 0 ? (
-              <span className="font-mono text-amber-400">{camposBajaConfianza.join(", ")}</span>
+              <span className="font-mono text-warn">{camposBajaConfianza.join(", ")}</span>
             ) : (
-              <span className="text-neutral-600">(ninguno — revisar por las dudas)</span>
+              <span className="text-subtle">(ninguno — revisar por las dudas)</span>
             )}
             <a
               href={entrega.evidencia_url}
               target="_blank"
               rel="noreferrer"
-              className="ml-auto text-sky-400 hover:underline"
+              className="ml-auto text-info hover:underline"
             >
-              Ver foto original ↗
+              Ver foto original<Icono nombre="externo" />
             </a>
             {entrega.traslado_url ? (
               <a
                 href={entrega.traslado_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-400 hover:underline"
+                className="text-info hover:underline"
               >
-                Ver traslado ↗
+                Ver traslado<Icono nombre="externo" />
               </a>
             ) : null}
             {entrega.firma_url ? (
@@ -490,14 +489,14 @@ function FilaRevision({
                 href={entrega.firma_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-400 hover:underline"
+                className="text-info hover:underline"
               >
-                Ver firma ↗
+                Ver firma<Icono nombre="externo" />
               </a>
             ) : null}
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            <label className="flex flex-col gap-1 text-xs text-muted">
               Tipo
               <input
                 disabled={!puedeEditar}
@@ -505,7 +504,7 @@ function FilaRevision({
                 onChange={(e) => setTipo(e.target.value.toUpperCase())}
                 list="tipos-documento-sugeridos"
                 placeholder="FEI, EDP, TB u otro"
-                className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
               />
               {/* Sugerencia rapida de los tipos conocidos -- el input igual
                   acepta cualquier otro valor, el datalist no restringe. */}
@@ -515,26 +514,26 @@ function FilaRevision({
                 ))}
               </datalist>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            <label className="flex flex-col gap-1 text-xs text-muted">
               N° de documento
               <input
                 disabled={!puedeEditar}
                 value={indicativoNumero}
                 onChange={(e) => setIndicativoNumero(e.target.value)}
-                className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
               />
             </label>
           </div>
 
           {entrega.estado === "pendiente_revision" ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              <label className="flex flex-col gap-1 text-xs text-muted">
                 Sede origen
                 <select
                   disabled={!puedeEditar}
                   value={sedeOrigenId}
                   onChange={(e) => setSedeOrigenId(e.target.value)}
-                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                  className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
                 >
                   <option value={sedeOrigenId}>{entrega.sede_origen_nombre ?? sedeOrigenId}</option>
                   {(sedes ?? [])
@@ -546,44 +545,44 @@ function FilaRevision({
                     ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              <label className="flex flex-col gap-1 text-xs text-muted">
                 Operador
                 <input
                   disabled={!puedeEditar}
                   value={operadorId}
                   onChange={(e) => setOperadorId(e.target.value)}
-                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                  className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-neutral-500">
+              <label className="flex flex-col gap-1 text-xs text-muted">
                 Fecha/hora de captura
                 <input
                   disabled={!puedeEditar}
                   type="datetime-local"
                   value={capturadoAt}
                   onChange={(e) => setCapturadoAt(e.target.value)}
-                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                  className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
                 />
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                <label className="flex flex-col gap-1 text-xs text-muted">
                   Traslado tipo
                   <input
                     disabled={!puedeEditar}
                     value={trasladoTipo}
                     onChange={(e) => setTrasladoTipo(e.target.value.toUpperCase())}
                     placeholder="Opcional"
-                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                    className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                <label className="flex flex-col gap-1 text-xs text-muted">
                   Traslado N°
                   <input
                     disabled={!puedeEditar}
                     value={trasladoIndicativoNumero}
                     onChange={(e) => setTrasladoIndicativoNumero(e.target.value)}
                     placeholder="Opcional"
-                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                    className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
                   />
                 </label>
               </div>
@@ -593,8 +592,8 @@ function FilaRevision({
           {/* Nota a nivel documento completo -- su propia caja, separada de
               la lista de productos de abajo (cada uno tiene su propia nota
               por item, que es un campo distinto). */}
-          <div className="flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
-            <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          <div className="flex flex-col gap-1 rounded-md border border-line bg-page p-2">
+            <label className="flex flex-col gap-1 text-xs text-muted">
               Nota general de la factura
               <textarea
                 disabled={!puedeEditar}
@@ -602,33 +601,33 @@ function FilaRevision({
                 onChange={(e) => setNotaGeneral(e.target.value)}
                 placeholder="Observación general sobre todo el documento (opcional)"
                 rows={2}
-                className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
               />
             </label>
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
               Productos
             </span>
             {items.length === 0 ? (
-              <p className="text-xs text-neutral-600">Sin productos registrados.</p>
+              <p className="text-xs text-subtle">Sin productos registrados.</p>
             ) : (
               items.map((item) => {
                 const eventosHistorial = historial ? historialDeItem(historial, item.id) : [];
                 return (
-                  <div key={item.id} className="rounded-md border border-neutral-800 p-2">
+                  <div key={item.id} className="rounded-md border border-line p-2">
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_140px]">
-                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                      <label className="flex flex-col gap-1 text-xs text-muted">
                         Descripción
                         <input
                           value={item.descripcion}
                           onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
                           disabled={sinPendiente || !puedeEditar}
-                          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
+                          className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
-                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                      <label className="flex flex-col gap-1 text-xs text-muted">
                         Entregado
                         <input
                           type="number"
@@ -637,10 +636,10 @@ function FilaRevision({
                             actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
                           }
                           disabled={sinPendiente || !puedeEditar}
-                          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
+                          className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
-                      <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                      <label className="flex flex-col gap-1 text-xs text-muted">
                         Pendiente
                         <input
                           disabled={!puedeEditar}
@@ -649,28 +648,28 @@ function FilaRevision({
                           onChange={(e) =>
                             actualizarItem(item.id, { cantidad_pendiente: Number(e.target.value) })
                           }
-                          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
+                          className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]"
                         />
                       </label>
                     </div>
 
                     <button
                       onClick={() => alternarHistorial(item.id)}
-                      className="mt-2 text-xs text-sky-400 hover:underline"
+                      className="mt-2 text-xs text-info hover:underline"
                     >
-                      🕒 {historialAbierto === item.id ? "Ocultar historial" : "Ver historial"}
+                      <Icono nombre="reloj" className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />{historialAbierto === item.id ? "Ocultar historial" : "Ver historial"}
                     </button>
 
                     {historialAbierto === item.id ? (
-                      <div className="mt-2 flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-900 p-2 text-xs">
+                      <div className="mt-2 flex flex-col gap-1 rounded-md border border-line bg-surface p-2 text-xs">
                         {cargandoHistorial ? (
-                          <span className="text-neutral-500">Cargando...</span>
+                          <span className="text-muted">Cargando...</span>
                         ) : eventosHistorial.length === 0 ? (
-                          <span className="text-neutral-500">Sin cambios registrados todavía.</span>
+                          <span className="text-muted">Sin cambios registrados todavía.</span>
                         ) : (
                           eventosHistorial.map((evento, i) => (
-                            <div key={i} className="flex gap-2 text-neutral-400">
-                              <span className="shrink-0 font-mono text-neutral-600">
+                            <div key={i} className="flex gap-2 text-muted">
+                              <span className="shrink-0 font-mono text-subtle">
                                 {new Date(evento.fecha).toLocaleString()}
                               </span>
                               <span>{evento.texto}</span>
@@ -686,20 +685,20 @@ function FilaRevision({
           </div>
 
           {sinPendiente ? (
-            <p className="text-xs text-neutral-600">
+            <p className="text-xs text-subtle">
               Sin pendiente en ningún producto — tipo e indicativo/número quedan bloqueados. Cambiá
               la pendiente de algún producto si fue un error.
             </p>
           ) : null}
           {!puedeEditar ? (
-            <p className="text-xs text-neutral-600">Tu rol es de consulta: puedes ver esta entrega, pero no modificarla.</p>
+            <p className="text-xs text-subtle">Tu rol es de consulta: puedes ver esta entrega, pero no modificarla.</p>
           ) : null}
           <div className="flex gap-2">
             {puedeEditar ? (
             <button
               onClick={() => guardar(false)}
               disabled={guardando}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:opacity-50"
+              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-surface-2 disabled:opacity-50"
             >
               {guardando ? "Guardando..." : "Guardar"}
             </button>
@@ -708,7 +707,7 @@ function FilaRevision({
               <button
                 onClick={() => guardar(true)}
                 disabled={guardando}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                className="rounded-md bg-ok px-3 py-1.5 text-xs font-medium text-white transition hover:bg-ok-hover disabled:opacity-50"
               >
                 {guardando ? "Guardando..." : "Aprobar"}
               </button>
@@ -717,7 +716,7 @@ function FilaRevision({
               <button
                 onClick={() => setConfirmandoBorrado(true)}
                 disabled={guardando}
-                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
+                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-red-500/10 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -844,16 +843,16 @@ function ModalDetalleEntrega({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 backdrop-blur-sm px-4"
       onClick={onCerrar}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-900 p-5"
+        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-xl border border-line bg-surface p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-neutral-100">
+            <h3 className="text-lg font-semibold text-ink">
               {entrega.tipo} {entrega.indicativo_numero}
             </h3>
             <span
@@ -862,8 +861,8 @@ function ModalDetalleEntrega({
               {estadoVisual(entrega).etiqueta}
             </span>
           </div>
-          <button onClick={onCerrar} className="text-neutral-500 hover:text-neutral-300" aria-label="Cerrar">
-            ✕
+          <button onClick={onCerrar} className="text-muted hover:text-ink" aria-label="Cerrar">
+            <Icono nombre="cerrar" className="h-5 w-5" />
           </button>
         </div>
 
@@ -875,23 +874,23 @@ function ModalDetalleEntrega({
               ancho de su texto, y si las tres no entran en una fila, la que
               sobra salta sola a la siguiente. */}
           <div className="flex flex-wrap gap-2">
-            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-              <span className="block text-xs text-neutral-500">Sede</span>
-              <span className="whitespace-nowrap text-neutral-200">
+            <div className="rounded-md border border-line bg-page p-2">
+              <span className="block text-xs text-muted">Sede</span>
+              <span className="whitespace-nowrap text-ink">
                 {entrega.sede_origen_nombre ?? entrega.sede_origen_id}
               </span>
             </div>
-            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-              <span className="block text-xs text-neutral-500">Operador</span>
-              <span className="whitespace-nowrap text-neutral-200">
+            <div className="rounded-md border border-line bg-page p-2">
+              <span className="block text-xs text-muted">Operador</span>
+              <span className="whitespace-nowrap text-ink">
                 {entrega.operador_nombre ?? entrega.operador_id}
               </span>
             </div>
-            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-2">
-              <span className="block text-xs text-neutral-500">
+            <div className="rounded-md border border-line bg-page p-2">
+              <span className="block text-xs text-muted">
                 {bodeguerosHistorial && bodeguerosHistorial.length > 1 ? "Bodegueros" : "Bodeguero"}
               </span>
-              <span className="text-neutral-200">
+              <span className="text-ink">
                 {bodeguerosHistorial && bodeguerosHistorial.length > 0
                   ? bodeguerosHistorial.join(", ")
                   : (entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE")}
@@ -904,33 +903,33 @@ function ModalDetalleEntrega({
             que lo creo) y cada entrega de bodega por separado -- si se
             entrego en varias visitas, aparece una fila por visita. */}
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Fechas</span>
-          <ol className="flex flex-col divide-y divide-neutral-800 rounded-md border border-neutral-800 bg-neutral-950 text-sm">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted">Fechas</span>
+          <ol className="flex flex-col divide-y divide-line rounded-md border border-line bg-page text-sm">
             <li className="flex items-start justify-between gap-3 px-3 py-2">
               <div className="flex flex-col">
-                <span className="text-neutral-200">
+                <span className="text-ink">
                   {entrega.operador_rol === "punto_venta" ? "Subido por punto de venta" : "Capturado"}
                 </span>
-                <span className="text-xs text-neutral-500">{entrega.operador_nombre ?? entrega.operador_id}</span>
+                <span className="text-xs text-muted">{entrega.operador_nombre ?? entrega.operador_id}</span>
               </div>
-              <span className="whitespace-nowrap text-right text-neutral-300">
+              <span className="whitespace-nowrap text-right text-soft">
                 {formatearFechaHora(entrega.capturado_at)}
               </span>
             </li>
             {visitasBodega === null ? (
-              <li className="px-3 py-2 text-xs text-neutral-500">Cargando entregas...</li>
+              <li className="px-3 py-2 text-xs text-muted">Cargando entregas...</li>
             ) : visitasBodega.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-neutral-500">Todavía no se entregó en bodega.</li>
+              <li className="px-3 py-2 text-xs text-muted">Todavía no se entregó en bodega.</li>
             ) : (
               visitasBodega.map((log, i) => (
                 <li key={log.id} className="flex items-start justify-between gap-3 px-3 py-2">
                   <div className="flex flex-col">
-                    <span className="text-neutral-200">
+                    <span className="text-ink">
                       {visitasBodega.length > 1 ? `Entrega ${i + 1} de ${visitasBodega.length}` : "Entregado en bodega"}
                     </span>
-                    <span className="text-xs text-neutral-500">{log.actor_nombre ?? log.actor_id ?? "—"}</span>
+                    <span className="text-xs text-muted">{log.actor_nombre ?? log.actor_id ?? "—"}</span>
                   </div>
-                  <span className="whitespace-nowrap text-right text-emerald-400">
+                  <span className="whitespace-nowrap text-right text-ok-fg">
                     {formatearFechaHora(log.timestamp)}
                   </span>
                 </li>
@@ -943,9 +942,9 @@ function ModalDetalleEntrega({
             producto, que se ve mas abajo dentro de cada item) -- en su
             propia seccion para no confundirla con esas. */}
         {entrega.nota_general?.trim() ? (
-          <div className="flex flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Nota general</span>
-            <span className="whitespace-pre-wrap text-neutral-200">{entrega.nota_general}</span>
+          <div className="flex flex-col gap-1 rounded-md border border-line bg-page p-2 text-sm">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">Nota general</span>
+            <span className="whitespace-pre-wrap text-ink">{entrega.nota_general}</span>
           </div>
         ) : null}
 
@@ -953,7 +952,7 @@ function ModalDetalleEntrega({
             que evidencia hay sin tener que abrir cada una. */}
         {fotos.length > 0 ? (
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Evidencia</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">Evidencia</span>
             <div className="grid grid-cols-3 gap-2">
               {fotos.map((foto) => (
                 <a
@@ -968,10 +967,10 @@ function ModalDetalleEntrega({
                   <img
                     src={foto.url}
                     alt={foto.etiqueta}
-                    className="h-24 w-full rounded-md border border-neutral-800 object-cover transition group-hover:border-sky-400/60"
+                    className="h-24 w-full rounded-md border border-line object-cover transition group-hover:border-info/60"
                   />
-                  <span className="text-center text-xs text-neutral-500 group-hover:text-sky-400">
-                    {foto.etiqueta} ↗
+                  <span className="text-center text-xs text-muted group-hover:text-info">
+                    {foto.etiqueta}<Icono nombre="externo" />
                   </span>
                 </a>
               ))}
@@ -980,16 +979,16 @@ function ModalDetalleEntrega({
         ) : null}
 
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Productos</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-muted">Productos</span>
           {entrega.items.length === 0 ? (
-            <p className="text-xs text-neutral-600">Sin productos registrados.</p>
+            <p className="text-xs text-subtle">Sin productos registrados.</p>
           ) : (
-            <ul className="flex flex-col divide-y divide-neutral-800 rounded-md border border-neutral-800">
+            <ul className="flex flex-col divide-y divide-line rounded-md border border-line">
               {entrega.items.map((item) => (
                 <li key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                  <span className="text-neutral-300">{item.descripcion}</span>
-                  <span className="flex shrink-0 items-center gap-1 text-emerald-400">
-                    ✓ {item.cantidad_entregada}
+                  <span className="text-soft">{item.descripcion}</span>
+                  <span className="flex shrink-0 items-center gap-1 text-ok-fg">
+                    <Icono nombre="check" className="h-3.5 w-3.5" /> {item.cantidad_entregada}
                   </span>
                 </li>
               ))}
@@ -1003,31 +1002,31 @@ function ModalDetalleEntrega({
         <div className="flex flex-col gap-2">
           <button
             onClick={() => setHistorialAbierto((v) => !v)}
-            className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+            className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-muted hover:text-ink"
           >
             <span>Historial {historial ? `(${eventosHistorial.length})` : ""}</span>
-            <span>{historialAbierto ? "▲" : "▼"}</span>
+            <Icono nombre={historialAbierto ? "arriba" : "abajo"} className="h-4 w-4" />
           </button>
           {historialAbierto ? (
-            <div className="flex flex-col gap-3 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-xs">
+            <div className="flex flex-col gap-3 rounded-md border border-line bg-page p-3 text-xs">
               {cargandoHistorial ? (
-                <span className="text-neutral-500">Cargando...</span>
+                <span className="text-muted">Cargando...</span>
               ) : eventosHistorial.length === 0 ? (
-                <span className="text-neutral-500">Sin cambios registrados todavía.</span>
+                <span className="text-muted">Sin cambios registrados todavía.</span>
               ) : (
                 eventosHistorial.map(({ log, texto }, i) => (
                   <div key={log.id} className="flex gap-2">
                     <div className="flex flex-col items-center">
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-sky-400" />
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-info" />
                       {i < eventosHistorial.length - 1 ? (
-                        <span className="w-px flex-1 bg-neutral-800" />
+                        <span className="w-px flex-1 bg-surface-2" />
                       ) : null}
                     </div>
                     <div className="flex flex-col gap-0.5 pb-2">
-                      <span className="font-mono text-neutral-600">
+                      <span className="font-mono text-subtle">
                         {new Date(log.timestamp).toLocaleString()}
                       </span>
-                      <span className="text-neutral-300">{texto}</span>
+                      <span className="text-soft">{texto}</span>
                     </div>
                   </div>
                 ))
@@ -1074,38 +1073,38 @@ function ModalConfirmarLimpieza({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={onCerrar}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 backdrop-blur-sm px-4" onClick={onCerrar}>
       <div
-        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-red-500/40 bg-neutral-900 p-5"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-red-500/40 bg-surface p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-red-400">Eliminar TODOS los productos</h3>
-        <p className="text-sm text-neutral-400">
+        <h3 className="text-lg font-semibold text-danger">Eliminar TODOS los productos</h3>
+        <p className="text-sm text-muted">
           Esto borra permanentemente todas las entregas, sus productos y todo el historial de logs. No
           se puede deshacer.
         </p>
-        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+        <label className="flex flex-col gap-1 text-xs text-muted">
           Escribí &quot;{PALABRA_CONFIRMACION_LIMPIEZA}&quot; para confirmar
           <input
             value={palabra}
             onChange={(e) => setPalabra(e.target.value)}
             disabled={limpiando}
-            className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
+            className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark] disabled:opacity-40"
           />
         </label>
-        {error ? <p className="text-xs text-red-400">{error}</p> : null}
+        {error ? <p className="text-xs text-danger">{error}</p> : null}
         <div className="flex justify-end gap-2">
           <button
             onClick={onCerrar}
             disabled={limpiando}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800 disabled:opacity-50"
+            className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2 disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             onClick={confirmar}
             disabled={!habilitado || limpiando}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
+            className="rounded-md bg-danger-solid px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
           >
             {limpiando ? "Eliminando..." : "Eliminar todo"}
           </button>
@@ -1337,70 +1336,40 @@ export default function DashboardPage() {
   }, [entregasPorEstado, filtroFlujo]);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-6 py-10">
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
       <header className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
             Control logístico · multi-sede
           </p>
           <span
             className={`flex items-center gap-1.5 text-xs font-medium ${
-              enVivo ? "text-emerald-400" : "text-neutral-600"
+              enVivo ? "text-ok-fg" : "text-subtle"
             }`}
           >
             <span
-              className={`h-1.5 w-1.5 rounded-full ${enVivo ? "bg-emerald-400" : "bg-neutral-600"}`}
+              className={`h-1.5 w-1.5 rounded-full ${enVivo ? "bg-ok-fg" : "bg-subtle"}`}
             />
             {enVivo ? "En vivo" : "Conectando..."}
           </span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-neutral-100">Panel de despachos</h1>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/productos"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-            >
-              Catálogo de productos
-            </Link>
-            <Link
-              href="/ranking"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-            >
-              Ranking de productos
-            </Link>
-            {esAdmin ? (
-              <Link
-                href="/turnos"
-                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-              >
-                Planificación de turnos
-              </Link>
-            ) : null}
-            {esAdmin ? (
-              <Link
-                href="/creador"
-                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-              >
-                Administración
-              </Link>
-            ) : null}
-          </div>
+          <h1 className="text-2xl font-semibold text-ink">Panel de despachos</h1>
         </div>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-muted">
           Así viene el negocio hoy, en las dos sedes — se actualiza solo, sin recargar la página.
         </p>
       </header>
 
       {error ? (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-danger">
           No se pudo conectar con el backend ({API_URL_HINT}): {error}
         </div>
       ) : null}
 
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">Cómo va hoy</h2>
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">Cómo va hoy</h2>
         <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${puedeEditar ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
           <TarjetaResumen
             titulo="Entregas hoy"
@@ -1448,32 +1417,32 @@ export default function DashboardPage() {
         // Reserva la altura tipica de la seccion cargada para que no empuje
         // lo de abajo cuando llegan los datos.
         <section className="flex flex-col gap-4" aria-busy>
-          <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-warn">
             Necesita tu atención
           </h2>
           <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Sin terminar</h3>
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">Sin terminar</h3>
             {Array.from({ length: LIMITE_ATENCION }, (_, i) => (
-              <div key={i} className="h-11 animate-pulse rounded-lg bg-neutral-800" />
+              <div key={i} className="h-11 animate-pulse rounded-lg bg-surface-2" />
             ))}
-            <div className="h-4 w-24 animate-pulse rounded bg-neutral-800" />
+            <div className="h-4 w-24 animate-pulse rounded bg-surface-2" />
           </div>
         </section>
       ) : paraRevisar.length === 0 && conPendiente.length === 0 ? (
         <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-warn">
             Necesita tu atención
           </h2>
-          <p className="text-sm text-neutral-500">Todo al día: no hay entregas en revisión ni sin terminar.</p>
+          <p className="text-sm text-muted">Todo al día: no hay entregas en revisión ni sin terminar.</p>
         </section>
       ) : (
         <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-warn">
             Necesita tu atención
           </h2>
           {paraRevisar.length > 0 ? (
             <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
                 En revisión{paraRevisar.length > LIMITE_ATENCION ? ` (${paraRevisar.length})` : ""}
               </h3>
               {(verTodoRevision ? paraRevisar : paraRevisar.slice(0, LIMITE_ATENCION)).map((e) => (
@@ -1482,16 +1451,16 @@ export default function DashboardPage() {
                   onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
                 >
-                  <span className="font-medium text-neutral-100">
+                  <span className="font-medium text-ink">
                     {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
                   </span>
-                  <span className="text-xs font-medium text-amber-400">La IA no está segura — revisar</span>
+                  <span className="text-xs font-medium text-warn">La IA no está segura — revisar</span>
                 </button>
               ))}
               {paraRevisar.length > LIMITE_ATENCION ? (
                 <button
                   onClick={() => setVerTodoRevision((v) => !v)}
-                  className="self-start text-xs font-medium text-neutral-500 hover:text-amber-400"
+                  className="self-start text-xs font-medium text-muted hover:text-warn"
                 >
                   {verTodoRevision ? "Ver menos" : `Ver todas (${paraRevisar.length})`}
                 </button>
@@ -1500,7 +1469,7 @@ export default function DashboardPage() {
           ) : null}
           {conPendiente.length > 0 ? (
             <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
                 Sin terminar{conPendiente.length > LIMITE_ATENCION ? ` (${conPendiente.length})` : ""}
               </h3>
               {(verTodoPendiente ? conPendiente : conPendiente.slice(0, LIMITE_ATENCION)).map((e) => (
@@ -1509,10 +1478,10 @@ export default function DashboardPage() {
                   onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
                 >
-                  <span className="font-medium text-neutral-100">
+                  <span className="font-medium text-ink">
                     {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
                   </span>
-                  <span className="text-xs font-medium text-amber-400">
+                  <span className="text-xs font-medium text-warn">
                     Faltan entregar {sumar(e.items, "cantidad_pendiente")} unidades
                   </span>
                 </button>
@@ -1520,7 +1489,7 @@ export default function DashboardPage() {
               {conPendiente.length > LIMITE_ATENCION ? (
                 <button
                   onClick={() => setVerTodoPendiente((v) => !v)}
-                  className="self-start text-xs font-medium text-neutral-500 hover:text-amber-400"
+                  className="self-start text-xs font-medium text-muted hover:text-warn"
                 >
                   {verTodoPendiente ? "Ver menos" : `Ver todas (${conPendiente.length})`}
                 </button>
@@ -1533,21 +1502,21 @@ export default function DashboardPage() {
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
               Todas las entregas
             </h2>
-            <p className="text-xs text-neutral-600">Historial completo, ordenado por más reciente.</p>
+            <p className="text-xs text-subtle">Historial completo, ordenado por más reciente.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <a
               href={EXPORT_XLSX_URL}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
             >
-              📊 Reporte mensual (Excel)
+              <Icono nombre="descarga" className="mr-1.5 inline h-4 w-4 align-text-bottom" />Reporte mensual (Excel)
             </a>
             <a
               href={EXPORT_CSV_URL}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+              className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
             >
               Descargar CSV (Excel)
             </a>
@@ -1556,17 +1525,17 @@ export default function DashboardPage() {
 
         {/* Tarjeta de filtros -- mismo patron que ranking/page.tsx: buscador
             arriba, controles segmentados abajo, resumen "Mostrando" al pie. */}
-        <div className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
+        <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
           <input
             value={busqueda}
             onChange={(e) => cambiarBusqueda(e.target.value)}
             placeholder="Buscar por tipo, número, sede, operador o producto..."
-            className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 placeholder:text-neutral-600 [color-scheme:dark]"
+            className="w-full rounded-lg border border-line bg-page px-3 py-2 text-xs text-ink placeholder:text-subtle [color-scheme:dark]"
           />
           <div className="flex flex-wrap items-center gap-2">
             {/* Filtro por categoria, aparte del buscador -- se combina con AND
                 (ver entregasPorEstado/entregasFiltradas). */}
-            <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
+            <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-page p-1">
               {(
                 [
                   { valor: "todas", etiqueta: "Todas" },
@@ -1581,8 +1550,8 @@ export default function DashboardPage() {
                   aria-pressed={filtroEstado === opcion.valor}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                     filtroEstado === opcion.valor
-                      ? "bg-neutral-100 text-neutral-900"
-                      : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                      ? "bg-brand-gold text-brand-ink"
+                      : "text-muted hover:bg-surface-2 hover:text-ink"
                   }`}
                 >
                   {opcion.etiqueta}
@@ -1590,7 +1559,7 @@ export default function DashboardPage() {
               ))}
             </div>
             {/* Filtro por flujo: despachos vs. remisiones (RM2/RM3/RSF). */}
-            <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
+            <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-page p-1">
               {(
                 [
                   { valor: "todos", etiqueta: "Todos" },
@@ -1604,8 +1573,8 @@ export default function DashboardPage() {
                   aria-pressed={filtroFlujo === opcion.valor}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                     filtroFlujo === opcion.valor
-                      ? "bg-neutral-100 text-neutral-900"
-                      : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                      ? "bg-brand-gold text-brand-ink"
+                      : "text-muted hover:bg-surface-2 hover:text-ink"
                   }`}
                 >
                   {opcion.etiqueta}
@@ -1615,26 +1584,26 @@ export default function DashboardPage() {
             {/* Filtro por rango de fechas -- calendario libre (desde/hasta),
                 con "Todo" para volver a no filtrar (ver fechasCalendarioAISO).
                 Se combina con AND junto al resto de filtros de esta tabla. */}
-            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1">
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-line bg-page px-2 py-1">
               <label className="flex flex-col items-start">
-                <span className="text-[10px] leading-none text-neutral-500">Desde</span>
+                <span className="text-[10px] leading-none text-muted">Desde</span>
                 <input
                   type="date"
                   value={fechaDesde}
                   onChange={(e) => cambiarFechaDesde(e.target.value)}
                   max={fechaHasta || undefined}
-                  className="rounded bg-transparent px-1 py-1 text-xs text-neutral-200 [color-scheme:dark]"
+                  className="rounded bg-transparent px-1 py-1 text-xs text-ink [color-scheme:dark]"
                 />
               </label>
-              <span className="px-1 text-xs text-neutral-600">–</span>
+              <span className="px-1 text-xs text-subtle">–</span>
               <label className="flex flex-col items-start">
-                <span className="text-[10px] leading-none text-neutral-500">Hasta</span>
+                <span className="text-[10px] leading-none text-muted">Hasta</span>
                 <input
                   type="date"
                   value={fechaHasta}
                   onChange={(e) => cambiarFechaHasta(e.target.value)}
                   min={fechaDesde || undefined}
-                  className="rounded bg-transparent px-1 py-1 text-xs text-neutral-200 [color-scheme:dark]"
+                  className="rounded bg-transparent px-1 py-1 text-xs text-ink [color-scheme:dark]"
                 />
               </label>
               <button
@@ -1642,8 +1611,8 @@ export default function DashboardPage() {
                 aria-pressed={!fechaDesde && !fechaHasta}
                 className={`ml-1 rounded-md px-2.5 py-1 text-xs font-medium transition ${
                   !fechaDesde && !fechaHasta
-                    ? "bg-neutral-100 text-neutral-900"
-                    : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                    ? "bg-brand-gold text-brand-ink"
+                    : "text-muted hover:bg-surface-2 hover:text-ink"
                 }`}
               >
                 Todo
@@ -1654,7 +1623,7 @@ export default function DashboardPage() {
             <select
               value={sedeFiltro}
               onChange={(e) => cambiarSedeFiltro(e.target.value)}
-              className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 [color-scheme:dark]"
+              className="rounded-lg border border-line bg-page px-3 py-2 text-xs text-ink [color-scheme:dark]"
             >
               <option value="todas">Todas las sedes</option>
               {(sedes ?? []).map((s) => (
@@ -1664,17 +1633,17 @@ export default function DashboardPage() {
               ))}
             </select>
           </div>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted">
             Mostrando{" "}
-            <span className="font-medium text-neutral-300">{entregasFiltradas?.length ?? 0}</span>{" "}
+            <span className="font-medium text-soft">{entregasFiltradas?.length ?? 0}</span>{" "}
             {entregasFiltradas?.length === 1 ? "entrega" : "entregas"}
-            {entregasTablaCargando ? <span className="ml-2 text-neutral-600">actualizando…</span> : null}
+            {entregasTablaCargando ? <span className="ml-2 text-subtle">actualizando…</span> : null}
           </p>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-900/60">
+        <div className="overflow-x-auto rounded-xl border border-line bg-surface">
           <table className="w-full min-w-[820px] text-left text-sm">
-            <thead className="text-xs uppercase tracking-wide text-neutral-500">
+            <thead className="border-b border-line bg-surface-2 text-xs uppercase tracking-wide text-soft">
               <tr>
                 <th className="px-4 py-2 font-medium">Tipo</th>
                 <th className="px-4 py-2 font-medium">Número</th>
@@ -1689,17 +1658,17 @@ export default function DashboardPage() {
                 <th className="px-4 py-2 font-medium">Foto</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-800">
+            <tbody className="divide-y divide-line">
               {!entregasTablaCargando && entregasTabla?.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={11} className="px-4 py-6 text-center text-muted">
                     Sin entregas todavía.
                   </td>
                 </tr>
               ) : null}
               {!entregasTablaCargando && busquedaDebounced && entregasFiltradas?.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-6 text-center text-neutral-500">
+                  <td colSpan={11} className="px-4 py-6 text-center text-muted">
                     Sin resultados para &quot;{busqueda}&quot;.
                   </td>
                 </tr>
@@ -1712,44 +1681,44 @@ export default function DashboardPage() {
                 return (
                   <Fragment key={e.id}>
                     <tr
-                      className="cursor-pointer transition hover:bg-neutral-800/60"
+                      className="cursor-pointer transition hover:bg-surface-2/60"
                       onClick={() =>
                         puedeEditar
                           ? setEnRevision(enRevision === e.id ? null : e.id)
                           : setEntregaDetalle(e)
                       }
                     >
-                      <td className="px-4 py-2 font-mono text-neutral-300">{e.tipo || "—"}</td>
-                      <td className="px-4 py-2 font-mono text-neutral-300">
+                      <td className="px-4 py-2 font-mono text-soft">{e.tipo || "—"}</td>
+                      <td className="px-4 py-2 font-mono text-soft">
                         {e.indicativo_numero || "—"}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2 text-neutral-300">
+                      <td className="whitespace-nowrap px-4 py-2 text-soft">
                         {nombreSedeCorto(e.sede_origen_nombre) ?? e.sede_origen_id}
                       </td>
-                      <td className="px-4 py-2 text-neutral-300">
+                      <td className="px-4 py-2 text-soft">
                         {e.bodeguero_nombre ?? e.bodeguero_id ?? "NE"}
                       </td>
                       <td
-                        className="max-w-[220px] truncate px-4 py-2 text-neutral-400"
+                        className="max-w-[220px] truncate px-4 py-2 text-muted"
                         title={e.items.map((i) => i.descripcion).join(", ")}
                       >
                         {e.items.length === 0
                           ? "—"
                           : `${e.items.length} producto${e.items.length === 1 ? "" : "s"}`}
                       </td>
-                      <td className="px-4 py-2 tabular-nums text-neutral-300">
+                      <td className="px-4 py-2 tabular-nums text-soft">
                         {sumar(e.items, "cantidad_entregada") + sumar(e.items, "cantidad_pendiente")}
                       </td>
-                      <td className="px-4 py-2 tabular-nums text-neutral-300">{sumar(e.items, "cantidad_entregada")}</td>
-                      <td className="px-4 py-2 tabular-nums text-neutral-300">{sumar(e.items, "cantidad_pendiente")}</td>
+                      <td className="px-4 py-2 tabular-nums text-soft">{sumar(e.items, "cantidad_entregada")}</td>
+                      <td className="px-4 py-2 tabular-nums text-soft">{sumar(e.items, "cantidad_pendiente")}</td>
                       <td className="px-4 py-2">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(e).clase}`}
+                          className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(e).clase}`}
                         >
                           {estadoVisual(e).etiqueta}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-neutral-500">
+                      <td className="px-4 py-2 text-muted">
                         {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-2">
@@ -1763,7 +1732,7 @@ export default function DashboardPage() {
                             ev.stopPropagation();
                             setEntregaDetalle(e);
                           }}
-                          className="rounded-md border border-sky-500/40 px-2 py-1 text-xs font-medium text-sky-400 transition hover:bg-sky-500/10"
+                          className="rounded-md border border-info/40 px-2 py-1 text-xs font-medium text-info transition hover:bg-info/10"
                         >
                           Ver fotos
                         </button>
@@ -1789,7 +1758,7 @@ export default function DashboardPage() {
         {entregasTabla?.length === limiteTabla ? (
           <button
             onClick={() => setLimiteTabla((l) => l + 150)}
-            className="self-center rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+            className="self-center rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
           >
             Cargar más
           </button>
@@ -1804,14 +1773,14 @@ export default function DashboardPage() {
         {!logsCargando && actividad.length === 0 ? (
           <EstadoVacio titulo="Sin actividad registrada todavía." />
         ) : (
-          <ul className="flex flex-col divide-y divide-neutral-800">
+          <ul className="flex flex-col divide-y divide-line">
             {actividad.map(({ log, texto }) => (
               <li
                 key={log.id}
-                className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm text-neutral-300 transition hover:bg-neutral-800/60"
+                className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm text-soft transition hover:bg-surface-2/60"
               >
                 <span>{texto}</span>
-                <span className="shrink-0 text-xs text-neutral-600">
+                <span className="shrink-0 text-xs text-subtle">
                   {new Date(log.timestamp).toLocaleString()}
                 </span>
               </li>
@@ -1823,8 +1792,8 @@ export default function DashboardPage() {
       {esAdmin ? (
       <section className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5">
         <div>
-          <h2 className="text-sm font-semibold text-red-400">Zona de peligro</h2>
-          <p className="text-xs text-neutral-500">
+          <h2 className="text-sm font-semibold text-danger">Zona de peligro</h2>
+          <p className="text-xs text-muted">
             Borra permanentemente todas las entregas, productos y logs del sistema. Pensado para
             resetear datos de prueba -- no toca las fotos ya subidas a Storage.
           </p>
@@ -1832,13 +1801,13 @@ export default function DashboardPage() {
         <div>
           <button
             onClick={() => setLimpiezaModalAbierta(true)}
-            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
+            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-red-500/10 disabled:opacity-50"
           >
             Eliminar TODOS los productos
           </button>
         </div>
         {limpiezaResultado ? (
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted">
             Última limpieza: {limpiezaResultado.entregas_borradas} entregas y{" "}
             {limpiezaResultado.logs_borrados} logs borrados.
           </p>

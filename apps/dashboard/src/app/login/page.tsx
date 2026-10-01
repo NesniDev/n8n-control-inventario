@@ -45,42 +45,48 @@ function FormularioLogin() {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center gap-6 px-4 py-10">
-      <header className="flex flex-col gap-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Control logístico · multi-sede</p>
-        <h1 className="text-2xl font-semibold text-neutral-100">Iniciar sesión</h1>
-        <p className="text-sm text-neutral-400">Ingresa con tu usuario y contraseña del panel.</p>
+    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
+      <header className="flex flex-col items-center gap-3 text-center">
+        <span
+          aria-hidden
+          className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-gold text-lg font-bold text-brand-ink"
+        >
+          EI
+        </span>
+        <p className="text-xs font-medium uppercase tracking-wide text-brand-gold">El Imperio · Panel de Despachos</p>
+        <h1 className="text-2xl font-semibold text-ink">Iniciar sesión</h1>
+        <p className="text-sm text-muted">Ingresa con tu usuario y contraseña del panel.</p>
       </header>
 
       {expirada ? (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
           Tu sesión expiró. Inicia sesión de nuevo.
         </div>
       ) : null}
 
       <form
         onSubmit={enviar}
-        className="flex flex-col gap-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5"
+        className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-xl shadow-black/30 sm:p-6"
       >
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] leading-none text-neutral-500">Usuario</span>
+          <span className="text-xs text-muted">Usuario</span>
           <input
             autoFocus
             autoComplete="username"
             autoCapitalize="none"
             value={usuario}
             onChange={(e) => setUsuario(e.target.value)}
-            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 [color-scheme:dark]"
+            className="rounded-lg border border-line bg-page px-3 py-2 text-sm text-ink [color-scheme:dark]"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] leading-none text-neutral-500">Contraseña</span>
+          <span className="text-xs text-muted">Contraseña</span>
           <input
             type="password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 [color-scheme:dark]"
+            className="rounded-lg border border-line bg-page px-3 py-2 text-sm text-ink [color-scheme:dark]"
           />
         </label>
         {error ? (
@@ -91,7 +97,7 @@ function FormularioLogin() {
         <button
           type="submit"
           disabled={enviando || !usuario.trim() || !password}
-          className="rounded-md bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50"
+          className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md bg-brand-gold px-3 py-2 text-sm font-semibold text-brand-ink transition hover:bg-gold-hover disabled:opacity-50"
         >
           {enviando ? "Ingresando…" : "Ingresar"}
         </button>
