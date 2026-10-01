@@ -1229,7 +1229,9 @@ export default function DashboardPage() {
 
   // Rol de la sesion: la zona de peligro y el borrado son solo admin, y el
   // link a Administracion tambien (el backend lo exige igual, 403 si no).
-  const { esAdmin } = useSesion();
+  // Consulta (!puedeEditar) no ve lo que es para actuar: "Necesita tu
+  // atencion" ni la tarjeta "Para revision" (la IA no estaba segura).
+  const { esAdmin, puedeEditar } = useSesion();
 
   const [limpiezaModalAbierta, setLimpiezaModalAbierta] = useState(false);
   const [limpiezaResultado, setLimpiezaResultado] = useState<{
@@ -1367,12 +1369,14 @@ export default function DashboardPage() {
             >
               Ranking de productos
             </Link>
-            <Link
-              href="/turnos"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-            >
-              Planificación de turnos
-            </Link>
+            {esAdmin ? (
+              <Link
+                href="/turnos"
+                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+              >
+                Planificación de turnos
+              </Link>
+            ) : null}
             {esAdmin ? (
               <Link
                 href="/creador"
@@ -1397,7 +1401,7 @@ export default function DashboardPage() {
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">Cómo va hoy</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${puedeEditar ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
           <TarjetaResumen
             titulo="Entregas hoy"
             valor={entregasHoy.length}
@@ -1411,13 +1415,15 @@ export default function DashboardPage() {
             detalle={remisionesHoy.length > 0 ? "RM2 / RM3 / RSF capturadas" : "Todavía sin movimiento"}
             onClick={() => setFiltroFlujo("remisiones")}
           />
-          <TarjetaResumen
-            titulo="Para revisión"
-            valor={paraRevisar.length}
-            tono={paraRevisar.length > 0 ? "atencion" : "bien"}
-            detalle="La IA no estaba segura del todo"
-            onClick={() => setFiltroEstado("revision")}
-          />
+          {puedeEditar ? (
+            <TarjetaResumen
+              titulo="Para revisión"
+              valor={paraRevisar.length}
+              tono={paraRevisar.length > 0 ? "atencion" : "bien"}
+              detalle="La IA no estaba segura del todo"
+              onClick={() => setFiltroEstado("revision")}
+            />
+          ) : null}
           <TarjetaResumen
             titulo="Sin terminar"
             valor={conPendiente.length}
@@ -1438,7 +1444,7 @@ export default function DashboardPage() {
           tener que leer la tabla entera buscando que esta mal. Dos subgrupos
           separados (en vez de la mezcla anterior) para distinguir revision
           de la IA vs. entregas sin terminar. */}
-      {entregas === undefined && !entregasError ? (
+      {!puedeEditar ? null : entregas === undefined && !entregasError ? (
         // Reserva la altura tipica de la seccion cargada para que no empuje
         // lo de abajo cuando llegan los datos.
         <section className="flex flex-col gap-4" aria-busy>

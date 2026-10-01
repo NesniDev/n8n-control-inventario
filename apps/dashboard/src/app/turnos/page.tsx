@@ -20,6 +20,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetchCargaTurnos, fetchSedes, type CeldaCarga } from "@/lib/api";
 import { EstadoVacio, ErrorConReintento, TarjetaConHeader } from "@/components/ui";
+import { useSesion } from "@/lib/SesionProvider";
 
 const AZUL_BARRA = "#3987e5";
 
@@ -66,7 +67,30 @@ function nivelDe(celda: CeldaCarga | undefined, umbral: number | null): Nivel {
   return "poco";
 }
 
+// Solo admin. Se separa en dos componentes para no cortar los hooks de
+// ContenidoTurnos con un return temprano.
 export default function TurnosPage() {
+  const { esAdmin } = useSesion();
+  if (!esAdmin) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
+        <h1 className="text-2xl font-semibold text-neutral-100">Planificación de turnos</h1>
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          No tienes permiso para ver esta sección. Solo los administradores pueden acceder.
+        </div>
+        <Link
+          href="/"
+          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+        >
+          ← Volver al panel
+        </Link>
+      </main>
+    );
+  }
+  return <ContenidoTurnos />;
+}
+
+function ContenidoTurnos() {
   const { data: sedes } = useSWR("sedes", fetchSedes);
   const [sedeElegida, setSedeElegida] = useState<string | null>(null);
   const [semanas, setSemanas] = useState<number>(8);
