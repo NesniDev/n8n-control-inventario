@@ -71,7 +71,7 @@ async def excepcion_no_manejada(request: Request, exc: Exception) -> JSONRespons
 # a mano este string en cada cambio que valga la pena poder confirmar desde
 # afuera (ver GET /health) -- unica forma de verificar que un deploy en
 # Dokploy realmente tomo el commit esperado sin entrar al panel.
-_BUILD_MARCADOR = "facturas-faltantes-check"
+_BUILD_MARCADOR = "facturas-mostrador-sin-descartar"
 
 
 @app.get("/health")

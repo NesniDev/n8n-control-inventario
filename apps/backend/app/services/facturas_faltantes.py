@@ -17,7 +17,9 @@ from app.services.logging_service import registrar_evento
 # Roles que pueden reportar una factura faltante (bodega y sus superiores).
 _ROLES_REPORTAN = ("operador", "supervisor", "admin")
 # Roles que pueden descartar un reporte de su sede (ademas de quien lo hizo).
-_ROLES_DESCARTAN = ("punto_venta", "supervisor", "admin")
+# punto_venta NO: el mostrador solo puede marcarla como subida (marcar_subida),
+# para que un aviso no se cierre sin que la factura exista.
+_ROLES_DESCARTAN = ("supervisor", "admin")
 # Roles que pueden marcar un reporte como "ya subida" (mostrador de la sede destino).
 _ROLES_MARCAN_SUBIDA = ("punto_venta", "supervisor", "admin")
 
