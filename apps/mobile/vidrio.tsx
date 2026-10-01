@@ -6,12 +6,20 @@
 // CLAUDE.md, "Actualizaciones de la app movil"); los .apk viejos no reciben
 // esta actualizacion por OTA hasta reinstalar.
 //
-// Android solo desenfoca lo que esta dentro de un BlurTargetView: el fondo
-// de la entrada va envuelto en uno y su ref llega a cada Vidrio por
-// ProveedorFondo. En Android < 12 (SDK 31) no hay desenfoque y el vidrio
-// queda como una capa oscura translucida -- se sigue leyendo bien.
+// En Android NO se desenfoca: el blur en tiempo real es caro en celulares de
+// gama baja, asi que el vidrio es una capa oscura mas opaca (se lee bien sin
+// desenfoque). Solo iOS usa BlurView.
 import { createContext, useContext, type ReactNode, type RefObject } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -32,6 +40,9 @@ export function Vidrio({
   children?: ReactNode;
 }) {
   const objetivo = useContext(ContextoFondo);
+  if (Platform.OS === 'android') {
+    return <View style={[estilos.vidrio, estilos.vidrioAndroid, style]}>{children}</View>;
+  }
   return (
     <BlurView
       intensity={intensidad}
@@ -149,6 +160,8 @@ const estilos = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
+  // Sin desenfoque en Android: fondo mas opaco para compensar.
+  vidrioAndroid: { backgroundColor: 'rgba(8,22,51,0.72)' },
   avatar: { alignItems: 'center', justifyContent: 'center' },
   avatarTexto: { color: TEXTO_PRIMARIO },
   boton: { width: '100%', borderRadius: 18, overflow: 'hidden' },

@@ -17,6 +17,7 @@ import {
   Animated,
   BackHandler,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -64,7 +65,7 @@ export default function PantallaEntrada({ onLogin }: { onLogin: (sesion: Sesion)
   // Hasta leer el recuerdo (un archivo chico, casi instantaneo) solo se ve el
   // fondo, para no mostrar un area y saltar a otra.
   const [recuerdo, setRecuerdo] = useState<RecuerdoLogin | null>(null);
-  // Lo que los Vidrio desenfocan en Android (ver vidrio.tsx).
+  // Lo que los Vidrio desenfocan en iOS (en Android no hay desenfoque, ver vidrio.tsx).
   const objetivoDesenfoque = useRef<View | null>(null);
 
   useEffect(() => {
@@ -73,9 +74,15 @@ export default function PantallaEntrada({ onLogin }: { onLogin: (sesion: Sesion)
 
   return (
     <View style={estilos.contenedor}>
-      <BlurTargetView ref={objetivoDesenfoque} style={StyleSheet.absoluteFill}>
-        <FondoEntrada />
-      </BlurTargetView>
+      {Platform.OS === 'android' ? (
+        <View ref={objetivoDesenfoque} style={StyleSheet.absoluteFill}>
+          <FondoEntrada />
+        </View>
+      ) : (
+        <BlurTargetView ref={objetivoDesenfoque} style={StyleSheet.absoluteFill}>
+          <FondoEntrada />
+        </BlurTargetView>
+      )}
       <ProveedorFondo value={objetivoDesenfoque}>
         {recuerdo ? <Entrada recuerdo={recuerdo} onLogin={onLogin} reducirMovimiento={reducirMovimiento} /> : null}
       </ProveedorFondo>
@@ -88,10 +95,9 @@ const PASO_GRILLA = 32;
 // Fondo QUIETO a proposito: degradado diagonal cielo -> azul -> azul noche, una
 // grilla fina de lineas (como papel tecnico) que se desvanece hacia abajo y
 // tres haces de luz diagonales fijos (blanco, dorado y verde de la marca).
-// Sin animacion: el vidrio de las tarjetas (expo-blur) desenfoca lo que tiene
-// detras, y en Android recalcula ese desenfoque cada vez que el fondo cambia
-// -- con el fondo en movimiento eso era trabajo en cada cuadro y ponia lento
-// el celular. Quieto, se calcula una sola vez.
+// Sin animacion: en iOS el vidrio de las tarjetas (expo-blur) desenfoca lo que
+// tiene detras y recalcula ese desenfoque cada vez que el fondo cambia; quieto,
+// se calcula una sola vez. En Android el vidrio ya no desenfoca.
 function FondoEntrada() {
   const { width, height } = useWindowDimensions();
   const columnas = Math.ceil(width / PASO_GRILLA) + 1;
