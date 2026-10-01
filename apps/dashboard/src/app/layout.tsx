@@ -36,6 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             style: {
               background: "var(--color-surface)",
               border: "1px solid var(--color-line-strong)",
+              borderRadius: "0.75rem",
               color: "var(--color-ink)",
             },
           }}

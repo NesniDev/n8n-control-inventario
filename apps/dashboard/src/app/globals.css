@@ -1,38 +1,54 @@
 @import "tailwindcss";
 
-/* Panel operativo en tema oscuro con la paleta de marca de Comercializadora
-   El Imperio (misma MARCA que apps/mobile/vidrio.tsx). No sigue
-   prefers-color-scheme: es una herramienta interna de sede. */
+/* Panel operativo en tema oscuro "Grafito cálido" con acento dorado de la
+   marca de Comercializadora El Imperio. No sigue prefers-color-scheme: es una
+   herramienta interna de sede. Contrastes WCAG medidos en el reporte del PR. */
 @theme {
-  /* Fondos y bordes (derivados del azul "noche" de la marca) */
-  --color-page: #081633;
-  --color-surface: #0d1f45;
-  --color-surface-2: #12285a;
-  --color-line: #1e3566;
-  --color-line-strong: #34548f;
+  /* Fondos y bordes (grafito cálido, sin azules) */
+  --color-page: #111110;
+  --color-surface: #1a1918;
+  --color-surface-2: #23221f;
+  --color-line: #2e2c29;
+  --color-line-strong: #3a3834;
 
-  /* Texto (todos con contraste >= 4.5:1 sobre page, surface y surface-2) */
-  --color-ink: #e8edf7;
-  --color-soft: #c5d0e8;
-  --color-muted: #a3b3d3;
-  --color-subtle: #93a5c9;
+  /* Texto (>= 4.5:1 sobre page, surface y surface-2) */
+  --color-ink: #f5f4f0;
+  --color-soft: #d6d3cd;
+  --color-muted: #a8a29e;
+  --color-subtle: #8f8a84;
 
-  /* Marca */
-  --color-brand-night: #081633;
-  --color-brand-ink: #0b1d45;
-  --color-brand-blue: #123a82;
-  --color-brand-sky: #1f56b8;
+  /* Marca: el dorado es el acento; los tonos "azules" de la marca quedaron
+     como piedra cálida para no reintroducir fondos azules. */
+  --color-brand-night: #111110;
+  --color-brand-ink: #1a1918; /* texto sobre dorado */
+  --color-brand-blue: #3a3834;
+  --color-brand-sky: #6b5a1f;
   --color-brand-gold: #f5c542;
-  --color-gold-hover: #f9d467;
+  --color-gold-hover: #f7d264;
 
   /* Estados */
-  --color-ok: #3d8e33;
+  --color-ok: #3d8e33; /* verde oficial de marca, exacto */
   --color-ok-hover: #4aa03f;
-  --color-ok-fg: #7fd470;
-  --color-warn: #fbbf24;
-  --color-danger: #f87171;
+  --color-ok-fg: #6fcf62; /* texto verde sobre oscuro */
+  --color-ok-on: #111110; /* texto sobre fondo ok (4.6:1) */
+  --color-warn: #f59e0b;
+  --color-danger: #ef4444; /* bordes y rellenos suaves */
+  --color-danger-fg: #f87171; /* texto de error (el #ef4444 no llega a 4.5:1 sobre surface-2) */
   --color-danger-solid: #dc2626;
-  --color-info: #7db3ff;
+  --color-info: #60a5fa; /* solo texto/bordes finos, nunca fondos */
+}
+
+@theme {
+  --animate-deslizar: deslizar 180ms ease-out;
+
+  @keyframes deslizar {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
 }
 
 @theme inline {
@@ -42,6 +58,10 @@
 
 :root {
   color-scheme: dark;
+}
+
+html {
+  overflow-x: clip;
 }
 
 body {
@@ -65,8 +85,8 @@ select {
 }
 
 ::selection {
-  background: var(--color-brand-sky);
-  color: #fff;
+  background: var(--color-brand-gold);
+  color: var(--color-brand-ink);
 }
 
 /* Barras de scroll discretas, acordes al tema. */

@@ -14,7 +14,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { fetchRankingProductos, fetchSedes, type RankingProductoItem } from "@/lib/api";
-import { Indicador } from "@/components/ui";
+import { EncabezadoPagina, Indicador } from "@/components/ui";
 
 const COLOR_MAS = "#059669";
 const COLOR_MENOS = "#0284c7";
@@ -132,17 +132,11 @@ export default function RankingPage() {
 
   return (
     <main className="mx-auto flex w-full flex-1 max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            Control logístico · analítica
-          </p>
-          <h1 className="text-2xl font-semibold text-ink">Ranking de productos</h1>
-          <p className="text-sm text-muted">
-            Más y menos vendidos en el período elegido, según lo confirmado en las entregas.
-          </p>
-        </div>
-      </header>
+      <EncabezadoPagina
+        sobretitulo="Control logístico · analítica"
+        titulo="Ranking de productos"
+        descripcion="Más y menos vendidos en el período elegido, según lo confirmado en las entregas."
+      />
 
       {/* Filtros en una sola fila arriba de los datos. */}
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4">

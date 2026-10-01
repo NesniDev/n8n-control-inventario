@@ -45,7 +45,14 @@ function FormularioLogin() {
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
+    <main className="relative flex w-full flex-1 items-center justify-center overflow-hidden px-4 py-10">
+      {/* Brillo calido muy tenue detras de la tarjeta. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-1/3 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.10] blur-3xl"
+        style={{ background: "radial-gradient(circle, var(--color-brand-gold), transparent 70%)" }}
+      />
+      <div className="relative flex w-full max-w-sm flex-col gap-6">
       <header className="flex flex-col items-center gap-3 text-center">
         <span
           aria-hidden
@@ -53,20 +60,20 @@ function FormularioLogin() {
         >
           EI
         </span>
-        <p className="text-xs font-medium uppercase tracking-wide text-brand-gold">El Imperio · Panel de Despachos</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-gold">El Imperio · Panel de Despachos</p>
         <h1 className="text-2xl font-semibold text-ink">Iniciar sesión</h1>
         <p className="text-sm text-muted">Ingresa con tu usuario y contraseña del panel.</p>
       </header>
 
       {expirada ? (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
           Tu sesión expiró. Inicia sesión de nuevo.
         </div>
       ) : null}
 
       <form
         onSubmit={enviar}
-        className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-xl shadow-black/30 sm:p-6"
+        className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 sm:p-6"
       >
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted">Usuario</span>
@@ -102,6 +109,7 @@ function FormularioLogin() {
           {enviando ? "Ingresando…" : "Ingresar"}
         </button>
       </form>
+      </div>
     </main>
   );
 }

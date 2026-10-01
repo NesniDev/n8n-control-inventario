@@ -44,7 +44,7 @@ import {
 } from "@/lib/api";
 import { useSesion } from "@/lib/SesionProvider";
 import { ETIQUETA_ROL, type RolDashboard } from "@/lib/sesion";
-import { ErrorConReintento, EstadoVacio, Icono, TarjetaConHeader } from "@/components/ui";
+import { EncabezadoPagina, ErrorConReintento, EstadoVacio, Icono, TarjetaConHeader } from "@/components/ui";
 
 const INPUT =
   "rounded-lg border border-line bg-page px-2 py-1.5 text-xs text-ink [color-scheme:dark] disabled:opacity-50";
@@ -1068,7 +1068,7 @@ export default function CreadorPage() {
   if (!esAdmin) {
     return (
       <main className="mx-auto flex w-full flex-1 max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
-        <h1 className="text-2xl font-semibold text-ink">Administración</h1>
+        <EncabezadoPagina titulo="Administración" />
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
           No tienes permiso para ver esta sección. Solo los administradores pueden acceder.
         </div>
@@ -1084,16 +1084,11 @@ export default function CreadorPage() {
 
   return (
     <main className="mx-auto flex w-full flex-1 max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Control logístico · administración</p>
-          <h1 className="text-2xl font-semibold text-ink">Administración</h1>
-          <p className="text-sm text-muted">
-            Cree y gestione sedes, empleados, puntos, supervisores, tipos de documento y usuarios del dashboard. Nada se borra: desactivar
-            solo oculta el registro en las aplicaciones.
-          </p>
-        </div>
-      </header>
+      <EncabezadoPagina
+        sobretitulo="Control logístico · administración"
+        titulo="Administración"
+        descripcion="Cree y gestione sedes, empleados, puntos, supervisores, tipos de documento y usuarios del dashboard. Nada se borra: desactivar solo oculta el registro en las aplicaciones."
+      />
 
       <nav className="flex flex-wrap gap-1.5" aria-label="Secciones">
         {PESTANAS.map((p) => (

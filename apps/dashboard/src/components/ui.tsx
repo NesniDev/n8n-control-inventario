@@ -1,14 +1,14 @@
 "use client";
 
 // Piezas de presentacion compartidas entre las pantallas del dashboard --
-// tema oscuro con la paleta de marca (tokens definidos en globals.css:
+// tema oscuro "Grafito cálido" con acento dorado (tokens definidos en globals.css:
 // surface, line, muted, brand-gold, ok, etc.). Sin logica de negocio: solo
 // reciben datos ya resueltos por cada pagina.
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-// Indicador KPI -- rotulo con punto de color + valor grande + detalle chico.
-// Identico al que tenia ranking/page.tsx antes de esta extraccion.
+// Indicador KPI -- barra fina de color arriba, rotulo en mayusculas chicas,
+// valor grande tabular y detalle. Mismas props que antes.
 export function Indicador({
   etiqueta,
   valor,
@@ -25,11 +25,9 @@ export function Indicador({
   cargando: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: acento }} aria-hidden />
-        <span className="text-xs font-medium text-muted">{etiqueta}</span>
-      </div>
+    <div className="relative flex flex-col gap-1.5 overflow-hidden rounded-xl border border-line bg-surface p-4 pt-5 transition-colors duration-150 hover:border-line-strong">
+      <span className="absolute inset-x-0 top-0 h-[3px]" style={{ backgroundColor: acento }} aria-hidden />
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">{etiqueta}</span>
       {cargando ? (
         <div className="flex flex-col gap-2 pt-1">
           <div className="h-7 w-24 animate-pulse rounded bg-surface-2" />
@@ -38,7 +36,7 @@ export function Indicador({
       ) : (
         <>
           <p className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-semibold tabular-nums text-ink">{valor}</span>
+            <span className="text-4xl font-semibold leading-none tabular-nums tracking-tight text-ink">{valor}</span>
             {unidad ? <span className="text-xs text-muted">{unidad}</span> : null}
           </p>
           <p className="truncate text-xs text-muted" title={detalle}>
@@ -60,7 +58,7 @@ export function ErrorConReintento({
   onReintentar: () => void;
 }) {
   return (
-    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
       <span>{mensaje}</span>
       <button
         onClick={onReintentar}
@@ -112,7 +110,7 @@ export function TarjetaConHeader({
     >
       <header className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-soft">
             {colorTitulo ? (
               <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colorTitulo }} aria-hidden />
             ) : null}
@@ -144,9 +142,9 @@ export function claseBoton(variante: VarianteBoton = "secundario", extra = ""): 
     "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50";
   const variantes: Record<VarianteBoton, string> = {
     primario: "bg-brand-gold text-brand-ink hover:bg-gold-hover font-semibold",
-    secundario: "border border-line-strong text-soft hover:bg-surface-2 hover:text-ink",
+    secundario: "border border-line-strong bg-surface-2 text-soft hover:border-muted hover:text-ink",
     fantasma: "text-muted hover:bg-surface-2 hover:text-ink",
-    peligro: "bg-danger-solid text-white hover:bg-red-500",
+    peligro: "bg-danger-solid text-white font-semibold hover:bg-red-700",
   };
   return `${base} ${variantes[variante]} ${extra}`.trim();
 }
@@ -165,7 +163,7 @@ export type TonoPildora = "ok" | "warn" | "error" | "info" | "neutro";
 const TONOS_PILDORA: Record<TonoPildora, string> = {
   ok: "border-ok/50 bg-ok/15 text-ok-fg",
   warn: "border-warn/40 bg-warn/10 text-warn",
-  error: "border-danger/40 bg-danger/10 text-danger",
+  error: "border-danger/40 bg-danger/10 text-danger-fg",
   info: "border-info/40 bg-info/10 text-info",
   neutro: "border-line-strong bg-surface-2 text-soft",
 };
@@ -204,15 +202,15 @@ export function EncabezadoPagina({
   acciones?: ReactNode;
 }) {
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div className="flex max-w-2xl flex-col gap-1">
+    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-5">
+      <div className="flex min-w-0 max-w-2xl flex-col gap-1">
         {sobretitulo ? (
-          <p className="text-xs font-medium uppercase tracking-wide text-brand-gold">{sobretitulo}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-gold">{sobretitulo}</p>
         ) : null}
-        <h1 className="text-2xl font-semibold text-ink">{titulo}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">{titulo}</h1>
         {descripcion ? <p className="text-sm leading-relaxed text-muted">{descripcion}</p> : null}
       </div>
-      {acciones ? <div className="flex items-center gap-2">{acciones}</div> : null}
+      {acciones ? <div className="flex flex-wrap items-center gap-2">{acciones}</div> : null}
     </header>
   );
 }

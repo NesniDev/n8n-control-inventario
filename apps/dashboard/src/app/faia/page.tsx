@@ -154,7 +154,7 @@ export default function FaiaPage() {
     if (!ROLES_PERMITIDOS.includes(sesion.rol)) {
       return (
         <main className="mx-auto flex w-full flex-1 max-w-md flex-col items-center justify-center gap-4 px-6 py-10 text-center">
-          <h1 className="text-xl font-semibold text-danger">Acceso denegado</h1>
+          <h1 className="text-xl font-semibold text-danger-fg">Acceso denegado</h1>
           <p className="text-sm text-muted">
             Tu usuario ({sesion.nombre}) no tiene permiso para ver los documentos FAIA.
           </p>
@@ -187,7 +187,7 @@ export default function FaiaPage() {
         </header>
 
         {errorEntregas ? (
-          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-danger">
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-danger-fg">
             {errorEntregas}
           </div>
         ) : null}
@@ -254,7 +254,7 @@ export default function FaiaPage() {
             <p className="text-sm text-muted">Cargando sedes...</p>
           ) : errorSedes ? (
             <div className="flex flex-col gap-2">
-              <p className="text-sm text-danger">{errorSedes}</p>
+              <p className="text-sm text-danger-fg">{errorSedes}</p>
               <button
                 onClick={cargarSedes}
                 className="self-start rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft hover:bg-surface-2"
@@ -290,7 +290,7 @@ export default function FaiaPage() {
             <p className="text-sm text-muted">Cargando empleados...</p>
           ) : errorEmpleados ? (
             <div className="flex flex-col gap-2">
-              <p className="text-sm text-danger">{errorEmpleados}</p>
+              <p className="text-sm text-danger-fg">{errorEmpleados}</p>
               <button
                 onClick={() => sedeElegida && cargarEmpleados(sedeElegida)}
                 className="self-start rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft hover:bg-surface-2"
@@ -342,7 +342,7 @@ export default function FaiaPage() {
               className="rounded-md border border-line-strong bg-surface px-3 py-2 text-center text-lg tracking-[0.5em] text-ink"
             />
           </label>
-          {errorLogin ? <p className="text-xs text-danger">{errorLogin}</p> : null}
+          {errorLogin ? <p className="text-xs text-danger-fg">{errorLogin}</p> : null}
           <button
             onClick={ingresar}
             disabled={pin.length < 4 || cargandoLogin}

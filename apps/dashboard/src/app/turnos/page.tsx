@@ -19,7 +19,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetchCargaTurnos, fetchSedes, type CeldaCarga } from "@/lib/api";
-import { EstadoVacio, ErrorConReintento, Icono, TarjetaConHeader } from "@/components/ui";
+import { EncabezadoPagina, EstadoVacio, ErrorConReintento, Icono, TarjetaConHeader } from "@/components/ui";
 import { useSesion } from "@/lib/SesionProvider";
 
 const AZUL_BARRA = "#3987e5";
@@ -74,7 +74,7 @@ export default function TurnosPage() {
   if (!esAdmin) {
     return (
       <main className="mx-auto flex w-full flex-1 max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
-        <h1 className="text-2xl font-semibold text-ink">Planificación de turnos</h1>
+        <EncabezadoPagina titulo="Planificación de turnos" />
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
           No tienes permiso para ver esta sección. Solo los administradores pueden acceder.
         </div>
@@ -146,19 +146,17 @@ function ContenidoTurnos() {
 
   return (
     <main className="mx-auto flex w-full flex-1 min-w-0 max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex max-w-2xl flex-col gap-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            Control logístico · analítica
-          </p>
-          <h1 className="text-2xl font-semibold text-ink">Planificación de turnos</h1>
-          <p className="text-sm leading-relaxed text-muted">
+      <EncabezadoPagina
+        sobretitulo="Control logístico · analítica"
+        titulo="Planificación de turnos"
+        descripcion={
+          <>
             Te muestra <span className="text-ink">cuándo llega más trabajo a la bodega</span>, según los
             documentos que se registraron en la app. Úsalo para decidir cuándo poner más gente y cuándo alcanza con
             menos.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {/* Filtros en una sola fila, con rotulos en palabras. */}
       <section className="flex flex-wrap items-end gap-4 rounded-xl border border-line bg-surface p-3 sm:p-4">

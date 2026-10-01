@@ -23,7 +23,7 @@ import {
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { useSesion } from "@/lib/SesionProvider";
-import { EstadoVacio, Icono, TarjetaConHeader } from "@/components/ui";
+import { Boton, EncabezadoPagina, EstadoVacio, Icono, Pildora, TarjetaConHeader, type TonoPildora } from "@/components/ui";
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
 // el backend); TB9/RM3/RM2/RSF no tienen sede dueña -- sugerencia rápida del
@@ -81,17 +81,17 @@ function fechasCalendarioAISO(desde: string, hasta: string): { desde?: string; h
 // en la DB: "procesada" se separa visualmente en "Procesada" (nada
 // pendiente) y "Pendiente" (sin terminar), para que se entienda de un
 // vistazo si falta algo sin tener que abrir la fila.
-function estadoVisual(entrega: Entrega): { etiqueta: string; clase: string } {
+function estadoVisual(entrega: Entrega): { etiqueta: string; tono: TonoPildora } {
   if (entrega.estado === "pendiente_revision") {
-    return { etiqueta: "Pendiente de revisión", clase: "border border-warn/40 bg-warn/10 text-warn" };
+    return { etiqueta: "Pendiente de revisión", tono: "warn" };
   }
   if (entrega.estado === "duplicado_bloqueado") {
-    return { etiqueta: "Duplicado bloqueado", clase: "border border-danger/40 bg-danger/10 text-danger" };
+    return { etiqueta: "Duplicado bloqueado", tono: "error" };
   }
   if (tienePendiente(entrega)) {
-    return { etiqueta: "Pendiente", clase: "border border-warn/40 bg-warn/10 text-warn" };
+    return { etiqueta: "Pendiente", tono: "warn" };
   }
-  return { etiqueta: "Procesada", clase: "border border-ok/50 bg-ok/15 text-ok-fg" };
+  return { etiqueta: "Procesada", tono: "ok" };
 }
 
 // Convierte un ISO del backend al formato que espera <input type="datetime-local">
@@ -211,7 +211,7 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
 
 type Tono = "neutral" | "bien" | "atencion" | "alerta";
 
-// Punto de color junto al rotulo -- mismo patron que Indicador en
+// Barra de color arriba de la tarjeta -- mismo patron que Indicador en
 // ranking/page.tsx (el color nunca es la unica pista: el titulo y el valor
 // siempre llevan texto al lado).
 const TONO_ACENTO: Record<Tono, string> = {
@@ -225,7 +225,7 @@ const TONO_TEXTO: Record<Tono, string> = {
   neutral: "text-ink",
   bien: "text-ok-fg",
   atencion: "text-warn",
-  alerta: "text-danger",
+  alerta: "text-danger-fg",
 };
 
 // Tarjeta de resumen (KPI) -- una idea, un numero grande, sin que haga falta
@@ -251,15 +251,13 @@ function TarjetaResumen({
   return (
     <Contenedor
       onClick={onClick}
-      className={`flex flex-col gap-1.5 rounded-xl border border-line bg-surface p-4 text-left ${
-        onClick ? "cursor-pointer transition hover:bg-surface-2" : ""
+      className={`relative flex flex-col gap-1.5 overflow-hidden rounded-xl border border-line bg-surface p-4 pt-5 text-left transition-colors duration-150 hover:border-line-strong ${
+        onClick ? "cursor-pointer" : ""
       }`}
     >
-      <div className="flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: TONO_ACENTO[tono] }} aria-hidden />
-        <span className="text-xs font-medium text-muted">{titulo}</span>
-      </div>
-      <span className={`text-2xl font-semibold tabular-nums ${TONO_TEXTO[tono]}`}>{valor}</span>
+      <span className="absolute inset-x-0 top-0 h-[3px]" style={{ backgroundColor: TONO_ACENTO[tono] }} aria-hidden />
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">{titulo}</span>
+      <span className={`text-4xl font-semibold leading-none tabular-nums tracking-tight ${TONO_TEXTO[tono]}`}>{valor}</span>
       {detalle ? <span className="truncate text-xs text-muted">{detalle}</span> : null}
     </Contenedor>
   );
@@ -282,7 +280,7 @@ function ModalConfirmar({
   onCerrar: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 backdrop-blur-sm px-4" onClick={onCerrar}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={onCerrar}>
       <div
         className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-line bg-surface p-5"
         onClick={(ev) => ev.stopPropagation()}
@@ -290,18 +288,10 @@ function ModalConfirmar({
         <h3 className="text-lg font-semibold text-ink">{titulo}</h3>
         <p className="text-sm text-muted">{mensaje}</p>
         <div className="flex justify-end gap-2">
-          <button
-            onClick={onCerrar}
-            className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirmar}
-            className="rounded-md bg-danger-solid px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
-          >
+          <Boton onClick={onCerrar}>Cancelar</Boton>
+          <Boton variante="peligro" onClick={onConfirmar}>
             {textoConfirmar}
-          </button>
+          </Boton>
         </div>
       </div>
     </div>
@@ -707,7 +697,7 @@ function FilaRevision({
               <button
                 onClick={() => guardar(true)}
                 disabled={guardando}
-                className="rounded-md bg-ok px-3 py-1.5 text-xs font-medium text-white transition hover:bg-ok-hover disabled:opacity-50"
+                className="rounded-md bg-ok px-3 py-1.5 text-xs font-semibold text-ok-on transition hover:bg-ok-hover disabled:opacity-50"
               >
                 {guardando ? "Guardando..." : "Aprobar"}
               </button>
@@ -716,7 +706,7 @@ function FilaRevision({
               <button
                 onClick={() => setConfirmandoBorrado(true)}
                 disabled={guardando}
-                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-red-500/10 disabled:opacity-50"
+                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger-fg transition hover:bg-red-500/10 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -843,7 +833,7 @@ function ModalDetalleEntrega({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 backdrop-blur-sm px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
       onClick={onCerrar}
     >
       <div
@@ -855,11 +845,9 @@ function ModalDetalleEntrega({
             <h3 className="text-lg font-semibold text-ink">
               {entrega.tipo} {entrega.indicativo_numero}
             </h3>
-            <span
-              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(entrega).clase}`}
-            >
+            <Pildora tono={estadoVisual(entrega).tono} className="mt-1">
               {estadoVisual(entrega).etiqueta}
-            </span>
+            </Pildora>
           </div>
           <button onClick={onCerrar} className="text-muted hover:text-ink" aria-label="Cerrar">
             <Icono nombre="cerrar" className="h-5 w-5" />
@@ -1073,12 +1061,12 @@ function ModalConfirmarLimpieza({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 backdrop-blur-sm px-4" onClick={onCerrar}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={onCerrar}>
       <div
         className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-red-500/40 bg-surface p-5"
         onClick={(ev) => ev.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-danger">Eliminar TODOS los productos</h3>
+        <h3 className="text-lg font-semibold text-danger-fg">Eliminar TODOS los productos</h3>
         <p className="text-sm text-muted">
           Esto borra permanentemente todas las entregas, sus productos y todo el historial de logs. No
           se puede deshacer.
@@ -1092,22 +1080,14 @@ function ModalConfirmarLimpieza({
             className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark] disabled:opacity-40"
           />
         </label>
-        {error ? <p className="text-xs text-danger">{error}</p> : null}
+        {error ? <p className="text-xs text-danger-fg">{error}</p> : null}
         <div className="flex justify-end gap-2">
-          <button
-            onClick={onCerrar}
-            disabled={limpiando}
-            className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2 disabled:opacity-50"
-          >
+          <Boton onClick={onCerrar} disabled={limpiando}>
             Cancelar
-          </button>
-          <button
-            onClick={confirmar}
-            disabled={!habilitado || limpiando}
-            className="rounded-md bg-danger-solid px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
-          >
+          </Boton>
+          <Boton variante="peligro" onClick={confirmar} disabled={!habilitado || limpiando}>
             {limpiando ? "Eliminando..." : "Eliminar todo"}
-          </button>
+          </Boton>
         </div>
       </div>
     </div>
@@ -1349,14 +1329,14 @@ export default function DashboardPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
-      <header className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            Control logístico · multi-sede
-          </p>
+      <EncabezadoPagina
+        sobretitulo="Control logístico · multi-sede"
+        titulo="Panel de despachos"
+        descripcion="Así viene el negocio hoy, en las dos sedes — se actualiza solo, sin recargar la página."
+        acciones={
           <span
-            className={`flex items-center gap-1.5 text-xs font-medium ${
-              enVivo ? "text-ok-fg" : "text-subtle"
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
+              enVivo ? "border-ok/50 text-ok-fg" : "border-line-strong text-subtle"
             }`}
           >
             <span
@@ -1364,24 +1344,18 @@ export default function DashboardPage() {
             />
             {enVivo ? "En vivo" : "Conectando..."}
           </span>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-ink">Panel de despachos</h1>
-        </div>
-        <p className="text-sm text-muted">
-          Así viene el negocio hoy, en las dos sedes — se actualiza solo, sin recargar la página.
-        </p>
-      </header>
+        }
+      />
 
       {error ? (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-danger">
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-danger-fg">
           No se pudo conectar con el backend ({API_URL_HINT}): {error}
         </div>
       ) : null}
 
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">Cómo va hoy</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Cómo va hoy</h2>
         <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${puedeEditar ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
           <TarjetaResumen
             titulo="Entregas hoy"
@@ -1660,19 +1634,19 @@ export default function DashboardPage() {
 
         <div className="overflow-x-auto rounded-xl border border-line bg-surface">
           <table className="w-full min-w-[820px] text-left text-sm">
-            <thead className="border-b border-line bg-surface-2 text-xs uppercase tracking-wide text-soft">
+            <thead className="border-b border-line bg-surface-2 text-[11px] uppercase tracking-wider text-muted">
               <tr>
-                <th className="px-4 py-2 font-medium">Tipo</th>
-                <th className="px-4 py-2 font-medium">Número</th>
-                <th className="px-4 py-2 font-medium">Sede</th>
-                <th className="px-4 py-2 font-medium">Bodeguero</th>
-                <th className="px-4 py-2 font-medium">Productos</th>
-                <th className="px-4 py-2 font-medium">Entregas</th>
-                <th className="px-4 py-2 font-medium">Entregado</th>
-                <th className="px-4 py-2 font-medium">Pendiente</th>
-                <th className="px-4 py-2 font-medium">Estado</th>
-                <th className="px-4 py-2 font-medium">Capturado</th>
-                <th className="px-4 py-2 font-medium">Foto</th>
+                <th className="px-4 py-3 font-semibold">Tipo</th>
+                <th className="px-4 py-3 font-semibold">Número</th>
+                <th className="px-4 py-3 font-semibold">Sede</th>
+                <th className="px-4 py-3 font-semibold">Bodeguero</th>
+                <th className="px-4 py-3 font-semibold">Productos</th>
+                <th className="px-4 py-3 text-right font-semibold">Entregas</th>
+                <th className="px-4 py-3 text-right font-semibold">Entregado</th>
+                <th className="px-4 py-3 text-right font-semibold">Pendiente</th>
+                <th className="px-4 py-3 font-semibold">Estado</th>
+                <th className="px-4 py-3 font-semibold">Capturado</th>
+                <th className="px-4 py-3 font-semibold">Foto</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -1698,47 +1672,45 @@ export default function DashboardPage() {
                 return (
                   <Fragment key={e.id}>
                     <tr
-                      className="cursor-pointer transition hover:bg-surface-2/60"
+                      className="cursor-pointer transition-colors duration-150 hover:bg-surface-2"
                       onClick={() =>
                         puedeEditar
                           ? setEnRevision(enRevision === e.id ? null : e.id)
                           : setEntregaDetalle(e)
                       }
                     >
-                      <td className="px-4 py-2 font-mono text-soft">{e.tipo || "—"}</td>
-                      <td className="px-4 py-2 font-mono text-soft">
+                      <td className="px-4 py-3 font-mono text-soft">{e.tipo || "—"}</td>
+                      <td className="px-4 py-3 font-mono text-soft">
                         {e.indicativo_numero || "—"}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2 text-soft">
+                      <td className="whitespace-nowrap px-4 py-3 text-soft">
                         {nombreSedeCorto(e.sede_origen_nombre) ?? e.sede_origen_id}
                       </td>
-                      <td className="px-4 py-2 text-soft">
+                      <td className="px-4 py-3 text-soft">
                         {e.bodeguero_nombre ?? e.bodeguero_id ?? "NE"}
                       </td>
                       <td
-                        className="max-w-[220px] truncate px-4 py-2 text-muted"
+                        className="max-w-[220px] truncate px-4 py-3 text-muted"
                         title={e.items.map((i) => i.descripcion).join(", ")}
                       >
                         {e.items.length === 0
                           ? "—"
                           : `${e.items.length} producto${e.items.length === 1 ? "" : "s"}`}
                       </td>
-                      <td className="px-4 py-2 tabular-nums text-soft">
+                      <td className="px-4 py-3 text-right tabular-nums text-soft">
                         {sumar(e.items, "cantidad_entregada") + sumar(e.items, "cantidad_pendiente")}
                       </td>
-                      <td className="px-4 py-2 tabular-nums text-soft">{sumar(e.items, "cantidad_entregada")}</td>
-                      <td className="px-4 py-2 tabular-nums text-soft">{sumar(e.items, "cantidad_pendiente")}</td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${estadoVisual(e).clase}`}
-                        >
+                      <td className="px-4 py-3 text-right tabular-nums text-soft">{sumar(e.items, "cantidad_entregada")}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-soft">{sumar(e.items, "cantidad_pendiente")}</td>
+                      <td className="px-4 py-3">
+                        <Pildora tono={estadoVisual(e).tono} className="whitespace-nowrap">
                           {estadoVisual(e).etiqueta}
-                        </span>
+                        </Pildora>
                       </td>
-                      <td className="px-4 py-2 text-muted">
+                      <td className="px-4 py-3 text-muted">
                         {e.capturado_at ? new Date(e.capturado_at).toLocaleString() : "—"}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2">
+                      <td className="whitespace-nowrap px-4 py-3">
                         {/* Un solo boton, no un link de texto por foto -- abre
                             el mismo modal de detalle (ya arma la galeria de
                             evidencia/traslado/firma), disponible aunque la
@@ -1809,7 +1781,7 @@ export default function DashboardPage() {
       {esAdmin ? (
       <section className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5">
         <div>
-          <h2 className="text-sm font-semibold text-danger">Zona de peligro</h2>
+          <h2 className="text-sm font-semibold text-danger-fg">Zona de peligro</h2>
           <p className="text-xs text-muted">
             Borra permanentemente todas las entregas, productos y logs del sistema. Pensado para
             resetear datos de prueba -- no toca las fotos ya subidas a Storage.
@@ -1818,7 +1790,7 @@ export default function DashboardPage() {
         <div>
           <button
             onClick={() => setLimpiezaModalAbierta(true)}
-            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-red-500/10 disabled:opacity-50"
+            className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger-fg transition hover:bg-red-500/10 disabled:opacity-50"
           >
             Eliminar TODOS los productos
           </button>
