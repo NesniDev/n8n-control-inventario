@@ -231,7 +231,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
     }
 
     const resultado = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
+      quality: 1,
       allowsEditing: false,
       exif: false,
     });
@@ -247,7 +247,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
     }
 
     const resultado = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.8,
+      quality: 1,
       allowsEditing: false,
       exif: false,
     });
@@ -285,7 +285,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara para capturar el traslado.');
       return;
     }
-    const resultado = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false, exif: false });
+    const resultado = await ImagePicker.launchCameraAsync({ quality: 1, allowsEditing: false, exif: false });
     await usarResultadoTraslado(resultado);
   };
 
@@ -295,7 +295,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       Alert.alert('Permiso requerido', 'Se necesita acceso a las fotos para elegir el traslado.');
       return;
     }
-    const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, exif: false });
+    const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 1, allowsEditing: false, exif: false });
     await usarResultadoTraslado(resultado);
   };
 
