@@ -1,7 +1,7 @@
-"""Alta de puntos y usuarios de punto sin pasar por el dashboard -- todavia no
-hay una pantalla de admin para esto (fuera de alcance del plan
-"traslados-entre-puntos"), se cargan a mano por aca o via POST /puntos /
-POST /puntos/{id}/usuarios (con X-Admin-Token).
+"""Alta de puntos y usuarios de punto por linea de comandos. El dashboard
+tiene la pantalla /creador para esto, y tambien se pueden cargar via
+POST /puntos / POST /puntos/{id}/usuarios (con X-Admin-Token); este script
+queda para altas masivas o para limpiar datos de prueba (--borrar-prueba).
 
 Uso:
     python -m scripts.crear_punto --punto "Bodega Norte" --usuario "Juan" --pin 1234

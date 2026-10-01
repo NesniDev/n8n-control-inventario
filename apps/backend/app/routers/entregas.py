@@ -16,7 +16,7 @@ import io
 from datetime import datetime
 
 import asyncpg
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import get_settings
@@ -31,6 +31,7 @@ from app.models.entrega import (
     TipoDocumento,
 )
 from app.models.log import EventoLog
+from app.services.admin_auth import verificar_token_admin
 from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.duplicates import (
     CantidadInvalida,
@@ -52,19 +53,6 @@ from app.services.reportes import generar_reporte_mensual_xlsx
 from app.services.vision import ExtraccionFallida, extraer_datos_guia
 
 router = APIRouter(prefix="/entregas", tags=["entregas"])
-
-
-def _verificar_token_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    """Protege los endpoints de borrado -- sin esto, cualquiera con la URL
-    del backend podria vaciar la base con un curl directo (no hay ningun
-    otro tipo de autenticacion en este proyecto). Falla cerrado: si el
-    operador no configuro ADMIN_DELETE_TOKEN, el borrado queda deshabilitado
-    en vez de quedar abierto por accidente."""
-    esperado = get_settings().admin_delete_token
-    if not esperado:
-        raise HTTPException(status_code=503, detail="Borrado deshabilitado: falta configurar ADMIN_DELETE_TOKEN")
-    if x_admin_token != esperado:
-        raise HTTPException(status_code=401, detail="Token de administrador invalido")
 
 
 @router.post("/procesar")
@@ -342,12 +330,12 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
     return JSONResponse(status_code=codigo, content=contenido)
 
 
-@router.delete("/todas", dependencies=[Depends(_verificar_token_admin)])
+@router.delete("/todas", dependencies=[Depends(verificar_token_admin)])
 async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
     """Equivalente al CLI scripts/limpiar_datos.py --si, pero disparable
     desde el dashboard: borra TODAS las entregas (cascada a
     entrega_items/devoluciones) y TODOS los logs. Accion total e
-    irreversible -- protegida por _verificar_token_admin. No toca el bucket
+    irreversible -- protegida por verificar_token_admin. No toca el bucket
     de Storage (evidencia) -- las fotos ya subidas quedan huerfanas, igual
     que si se corriera solo la parte de base de datos de limpiar_datos.py.
 
@@ -375,7 +363,7 @@ async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
     return {"entregas_borradas": total_entregas, "logs_borrados": total_logs}
 
 
-@router.delete("/{entrega_id}/definitivo", dependencies=[Depends(_verificar_token_admin)])
+@router.delete("/{entrega_id}/definitivo", dependencies=[Depends(verificar_token_admin)])
 async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconocido") -> dict:
     """Hard delete total de una entrega -- usado por el boton 'Cancelar' del
     dashboard cuando un documento mal escaneado o invalido (o una prueba) no
@@ -593,14 +581,14 @@ async def listar_entregas(
 async def contar_pendientes(sede_id: str) -> dict:
     """Documentos de la sede con algun producto por entregar -- contador de
     la pantalla Inicio de la app movil. Separa despachos de remisiones
-    (RM2/RM3, igual que el flujo de remisiones) porque son tabs distintas.
+    (RM2/RM3/RSF, igual que el flujo de remisiones) porque son tabs distintas.
     Los bloqueados por duplicado no cuentan: no son documentos abiertos."""
     pool = await get_pool()
     row = await pool.fetchrow(
         """
         select
-            count(*) filter (where e.tipo not in ('RM2', 'RM3')) as despachos,
-            count(*) filter (where e.tipo in ('RM2', 'RM3')) as remisiones
+            count(*) filter (where e.tipo not in ('RM2', 'RM3', 'RSF')) as despachos,
+            count(*) filter (where e.tipo in ('RM2', 'RM3', 'RSF')) as remisiones
         from entregas e
         where e.sede_origen_id = $1
           and e.estado <> 'duplicado_bloqueado'
@@ -630,8 +618,8 @@ async def resumen_hoy(operador_id: str, sede_id: str) -> dict:
     row = await pool.fetchrow(
         """
         select
-            count(distinct e.id) filter (where e.tipo not in ('RM2', 'RM3')) as despachos,
-            count(distinct e.id) filter (where e.tipo in ('RM2', 'RM3')) as remisiones
+            count(distinct e.id) filter (where e.tipo not in ('RM2', 'RM3', 'RSF')) as despachos,
+            count(distinct e.id) filter (where e.tipo in ('RM2', 'RM3', 'RSF')) as remisiones
         from logs l
         join sedes s on s.id::text = l.sede_id
         join entregas e on e.id::text = l.entidad_id

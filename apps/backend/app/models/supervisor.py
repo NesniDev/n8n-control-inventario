@@ -4,6 +4,8 @@ Cuenta propia (no es un usuario_punto ni un empleado): no pertenece a un
 punto ni a una sede, solo revisa y resuelve novedades desde cualquier lado.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, field_validator
 
 from app.models.empleado import _validar_pin
@@ -22,3 +24,18 @@ class PinLoginSupervisor(BaseModel):
     @classmethod
     def _pin_valido(cls, v: str) -> str:
         return _validar_pin(v)
+
+
+class SupervisorCrear(BaseModel):
+    nombre: str
+    pin: str
+
+    @field_validator("pin")
+    @classmethod
+    def _pin_valido(cls, v: str) -> str:
+        return _validar_pin(v)
+
+
+class SupervisorActualizar(BaseModel):
+    nombre: str | None = None
+    estado: Literal["activo", "inactivo"] | None = None

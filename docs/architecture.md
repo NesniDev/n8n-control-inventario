@@ -51,7 +51,7 @@ visita (se entrega una parte, después el resto) — por eso el flujo es de **do
 1. **Captura**: operador en Sede A fotografía la guía; la app adjunta `sede_id`, `operador_id`, timestamp.
 2. **Subida**: imagen a object storage; se genera hash SHA-256.
 3. **Trigger**: evento "imagen subida" dispara webhook a n8n (o la app móvil llama directo al backend).
-4. **Extracción IA**: se llama al LLM de visión con la imagen + schema JSON; se recibe el tipo de documento (FEI/TB/RM3/RM2), indicativo/número, y la lista de productos (descripción + cantidad), + confianza por campo.
+4. **Extracción IA**: se llama al LLM de visión con la imagen + schema JSON; se recibe el tipo de documento (FEI/TB/RM3/RM2/RSF), indicativo/número, y la lista de productos (descripción + cantidad), + confianza por campo.
 5. **Identificación (paso 1, `POST /entregas/procesar`)**: se busca el documento por tipo+indicativo/número.
    - No existía → se inserta atómicamente con sus productos (nada pendiente confirmado todavía).
    - Existía y algún producto tiene pendiente > 0 → se devuelve para actualizar (situación `actualizable`), sin escribir nada nuevo.
@@ -74,7 +74,7 @@ entregas         (id uuid pk, tipo, indicativo_numero, hash_evidencia unique, se
                    procesado_at, actualizado_at)
                   -- identidad del documento -- un producto puede traer varios items, ver abajo
                   -- evidencia_url/hash_evidencia son los de la visita mas reciente
-                  -- tipo in ('FEI', 'TB', 'RM3', 'RM2'): factura, traslado o remision
+                  -- tipo in ('FEI', 'TB', 'RM3', 'RM2', 'RSF'): factura, traslado o remision
                   -- unique (tipo, indicativo_numero)  ← barrera anti-duplicado real (ej. "FEI 10254")
 entrega_items    (id uuid pk, entrega_id fk -> entregas, descripcion,
                    cantidad_entregada, cantidad_pendiente, creado_at, actualizado_at)

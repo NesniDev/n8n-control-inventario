@@ -125,9 +125,21 @@ The whole system exists to move one flow reliably (Figure 1 in `docs/architectur
 - `app/services/*.py` — the actual business logic (vision extraction, duplicate handling, PIN auth,
   logging). Keep new business logic here, not in routers.
 - `app/models/*.py` — Pydantic request/response models; `entrega.py` holds `EstadoEntrega`
-  (`procesada` / `pendiente_revision` / `duplicado_bloqueado`) and `TipoDocumento` (`FEI` factura /
-  `TB` traslado / `RM3`, `RM2` remisión), both of which mirror `check` constraints in `app/db.py` — keep
-  the Python enum and the DB constraint in sync if you add a value.
+  (`procesada` / `pendiente_revision` / `duplicado_bloqueado`), which mirrors a `check` constraint in
+  `app/db.py` — keep the Python enum and the DB constraint in sync if you add a value. `TipoDocumento`
+  (`FEI`/`FV1`/`EDP`/`EDV`/`TB9`/`RM3`/`RM2`/`RSF`) is only a reference list for chips/suggestions: `entregas.tipo`
+  has **no** DB check constraint (it is dropped in `ensure_schema()`) and the API accepts any non-empty text.
+- `/creador` (dashboard) — admin screen to create/edit/deactivate sedes, empleados (bodega), puntos and
+  their users, supervisores, and tipos de documento, plus PIN resets. It only calls backend endpoints that
+  require `X-Admin-Token` (guard in `app/services/admin_auth.py`; same token as the deletes; `POST /sedes`
+  and `POST /empleados` are protected too). Business logic lives in `app/services/usuarios.py` and
+  `app/services/tipos_documento.py`. Nothing is deleted, only deactivated; changes are logged as
+  `admin_cambio` in `logs` (never with PIN data). Listing inactive rows (`?incluir_inactivos=true`) also
+  needs the token; the plain GETs stay public because the mobile app uses them.
+- `tipos_documento` table (seeded in `ensure_schema()`) — the document types shown to the vision model as
+  examples. `app/services/vision.py` keeps the prompt fixed and only fills the examples sentence from the
+  active types (in-memory cache ~60 s, fallback to the old hardcoded list). They are a guide, not a closed
+  list (no `enum` in the extraction schema); which sede owns a type is still hardcoded in `duplicates.py`.
 - `app/config.py` — all env-driven settings (`Settings`, cached via `get_settings()`); `dashboard_origin`
   is a comma-separated list (multiple CORS origins) parsed by `dashboard_origins`.
 - `apps/dashboard/src/lib/api.ts` vs `.../lib/supabase.ts` — a deliberate split: **all reads/writes** go
@@ -174,3 +186,13 @@ Los operadores reciben el cambio solos la próxima vez que abren la app (`checkA
   nada, simplemente no llega hasta que se genera un build nuevo.
 - El secreto `EXPO_TOKEN` (cuenta `elimperio` en Expo) vive en GitHub Actions (`gh secret set`), no en
   este repo.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

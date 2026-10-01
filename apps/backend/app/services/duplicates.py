@@ -99,7 +99,7 @@ class FacturaYaRegistrada(Exception):
 
 
 class RemisionEnDespachos(Exception):
-    """Una remision (RM2/RM3) se fotografio desde la tab Despachos -- las
+    """Una remision (RM2/RM3/RSF) se fotografio desde la tab Despachos -- las
     remisiones tienen su propio flujo (flujo="remision", ver
     EntregaCreate.flujo). Se dispara antes de tocar la base."""
 
@@ -109,7 +109,7 @@ class RemisionEnDespachos(Exception):
 
 
 class DespachoEnRemisiones(Exception):
-    """Espejo de RemisionEnDespachos: un documento que NO es RM2/RM3 se
+    """Espejo de RemisionEnDespachos: un documento que NO es RM2/RM3/RSF se
     fotografio desde la tab Remisiones. Se dispara antes de tocar la base."""
 
     def __init__(self, identificador: str):
@@ -147,7 +147,7 @@ class NecesitaTrasladoParaConfirmar(Exception):
 # tipo (mayusculas) -> codigo de sedes.codigo (SEDE-01/SEDE-02, NO nombre --
 # el nombre de una sede se puede renombrar, ej. "Sede Principal" ya paso a
 # llamarse "Sede Centro", el codigo es el identificador estable). Un tipo que
-# no esta aca (TB, RM3, RM2, o cualquier otro que la IA transcriba) no tiene
+# no esta aca (TB, RM3, RM2, RSF, o cualquier otro que la IA transcriba) no tiene
 # sede duena, se procesa igual que siempre, sin esta restriccion.
 _TIPO_SEDE_DUENA = {
     "EDP": "SEDE-02",  # Polo Sur
@@ -310,7 +310,7 @@ async def procesar_extraccion(
         raise ExtraccionIlegible(identificador)
 
     # Gate de flujo, antes de tocar la base: cada tab de la app movil solo
-    # acepta sus propios tipos (RM2/RM3 van por "remision", el resto por
+    # acepta sus propios tipos (RM2/RM3/RSF van por "remision", el resto por
     # "despacho"). Necesita el tipo ya leido por la IA, por eso vive aca y no
     # en el router.
     es_remision = tipo in TIPOS_REMISION

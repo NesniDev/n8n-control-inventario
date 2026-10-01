@@ -4,6 +4,8 @@ app/models/traslado_punto.py). Mismo mecanismo de login por PIN que empleados
 (ver app/services/auth_pin.py), reusando la misma validacion de formato de PIN.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, field_validator
 
 from app.models.empleado import _validar_pin
@@ -35,3 +37,13 @@ class PinLoginPunto(BaseModel):
     @classmethod
     def _pin_valido(cls, v: str) -> str:
         return _validar_pin(v)
+
+
+class PuntoActualizar(BaseModel):
+    nombre: str | None = None
+    activo: bool | None = None
+
+
+class UsuarioPuntoActualizar(BaseModel):
+    nombre: str | None = None
+    estado: Literal["activo", "inactivo"] | None = None

@@ -9,12 +9,12 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost
 // la practica el tipo real de un documento no siempre es uno de estos (ver
 // apps/backend/app/models/entrega.py TipoDocumento). FEI/FV1 son de Sede
 // Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en duplicates.py).
-export type TipoDocumento = "FEI" | "FV1" | "EDP" | "EDV" | "TB9" | "RM3" | "RM2";
+export type TipoDocumento = "FEI" | "FV1" | "EDP" | "EDV" | "TB9" | "RM3" | "RM2" | "RSF";
 
 // Tipos que se capturan por la tab Remisiones de la app móvil (ver
 // TIPOS_REMISION en apps/backend/app/models/entrega.py) -- los usan la tarjeta
 // "Remisiones hoy" y el filtro Despachos/Remisiones de la tabla.
-export const TIPOS_REMISION: readonly string[] = ["RM3", "RM2"];
+export const TIPOS_REMISION: readonly string[] = ["RM3", "RM2", "RSF"];
 
 export interface ItemEntrega {
   id: string;
@@ -278,7 +278,7 @@ export async function actualizarItems(
 
 // Borrado definitivo desde el dashboard (boton "Cancelar" de la cola de
 // revision) -- protegido por el header X-Admin-Token en el backend, ver
-// _verificar_token_admin en apps/backend/app/routers/entregas.py.
+// verificar_token_admin en apps/backend/app/services/admin_auth.py.
 export async function eliminarEntrega(id: string, adminToken: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/entregas/${id}/definitivo`, {
     method: "DELETE",
@@ -433,3 +433,143 @@ export const fetchCargaTurnos = (sedeId: string, semanas: number) =>
   getJson<CargaTurnosResponse>(
     `/turnos/carga?${new URLSearchParams({ sede_id: sedeId, semanas: String(semanas) }).toString()}`
   );
+
+// --- Administracion (pantalla /creador) ---------------------------------
+// Todos estos endpoints exigen X-Admin-Token (ver verificar_token_admin en
+// apps/backend/app/services/admin_auth.py). El PIN solo viaja hacia el
+// backend (alta y reset); nunca vuelve en las respuestas.
+
+async function adminFetch<T>(
+  path: string,
+  adminToken: string,
+  opciones?: { method?: string; body?: unknown }
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: opciones?.method ?? "GET",
+    cache: "no-store",
+    headers: {
+      "X-Admin-Token": adminToken,
+      ...(opciones?.body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: opciones?.body !== undefined ? JSON.stringify(opciones.body) : undefined,
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error("Token de administrador incorrecto");
+    if (res.status === 503) throw new Error("El backend no tiene configurado el token de administrador (ADMIN_DELETE_TOKEN)");
+    const body = await res.json().catch(() => ({}));
+    // 422 de validacion trae detail como lista; se resume en un solo texto.
+    const detalle = Array.isArray(body.detail)
+      ? body.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ")
+      : body.detail;
+    throw new Error(detalle || `La solicitud falló (${res.status})`);
+  }
+  return res.json();
+}
+
+export interface SedeAdmin {
+  id: string;
+  nombre: string;
+  codigo: string;
+  direccion: string;
+  timezone: string;
+  activa: boolean;
+}
+
+export interface EmpleadoAdmin {
+  id: string;
+  nombre: string;
+  sede_id: string;
+  rol: RolEmpleado;
+  estado: "activo" | "inactivo";
+}
+
+export interface PuntoAdmin {
+  id: string;
+  nombre: string;
+  codigo: string | null;
+  activo: boolean;
+}
+
+export interface UsuarioPuntoAdmin {
+  id: string;
+  nombre: string;
+  punto_id: string;
+  estado: "activo" | "inactivo";
+}
+
+export interface SupervisorAdmin {
+  id: string;
+  nombre: string;
+  estado: "activo" | "inactivo";
+}
+
+export interface TipoDocumentoAdmin {
+  codigo: string;
+  descripcion: string;
+  activo: boolean;
+}
+
+export const fetchSedesAdmin = (token: string) => adminFetch<SedeAdmin[]>("/sedes?incluir_inactivas=true", token);
+export const crearSede = (
+  token: string,
+  datos: { nombre: string; codigo: string; direccion?: string; timezone?: string }
+) => adminFetch<{ id: string }>("/sedes", token, { method: "POST", body: datos });
+export const actualizarSede = (
+  token: string,
+  id: string,
+  cambios: { nombre?: string; direccion?: string; activa?: boolean }
+) => adminFetch<SedeAdmin>(`/sedes/${id}`, token, { method: "PATCH", body: cambios });
+
+export const fetchEmpleadosAdmin = (token: string) =>
+  adminFetch<EmpleadoAdmin[]>("/empleados?incluir_inactivos=true", token);
+export const crearEmpleado = (
+  token: string,
+  datos: { nombre: string; sede_id: string; rol: RolEmpleado; pin: string }
+) => adminFetch<EmpleadoAdmin>("/empleados", token, { method: "POST", body: datos });
+export const actualizarEmpleado = (
+  token: string,
+  id: string,
+  cambios: { nombre?: string; sede_id?: string; rol?: RolEmpleado; estado?: "activo" | "inactivo" }
+) => adminFetch<EmpleadoAdmin>(`/empleados/${id}`, token, { method: "PATCH", body: cambios });
+export const resetearPinEmpleado = (token: string, id: string, pin: string) =>
+  adminFetch<{ ok: boolean }>(`/empleados/${id}/pin`, token, { method: "POST", body: { pin } });
+
+export const fetchPuntosAdmin = (token: string) => adminFetch<PuntoAdmin[]>("/puntos?incluir_inactivos=true", token);
+export const crearPunto = (token: string, nombre: string) =>
+  adminFetch<{ id: string; nombre: string }>("/puntos", token, { method: "POST", body: { nombre } });
+export const actualizarPunto = (token: string, id: string, cambios: { nombre?: string; activo?: boolean }) =>
+  adminFetch<PuntoAdmin>(`/puntos/${id}`, token, { method: "PATCH", body: cambios });
+
+export const fetchUsuariosPuntoAdmin = (token: string, puntoId: string) =>
+  adminFetch<UsuarioPuntoAdmin[]>(`/puntos/${puntoId}/usuarios?incluir_inactivos=true`, token);
+export const crearUsuarioPunto = (token: string, puntoId: string, datos: { nombre: string; pin: string }) =>
+  adminFetch<UsuarioPuntoAdmin>(`/puntos/${puntoId}/usuarios`, token, { method: "POST", body: datos });
+export const actualizarUsuarioPunto = (
+  token: string,
+  id: string,
+  cambios: { nombre?: string; estado?: "activo" | "inactivo" }
+) => adminFetch<UsuarioPuntoAdmin>(`/puntos/usuarios/${id}`, token, { method: "PATCH", body: cambios });
+export const resetearPinUsuarioPunto = (token: string, id: string, pin: string) =>
+  adminFetch<{ ok: boolean }>(`/puntos/usuarios/${id}/pin`, token, { method: "POST", body: { pin } });
+
+export const fetchSupervisoresAdmin = (token: string) =>
+  adminFetch<SupervisorAdmin[]>("/supervisores?incluir_inactivos=true", token);
+export const crearSupervisor = (token: string, datos: { nombre: string; pin: string }) =>
+  adminFetch<SupervisorAdmin>("/supervisores", token, { method: "POST", body: datos });
+export const actualizarSupervisor = (
+  token: string,
+  id: string,
+  cambios: { nombre?: string; estado?: "activo" | "inactivo" }
+) => adminFetch<SupervisorAdmin>(`/supervisores/${id}`, token, { method: "PATCH", body: cambios });
+export const resetearPinSupervisor = (token: string, id: string, pin: string) =>
+  adminFetch<{ ok: boolean }>(`/supervisores/${id}/pin`, token, { method: "POST", body: { pin } });
+
+export const fetchTiposDocumentoAdmin = (token: string) =>
+  adminFetch<TipoDocumentoAdmin[]>("/tipos-documento?incluir_inactivos=true", token);
+export const crearTipoDocumento = (token: string, datos: { codigo: string; descripcion: string }) =>
+  adminFetch<TipoDocumentoAdmin>("/tipos-documento", token, { method: "POST", body: datos });
+export const actualizarTipoDocumento = (
+  token: string,
+  codigo: string,
+  cambios: { descripcion?: string; activo?: boolean }
+) => adminFetch<TipoDocumentoAdmin>(`/tipos-documento/${encodeURIComponent(codigo)}`, token, { method: "PATCH", body: cambios });

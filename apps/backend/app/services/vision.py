@@ -12,9 +12,10 @@ from openai import AsyncOpenAI, OpenAIError
 from PIL import Image
 
 from app.config import get_settings
+from app.services.tipos_documento import frase_ejemplos
 
 # Tipos de documento mas comunes -- factura (FEI/FV1), EDP/EDV, traslado
-# entre bodegas (TB9) o remision (RM3/RM2), ver app.models.entrega.TipoDocumento
+# entre bodegas (TB9) o remision (RM3/RM2/RSF), ver app.models.entrega.TipoDocumento
 # -- pero "tipo" en el schema de abajo NO esta restringido a estos: son la
 # guia del prompt, no una jaula, porque en la practica aparecen otros. Ver
 # tambien _TIPO_SEDE_DUENA en app/services/duplicates.py: EDP/EDV son de
@@ -83,15 +84,18 @@ _EXTRACTION_SCHEMA = {
     "additionalProperties": False,
 }
 
-_EXTRACTION_PROMPT = (
+# Plantilla del prompt: el texto es fijo y solo el marcador {tipos_ejemplo} se
+# reemplaza con los tipos activos de la tabla tipos_documento (ver
+# app/services/tipos_documento.py, administrada desde /creador). Se arma con
+# str.replace y no con .format() para no chocar con llaves del propio texto.
+_EXTRACTION_PROMPT_PLANTILLA = (
     "Esta es una foto de un documento de despacho. La foto puede venir "
     "rotada o al reves (90, 180 o 270 grados respecto de la orientacion de "
     "lectura normal) -- antes de transcribir nada, fijate en la orientacion "
     "del texto impreso y leelo como corresponde, sin asumir que la foto ya "
     "viene derecha. El tipo es el codigo "
     "impreso junto al numero (ej. 'FEI 10254' -> tipo FEI, 'EDP 340' -> tipo "
-    "EDP) -- puede ser, entre otros, FEI o FV1 (factura), EDP o EDV, TB9 "
-    "(traslado entre bodegas), o RM3/RM2 (remision). Esta lista es solo "
+    "EDP) -- puede ser, entre otros, {tipos_ejemplo}. Esta lista es solo "
     "referencia, NO una jaula: transcribi EXACTAMENTE el codigo que este "
     "impreso en el documento, letra por letra, aunque no sea ninguno de "
     "estos ejemplos -- nunca lo reemplaces por el mas parecido de la lista "
@@ -136,6 +140,10 @@ _EXTRACTION_PROMPT = (
     "producto: 'SAL BLANCA * 40 KILOS', cantidad 1. No lo separes en dos "
     "items."
 )
+
+
+async def _armar_prompt() -> str:
+    return _EXTRACTION_PROMPT_PLANTILLA.replace("{tipos_ejemplo}", await frase_ejemplos())
 
 
 class ExtraccionFallida(Exception):
@@ -189,6 +197,7 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
     # tarda unos pocos segundos); si se pasa, mejor cortar y que
     # ExtraccionFallida le devuelva un error claro al movil (ver el catch de
     # OpenAIError mas abajo, ya lo maneja) que dejarlo esperando indefinido.
+    prompt = await _armar_prompt()
     client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=30.0)
     try:
         response = await client.chat.completions.create(
@@ -209,7 +218,7 @@ async def extraer_datos_guia(evidencia_url: str) -> dict:
                             "type": "image_url",
                             "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
                         },
-                        {"type": "text", "text": _EXTRACTION_PROMPT},
+                        {"type": "text", "text": prompt},
                     ],
                 }
             ],

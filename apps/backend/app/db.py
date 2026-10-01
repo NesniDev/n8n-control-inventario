@@ -171,7 +171,7 @@ begin
 exception when undefined_object then null;
 end $$;
 
--- "tipo" dejo de estar atado a los 4 valores conocidos (FEI/TB/RM3/RM2): en
+-- "tipo" dejo de estar atado a los 4 valores conocidos (FEI/TB/RM3/RM2/RSF): en
 -- la practica el documento real no siempre es uno de esos, hace falta poder
 -- escribir uno nuevo (ver vision.py, EntregaRevision, buscar_entrega). Se
 -- saca el check -- drop es idempotente sin necesidad de chequear pg_constraint
@@ -393,6 +393,28 @@ create index if not exists idx_traslados_puntos_novedad_estado
 alter table traslados_puntos add column if not exists consecutivo_solucion text;
 create unique index if not exists traslados_puntos_consecutivo_solucion_key
     on traslados_puntos (consecutivo_solucion) where consecutivo_solucion is not null;
+
+-- Tipos de documento que la IA de vision recibe como guia en el prompt (ver
+-- app/services/tipos_documento.py y vision.py) -- se administran desde
+-- /creador en el dashboard. No restringen entregas.tipo (sin check ahi): son
+-- referencia, no una lista cerrada. El seed es idempotente.
+create table if not exists tipos_documento (
+    codigo text primary key,
+    descripcion text not null default '',
+    activo boolean not null default true,
+    created_at timestamptz not null default now()
+);
+
+insert into tipos_documento (codigo, descripcion) values
+    ('FEI', 'factura'),
+    ('FV1', 'factura'),
+    ('EDP', ''),
+    ('EDV', ''),
+    ('TB9', 'traslado entre bodegas'),
+    ('RM3', 'remision'),
+    ('RM2', 'remision'),
+    ('RSF', 'remision')
+on conflict (codigo) do nothing;
 
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban

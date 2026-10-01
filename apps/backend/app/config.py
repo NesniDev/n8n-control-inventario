@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     min_confidence_rechazo: float = 0.35
 
     # Protege los endpoints de borrado definitivo del dashboard (ver
-    # app/routers/entregas.py, _verificar_token_admin). None = borrado
-    # deshabilitado (falla cerrado) hasta que se configure explicitamente.
+    # app/services/admin_auth.py, verificar_token_admin) y la administracion
+    # (/creador del dashboard). None = deshabilitado (falla cerrado) hasta que se configure explicitamente.
     admin_delete_token: str | None = None
 
 

@@ -44,3 +44,7 @@ class EventoLog(StrEnum):
     # Supervision (Erika) marco una novedad como resuelta -- ver
     # resolver_novedad en app/services/traslados_puntos.py.
     TRASLADO_PUNTO_NOVEDAD_RESUELTA = "traslado_punto_novedad_resuelta"
+    # Alta o cambio hecho desde la pantalla /creador del dashboard (sedes,
+    # empleados, puntos, supervisores, tipos de documento) -- el detalle dice
+    # que se hizo; nunca incluye PIN ni hash. Ver app/services/usuarios.py.
+    ADMIN_CAMBIO = "admin_cambio"

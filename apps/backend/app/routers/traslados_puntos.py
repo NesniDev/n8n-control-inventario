@@ -8,13 +8,14 @@ ahi si son dos flujos con entidad propia bien grande cada uno.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.db import get_pool
-from app.models.punto import PinLoginPunto, PuntoCrear, UsuarioPuntoCrear
-from app.models.supervisor import PinLoginSupervisor
+from app.models.empleado import PinNuevo
+from app.models.punto import PinLoginPunto, PuntoActualizar, PuntoCrear, UsuarioPuntoActualizar, UsuarioPuntoCrear
+from app.models.supervisor import PinLoginSupervisor, SupervisorActualizar, SupervisorCrear
 from app.models.traslado_punto import RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
-from app.routers.entregas import _verificar_token_admin
+from app.services.admin_auth import verificar_token_admin
 from app.services.auth_pin import generar_sal, hashear_pin, verificar_pin
 from app.services.traslados_puntos import (
     ConsecutivoDuplicado,
@@ -27,6 +28,13 @@ from app.services.traslados_puntos import (
     crear_traslado,
     registrar_recepcion,
     resolver_novedad,
+)
+from app.services.usuarios import (
+    DatoInvalido,
+    RegistroNoEncontrado,
+    actualizar_fila,
+    crear_con_pin,
+    resetear_pin,
 )
 
 router = APIRouter(tags=["traslados-puntos"])
@@ -43,20 +51,31 @@ def _sin_pin(row) -> dict:
 
 
 @router.get("/puntos")
-async def listar_puntos() -> list[dict]:
+async def listar_puntos(incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)) -> list[dict]:
+    """Publico solo con puntos activos (lo usa el movil); con
+    incluir_inactivos=true exige X-Admin-Token y agrega el campo activo
+    (pantalla /creador)."""
     pool = await get_pool()
+    if incluir_inactivos:
+        verificar_token_admin(x_admin_token)
+        rows = await pool.fetch(
+            "select id, nombre, codigo, activo from puntos order by activo desc, codigo nulls last, nombre"
+        )
+        return [
+            {"id": str(r["id"]), "nombre": r["nombre"], "codigo": r["codigo"], "activo": r["activo"]} for r in rows
+        ]
     rows = await pool.fetch(
         "select id, nombre, codigo from puntos where activo = true order by codigo nulls last, nombre"
     )
     return [{"id": str(r["id"]), "nombre": r["nombre"], "codigo": r["codigo"]} for r in rows]
 
 
-@router.post("/puntos", status_code=201, dependencies=[Depends(_verificar_token_admin)])
+@router.post("/puntos", status_code=201, dependencies=[Depends(verificar_token_admin)])
 async def crear_punto(payload: PuntoCrear) -> dict:
     """Alta de un punto -- protegida con X-Admin-Token (mismo mecanismo que
-    el borrado definitivo de entregas, ver _verificar_token_admin). Sin
-    pantalla de admin todavia (fuera de alcance del plan); se usa desde aca
-    o desde scripts/crear_punto.py."""
+    el borrado definitivo de entregas, ver verificar_token_admin). Se usa
+    desde la pantalla /creador del dashboard, desde aca o desde
+    scripts/crear_punto.py."""
     pool = await get_pool()
     try:
         row = await pool.fetchrow(
@@ -68,16 +87,23 @@ async def crear_punto(payload: PuntoCrear) -> dict:
 
 
 @router.get("/puntos/{punto_id}/usuarios")
-async def listar_usuarios_punto(punto_id: str) -> list[dict]:
+async def listar_usuarios_punto(
+    punto_id: str, incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)
+) -> list[dict]:
+    """Publico solo con usuarios activos (lo usa el login movil); con
+    incluir_inactivos=true exige X-Admin-Token (pantalla /creador)."""
+    if incluir_inactivos:
+        verificar_token_admin(x_admin_token)
+    filtro_estado = "" if incluir_inactivos else " and estado = 'activo'"
     pool = await get_pool()
     rows = await pool.fetch(
-        "select * from usuarios_punto where punto_id = $1::uuid and estado = 'activo' order by nombre",
+        f"select * from usuarios_punto where punto_id = $1::uuid{filtro_estado} order by estado, nombre",
         punto_id,
     )
     return [_sin_pin(r) for r in rows]
 
 
-@router.post("/puntos/{punto_id}/usuarios", status_code=201, dependencies=[Depends(_verificar_token_admin)])
+@router.post("/puntos/{punto_id}/usuarios", status_code=201, dependencies=[Depends(verificar_token_admin)])
 async def crear_usuario_punto(punto_id: str, payload: UsuarioPuntoCrear) -> dict:
     pool = await get_pool()
     sal = generar_sal()
@@ -97,6 +123,37 @@ async def crear_usuario_punto(punto_id: str, payload: UsuarioPuntoCrear) -> dict
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _sin_pin(row)
+
+
+@router.patch("/puntos/usuarios/{usuario_id}", dependencies=[Depends(verificar_token_admin)])
+async def actualizar_usuario_punto(usuario_id: UUID, payload: UsuarioPuntoActualizar) -> dict:
+    """Ruta con 3 segmentos (/puntos/usuarios/{id}): no colisiona con
+    PATCH /puntos/{punto_id} (2 segmentos) ni con /puntos/{punto_id}/usuarios."""
+    try:
+        return await actualizar_fila("usuarios_punto", str(usuario_id), payload.model_dump(exclude_none=True))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Usuario de punto no encontrado") from exc
+    except DatoInvalido as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/puntos/usuarios/{usuario_id}/pin", dependencies=[Depends(verificar_token_admin)])
+async def resetear_pin_usuario_punto(usuario_id: UUID, payload: PinNuevo) -> dict:
+    try:
+        await resetear_pin("usuarios_punto", str(usuario_id), payload.pin)
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Usuario de punto no encontrado") from exc
+    return {"ok": True}
+
+
+@router.patch("/puntos/{punto_id}", dependencies=[Depends(verificar_token_admin)])
+async def actualizar_punto(punto_id: UUID, payload: PuntoActualizar) -> dict:
+    try:
+        return await actualizar_fila("puntos", str(punto_id), payload.model_dump(exclude_none=True))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Punto no encontrado") from exc
+    except DatoInvalido as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/puntos/auth/pin")
@@ -119,10 +176,30 @@ async def login_pin_punto(payload: PinLoginPunto) -> dict:
 
 
 @router.get("/supervisores")
-async def listar_supervisores() -> list[dict]:
+async def listar_supervisores(
+    incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)
+) -> list[dict]:
+    """Publico solo con supervisores activos (lo usa el login movil); con
+    incluir_inactivos=true exige X-Admin-Token y agrega el estado."""
     pool = await get_pool()
+    if incluir_inactivos:
+        verificar_token_admin(x_admin_token)
+        rows = await pool.fetch("select id, nombre, estado from supervisores order by estado, nombre")
+        return [{"id": str(r["id"]), "nombre": r["nombre"], "estado": r["estado"]} for r in rows]
     rows = await pool.fetch("select id, nombre from supervisores where estado = 'activo' order by nombre")
     return [{"id": str(r["id"]), "nombre": r["nombre"]} for r in rows]
+
+
+@router.post("/supervisores", status_code=201, dependencies=[Depends(verificar_token_admin)])
+async def crear_supervisor(payload: SupervisorCrear) -> dict:
+    """Alta de un supervisor con PIN (equivale a scripts/crear_supervisor.py,
+    pero sin la rama de "si ya existe, cambiale el PIN": para eso esta el
+    reset de PIN)."""
+    try:
+        fila = await crear_con_pin("supervisores", {"nombre": payload.nombre}, payload.pin)
+    except DatoInvalido as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"id": fila["id"], "nombre": fila["nombre"], "estado": fila["estado"]}
 
 
 @router.post("/supervisores/auth/pin")
@@ -138,6 +215,28 @@ async def login_pin_supervisor(payload: PinLoginSupervisor) -> dict:
     if candidato and verificar_pin(payload.pin, candidato["pin_salt"], candidato["pin_hash"]):
         return {"id": str(candidato["id"]), "nombre": candidato["nombre"]}
     raise HTTPException(status_code=401, detail="PIN incorrecto")
+
+
+# OJO: estas rutas con {supervisor_id} tienen que declararse DESPUES de
+# POST /supervisores/auth/pin -- FastAPI resuelve por orden de registro y,
+# si quedaran antes, "auth" caeria en el path param (UUID) y daria 422.
+@router.patch("/supervisores/{supervisor_id}", dependencies=[Depends(verificar_token_admin)])
+async def actualizar_supervisor(supervisor_id: UUID, payload: SupervisorActualizar) -> dict:
+    try:
+        return await actualizar_fila("supervisores", str(supervisor_id), payload.model_dump(exclude_none=True))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Supervisor no encontrado") from exc
+    except DatoInvalido as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/supervisores/{supervisor_id}/pin", dependencies=[Depends(verificar_token_admin)])
+async def resetear_pin_supervisor(supervisor_id: UUID, payload: PinNuevo) -> dict:
+    try:
+        await resetear_pin("supervisores", str(supervisor_id), payload.pin)
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Supervisor no encontrado") from exc
+    return {"ok": True}
 
 
 _SELECT_TRASLADOS = """

@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -37,6 +38,27 @@ class EmpleadoCreate(BaseModel):
 class PinLogin(BaseModel):
     pin: str
     empleado_id: str
+
+    @field_validator("pin")
+    @classmethod
+    def _pin_valido(cls, v: str) -> str:
+        return _validar_pin(v)
+
+
+class EmpleadoActualizar(BaseModel):
+    """Campos editables de un empleado -- solo se actualiza lo que viene."""
+
+    nombre: str | None = None
+    sede_id: str | None = None
+    rol: RolEmpleado | None = None
+    estado: Literal["activo", "inactivo"] | None = None
+
+
+class PinNuevo(BaseModel):
+    """Payload de los endpoints de reset de PIN (empleados, usuarios de punto
+    y supervisores)."""
+
+    pin: str
 
     @field_validator("pin")
     @classmethod

@@ -1,6 +1,6 @@
-"""Alta (o actualizacion de PIN) de un supervisor -- todavia no hay pantalla
-de admin para esto (mismo criterio que scripts/crear_punto.py), se carga a
-mano por aca.
+"""Alta (o actualizacion de PIN) de un supervisor por linea de comandos.
+Alternativa a la pantalla /creador del dashboard (o a POST /supervisores con
+X-Admin-Token); sirve para cargar o rotar el PIN sin pasar por la web.
 
 Uso:
     python -m scripts.crear_supervisor --nombre "Erika" --pin 1234

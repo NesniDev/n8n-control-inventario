@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR, { mutate as mutateGlobal } from "swr";
 import { toast } from "sonner";
@@ -23,12 +23,13 @@ import {
   type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { useAdminToken } from "@/lib/useAdminToken";
 import { EstadoVacio, TarjetaConHeader } from "@/components/ui";
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
-// el backend); TB9/RM3/RM2 no tienen sede dueña -- sugerencia rápida del
+// el backend); TB9/RM3/RM2/RSF no tienen sede dueña -- sugerencia rápida del
 // datalist, no una restricción real (se puede escribir cualquier otro tipo).
-const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB9", "RM3", "RM2"];
+const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB9", "RM3", "RM2", "RSF"];
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -1026,7 +1027,6 @@ function ModalDetalleEntrega({
   );
 }
 
-const ADMIN_TOKEN_STORAGE_KEY = "despachos_admin_token";
 const PALABRA_CONFIRMACION_LIMPIEZA = "ELIMINAR TODO";
 
 // "Zona de peligro" -- borra TODAS las entregas y logs. Mismo patron visual
@@ -1205,7 +1205,7 @@ export default function DashboardPage() {
   const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
     "todas"
   );
-  // Filtro por flujo (despachos vs. remisiones RM2/RM3), aparte del filtro de
+  // Filtro por flujo (despachos vs. remisiones RM2/RM3/RSF), aparte del filtro de
   // estado y del buscador -- se combinan con AND (ver entregasFiltradas).
   const [filtroFlujo, setFiltroFlujo] = useState<"todos" | "despachos" | "remisiones">("todos");
   // Entrega mostrada en el detalle visual de solo lectura (ver
@@ -1215,41 +1215,9 @@ export default function DashboardPage() {
   const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
 
   // Token de administrador para los endpoints de borrado (ver
-  // _verificar_token_admin en el backend) -- persistido en localStorage para
-  // no tener que pegarlo de nuevo en cada visita. Arranca en "" siempre (no
-  // se lee localStorage en el initializer de useState) para que el primer
-  // render en el cliente coincida con el del servidor -- leerlo de sincrono
-  // ahi rompia la hidratacion cuando ya habia un token guardado de antes.
-  const [adminToken, setAdminToken] = useState("");
-  useEffect(() => {
-    // queueMicrotask (no setState directo en el cuerpo del efecto) para
-    // no disparar react-hooks/set-state-in-effect -- mismo patron que ya
-    // usa este archivo para setState async (ver ModalDetalleEntrega).
-    queueMicrotask(() => {
-      try {
-        setAdminToken(localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? "");
-      } catch {
-        // localStorage puede fallar (modo privado, storage lleno) -- el
-        // token simplemente no persiste entre visitas.
-      }
-    });
-  }, []);
-  // Se salta el primer efecto (dispara al montar, antes de que el efecto de
-  // arriba termine de cargar el valor guardado) para no pisar el token ya
-  // guardado con el "" inicial.
-  const primerEfectoToken = useRef(true);
-  useEffect(() => {
-    if (primerEfectoToken.current) {
-      primerEfectoToken.current = false;
-      return;
-    }
-    try {
-      localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, adminToken);
-    } catch {
-      // localStorage puede fallar (modo privado, storage lleno) -- no es
-      // critico, el token simplemente no persiste entre visitas.
-    }
-  }, [adminToken]);
+  // verificar_token_admin en el backend) -- persistido en localStorage, ver
+  // useAdminToken.
+  const [adminToken, setAdminToken] = useAdminToken();
 
   const [limpiezaModalAbierta, setLimpiezaModalAbierta] = useState(false);
   const [limpiezaResultado, setLimpiezaResultado] = useState<{
@@ -1393,6 +1361,12 @@ export default function DashboardPage() {
             >
               Planificación de turnos
             </Link>
+            <Link
+              href="/creador"
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+            >
+              Administración
+            </Link>
           </div>
         </div>
         <p className="text-sm text-neutral-400">
@@ -1407,7 +1381,7 @@ export default function DashboardPage() {
       ) : null}
 
       {/* Habilita "Cancelar" en la cola de revision y la zona de peligro de
-          abajo -- ver _verificar_token_admin en el backend. */}
+          abajo -- ver verificar_token_admin en el backend. */}
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
         <label className="flex w-full max-w-xs flex-col gap-1">
           <span className="text-[10px] leading-none text-neutral-500">Token de administrador</span>
@@ -1438,7 +1412,7 @@ export default function DashboardPage() {
             titulo="Remisiones hoy"
             valor={remisionesHoy.length}
             tono="neutral"
-            detalle={remisionesHoy.length > 0 ? "RM2 / RM3 capturadas" : "Todavía sin movimiento"}
+            detalle={remisionesHoy.length > 0 ? "RM2 / RM3 / RSF capturadas" : "Todavía sin movimiento"}
             onClick={() => setFiltroFlujo("remisiones")}
           />
           <TarjetaResumen
@@ -1613,7 +1587,7 @@ export default function DashboardPage() {
                 </button>
               ))}
             </div>
-            {/* Filtro por flujo: despachos vs. remisiones (RM2/RM3). */}
+            {/* Filtro por flujo: despachos vs. remisiones (RM2/RM3/RSF). */}
             <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
               {(
                 [
