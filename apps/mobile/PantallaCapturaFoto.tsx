@@ -42,6 +42,7 @@ import {
   TEXTO_PRIMARIO,
   TEXTO_SOBRE_ACENTO,
 } from './tema';
+import TarjetaFacturasPorSubir from './TarjetaFacturasPorSubir';
 import type { DespachosStackParamList } from './Navegacion';
 
 type Props = NativeStackScreenProps<DespachosStackParamList, 'Captura'>;
@@ -210,6 +211,9 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
   // existe), siempre arranca en false -- no hace falta precargar nada.
   const [modalEsFaia, setModalEsFaia] = useState(false);
   const [guardandoFaia, setGuardandoFaia] = useState(false);
+  // Sube cada vez que punto_venta registra una factura: le dice a
+  // TarjetaFacturasPorSubir que recargue (el backend pudo cerrar un aviso).
+  const [recargaFacturasPorSubir, setRecargaFacturasPorSubir] = useState(0);
 
   const usarResultado = async (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
@@ -422,6 +426,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
         setMensaje('');
         setModalEsFaia(false);
         setResultadoPuntoVenta(resultado);
+        setRecargaFacturasPorSubir((n) => n + 1);
         return;
       }
 
@@ -515,7 +520,11 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
       // para reintentar mas tarde en vez de navegar a Resultado.
       if (esErrorFacturacionPendiente(err)) {
         setCargando(false);
-        Alert.alert('Pedido no facturado', MENSAJE_FACTURACION_PENDIENTE, [{ text: 'Entendido' }]);
+        Alert.alert('Pedido no facturado', MENSAJE_FACTURACION_PENDIENTE, [
+          { text: 'Entendido' },
+          // Atajo para avisar al mostrador que falta esta factura.
+          { text: 'Avisar al punto de venta', onPress: () => navigation.navigate('FacturasFaltantes') },
+        ]);
         return; // se queda en Captura, foto sigue puesta, listo para repetir
       }
 
@@ -550,6 +559,11 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
 
   // Si necesitaTraslado esta activo (el tipo leido pertenece a otra sede),
   // hace falta tambien la foto del traslado para poder reenviar.
+  // Bodegueros (no el mostrador) en Despachos pueden avisar de una factura no
+  // subida; las remisiones nunca requieren factura.
+  const puedeReportarFactura = !esRemision && !!empleado && empleado.rol !== 'punto_venta';
+  const esMostrador = !esRemision && empleado?.rol === 'punto_venta';
+
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando && (!necesitaTraslado || !!fotoTraslado);
 
   // Sin borde inferior: la barra de tabs ya suma ese inset (si no, queda
@@ -562,6 +576,15 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
       >
         <HeaderEntrega />
+
+        {/* Avisos de los bodegueros de la sede -- se oculta sola si no hay. */}
+        {esMostrador && empleado && sedeSeleccionada ? (
+          <TarjetaFacturasPorSubir
+            sedeId={sedeSeleccionada.id}
+            empleadoId={empleado.id}
+            recargarClave={recargaFacturasPorSubir}
+          />
+        ) : null}
 
         <View style={styles.tarjeta}>
           <View style={styles.filaConIcono}>
@@ -687,6 +710,17 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
               </Pressable>
             ) : null}
           </View>
+
+          {puedeReportarFactura ? (
+            <Pressable
+              disabled={cargando}
+              style={({ pressed }) => [estilosFoto.botonSecundario, pressed && styles.botonPresionado]}
+              onPress={() => navigation.navigate('FacturasFaltantes')}
+            >
+              <Ionicons name="alert-circle-outline" size={18} color={NEUTRAL_400} />
+              <Text style={estilosFoto.botonSecundarioTexto}>Factura no subida</Text>
+            </Pressable>
+          ) : null}
         </View>
       </ScrollView>
 

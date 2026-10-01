@@ -413,7 +413,9 @@ export async function procesarEntrega(payload: {
   // cualquier otro error de negocio llega tambien como { detail } gracias a FastAPI.
   const resultado = await parsearRespuesta<ResultadoEnvio>(res);
   // Lo guardado en la cache quedo viejo (ver cache.ts).
-  invalidarCache('pendientes:', 'resumenHoy:', 'historial:');
+  // 'facturasFaltantes:' tambien: si punto_venta subio una factura reportada,
+  // el backend cierra el reporte solo.
+  invalidarCache('pendientes:', 'resumenHoy:', 'historial:', 'facturasFaltantes:');
   return resultado;
 }
 
@@ -988,4 +990,105 @@ export async function buscarConsecutivoTraslado(q: string): Promise<Traslado[]> 
   const params = new URLSearchParams({ q: texto });
   const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/buscar-consecutivo?${params}`);
   return parsearRespuesta<Traslado[]>(res);
+}
+
+// Facturas faltantes -- el bodeguero avisa que una factura todavia no fue
+// subida por el mostrador (punto_venta) de la sede duena del tipo (o la suya si
+// el tipo no tiene duena); el backend cierra el
+// reporte solo cuando punto_venta la sube (ver app/services/facturas_faltantes.py).
+export type EstadoFacturaFaltante = 'pendiente' | 'resuelta' | 'descartada';
+
+export interface FacturaFaltante {
+  id: string;
+  tipo: string;
+  indicativo_numero: string;
+  // Sede destino (cuyo mostrador debe subirla) y sede de quien reporto.
+  sede_id: string;
+  sede_reporta_id: string | null;
+  sede_nombre: string | null;
+  sede_reporta_nombre: string | null;
+  reportado_por: string;
+  reportado_por_nombre: string | null;
+  reportado_at: string;
+  estado: EstadoFacturaFaltante;
+  entrega_id: string | null;
+  cerrada_at: string | null;
+  cerrada_por: string | null;
+  cerrada_por_nombre: string | null;
+}
+
+/** Reporta que una factura no fue subida. Errores de negocio: 403 sin permiso
+ * en esa sede, 409 ya subida por punto de venta o ya reportada y pendiente
+ * (ver esErrorFacturaYaSubida / esErrorFacturaYaReportada en errorMessages.ts). */
+export async function reportarFacturaFaltante(payload: {
+  tipo: string;
+  indicativo_numero: string;
+  empleado_id: string;
+  sede_id: string;
+}): Promise<FacturaFaltante> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/facturas-faltantes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const resultado = await parsearRespuesta<FacturaFaltante>(res);
+  invalidarCache('facturasFaltantes:');
+  return resultado;
+}
+
+/** Reportes de una sede (por defecto los pendientes, el mas viejo primero; los
+ * cerrados, el mas reciente primero). vista 'destino' (default, mostrador): los
+ * dirigidos a esa sede. 'sede' (bodega): los dirigidos a ella mas los que
+ * reporto hacia otra sede. `horas` limita a lo cerrado/reportado en las
+ * ultimas N horas. */
+export async function fetchFacturasFaltantes(
+  sedeId: string,
+  opciones?: OpcionesCache & { vista?: 'destino' | 'sede'; estado?: EstadoFacturaFaltante; horas?: number }
+): Promise<FacturaFaltante[]> {
+  const vista = opciones?.vista ?? 'destino';
+  const estado = opciones?.estado ?? 'pendiente';
+  const horas = opciones?.horas;
+  return conCache<FacturaFaltante[]>(
+    `facturasFaltantes:${vista}:${estado}:${horas ?? 'todas'}:${sedeId}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const params = new URLSearchParams({ sede_id: sedeId, estado, vista });
+      if (horas !== undefined) params.set('horas', String(horas));
+      const res = await fetchConTimeout(`${API_BASE_URL}/facturas-faltantes?${params}`);
+      return parsearRespuesta<FacturaFaltante[]>(res);
+    },
+    opciones
+  );
+}
+
+/** Facturas que el mostrador ya subio (ultimas 24 h) de los reportes que hizo
+ * esta sede -- lo que el bodeguero ve como "ya subidas". */
+export async function fetchFacturasYaSubidas(sedeId: string, opciones?: OpcionesCache): Promise<FacturaFaltante[]> {
+  const lista = await fetchFacturasFaltantes(sedeId, { ...opciones, vista: 'sede', estado: 'resuelta', horas: 24 });
+  return lista.filter((f) => f.sede_reporta_id === sedeId);
+}
+
+/** El mostrador confirma "ya la subi". El backend verifica que la factura exista
+ * en entregas (409 "todavia no aparece" si no: ver esErrorFacturaNoRegistrada). */
+export async function marcarFacturaSubida(id: string, empleadoId: string): Promise<FacturaFaltante> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/facturas-faltantes/${id}/marcar-subida`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ empleado_id: empleadoId }),
+  });
+  const resultado = await parsearRespuesta<FacturaFaltante>(res);
+  invalidarCache('facturasFaltantes:');
+  return resultado;
+}
+
+/** Descarta un reporte (quien lo hizo, o punto_venta/supervisor/admin de la sede). */
+export async function descartarFacturaFaltante(id: string, empleadoId: string): Promise<FacturaFaltante> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/facturas-faltantes/${id}/descartar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ empleado_id: empleadoId }),
+  });
+  const resultado = await parsearRespuesta<FacturaFaltante>(res);
+  invalidarCache('facturasFaltantes:');
+  return resultado;
 }

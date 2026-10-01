@@ -38,8 +38,9 @@ import * as Updates from 'expo-updates';
 
 import {
   API_BASE_URL,
+  fetchFacturasFaltantes,
+  fetchFacturasYaSubidas,
   fetchNovedadesTraslado,
-  fetchPendientesSede,
   fetchResumenHoy,
   fetchTrasladosPunto,
 } from './api';
@@ -489,27 +490,51 @@ type Pendiente = {
 // Lo pendiente del area de la sesion, con los mismos endpoints que usan esas
 // pantallas (bandeja de recepcion, novedades) salvo bodega, que usa su propio
 // conteo (GET /entregas/pendientes) para no bajar todas las entregas.
-async function filasBodega(sesion: Sesion, sedeId: string): Promise<Pendiente[]> {
-  const conteo = await fetchPendientesSede(sedeId);
-  const filas: Pendiente[] = [
+// Bodega: estado de las facturas que su sede reporto como no subidas al punto
+// de venta (ver PantallaFacturasFaltantes.tsx) -- las que siguen esperando y
+// las que el mostrador ya subio en las ultimas 24 h. Informativo: se muestran
+// siempre, aunque esten en 0. Reemplaza a los antiguos "Despachos/Remisiones
+// por entregar".
+async function filasBodega(sedeId: string): Promise<Pendiente[]> {
+  const [reportadas, subidas] = await Promise.all([
+    fetchFacturasFaltantes(sedeId, { vista: 'sede' }),
+    fetchFacturasYaSubidas(sedeId),
+  ]);
+  const abrir = (nav: BottomTabNavigationProp<TabsParamList>) =>
+    nav.navigate('Despachos', { screen: 'FacturasFaltantes' });
+  return [
     {
-      clave: 'despachos',
-      texto: 'Despachos por entregar',
-      cantidad: conteo.despachos,
-      icono: 'cube-outline',
+      clave: 'facturas_sin_subir',
+      texto: 'Facturas sin subir',
+      // Solo las que reporto esta sede (vista 'sede' tambien trae las que
+      // otra sede le reporto a esta, que son tarea de su mostrador).
+      cantidad: reportadas.filter((f) => (f.sede_reporta_id ?? f.sede_id) === sedeId).length,
+      icono: 'hourglass-outline',
+      abrir,
+    },
+    {
+      clave: 'facturas_ya_subidas',
+      texto: 'Ya subidas (24 h)',
+      cantidad: subidas.length,
+      icono: 'checkmark-done-outline',
+      abrir,
+    },
+  ];
+}
+
+// Mostrador (punto_venta): no despacha, pero si tiene algo pendiente propio --
+// las facturas que los bodegueros de su sede reportaron como no subidas.
+async function filasMostrador(sedeId: string): Promise<Pendiente[]> {
+  const lista = await fetchFacturasFaltantes(sedeId, { vista: 'destino' });
+  return [
+    {
+      clave: 'facturas_por_subir',
+      texto: 'Facturas por subir',
+      cantidad: lista.length,
+      icono: 'document-text-outline',
       abrir: (nav) => nav.navigate('Despachos', { screen: 'Captura' }),
     },
   ];
-  if (tieneAcceso(sesion, 'Remisiones')) {
-    filas.push({
-      clave: 'remisiones',
-      texto: 'Remisiones por entregar',
-      cantidad: conteo.remisiones,
-      icono: 'document-text-outline',
-      abrir: (nav) => nav.navigate('Remisiones', { screen: 'Captura' }),
-    });
-  }
-  return filas;
 }
 
 async function filaNovedades(): Promise<Pendiente> {
@@ -526,7 +551,8 @@ async function filaNovedades(): Promise<Pendiente> {
 async function cargarPendientes(sesion: Sesion): Promise<Pendiente[]> {
   switch (sesion.tipo) {
     case 'bodega':
-      return filasBodega(sesion, sesion.sede.id);
+      if (sesion.empleado.rol === 'punto_venta') return filasMostrador(sesion.sede.id);
+      return filasBodega(sesion.sede.id);
     case 'punto': {
       const lista = await fetchTrasladosPunto({ destinoId: sesion.punto.id, estado: 'en_transito' });
       return [
@@ -553,24 +579,28 @@ function Pendientes() {
   const { sesion } = useSesion();
   const navigation = useNavigation<BottomTabNavigationProp<TabsParamList>>();
   const [pendientes, setPendientes] = useState<Pendiente[] | null>(null);
-  // Los mostradores (rol punto_venta) facturan, no despachan: los pendientes
-  // de entrega no son tarea suya, asi que ni se piden.
-  const esMostrador = sesion.tipo === 'bodega' && sesion.empleado.rol === 'punto_venta';
-
   useFocusEffect(
     useCallback(() => {
-      if (esMostrador) return;
+      // Los mostradores (rol punto_venta) facturan, no despachan: no ven los
+      // pendientes de entrega, solo "Facturas por subir" (ver cargarPendientes).
+      // Sin avisos pendientes (cantidad 0) tampoco se muestra nada.
       let vigente = true;
       cargarPendientes(sesion)
-        .then((filas) => vigente && setPendientes(filas))
+        .then((filas) => {
+          if (!vigente) return;
+          const esMostrador = sesion.tipo === 'bodega' && sesion.empleado.rol === 'punto_venta';
+          // El mostrador solo ve la fila si hay algo por subir; el resto de
+          // sesiones muestra siempre sus filas (aunque sean 0).
+          setPendientes(esMostrador ? filas.filter((f) => f.cantidad > 0) : filas);
+        })
         .catch(() => vigente && setPendientes(null));
       return () => {
         vigente = false;
       };
-    }, [sesion, esMostrador])
+    }, [sesion])
   );
 
-  if (esMostrador || !pendientes) return null;
+  if (!pendientes || pendientes.length === 0) return null;
 
   return (
     <View style={estilos.seccion}>

@@ -149,6 +149,7 @@ export const vibrar = {
   seleccion: () => sinFalla(Haptics.selectionAsync()),
   exito: () => sinFalla(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
   error: () => sinFalla(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)),
+  aviso: () => sinFalla(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)),
 };
 
 const estilos = StyleSheet.create({

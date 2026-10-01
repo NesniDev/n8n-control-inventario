@@ -12,7 +12,8 @@ export type ContextoError =
   | 'firma'
   | 'entrega'
   | 'devolucion'
-  | 'traslado';
+  | 'traslado'
+  | 'factura_faltante';
 
 const MENSAJE_SERVIDOR = 'Error del servidor. Intenta de nuevo en unos minutos.';
 const MENSAJE_SESION = 'PIN incorrecto o sesión no válida.';
@@ -28,6 +29,8 @@ const MENSAJES_POR_CONTEXTO: Record<ContextoError, string> = {
   // Cubre crear el traslado y confirmar la recepcion -- los dos caminos del
   // flujo de Traslados que llaman a mensajeError (ver PantallaTraslado*.tsx).
   traslado: 'No se pudo procesar el traslado. Intentá de nuevo.',
+  // Cubre reportar y descartar una factura faltante (ver PantallaFacturasFaltantes.tsx).
+  factura_faltante: 'No se pudo procesar el reporte de factura. Intenta de nuevo.',
 };
 
 const MENSAJE_GENERICO = 'Ocurrió un error. Intenta de nuevo.';
@@ -98,6 +101,42 @@ export function esErrorFacturaYaRegistrada(err: unknown): boolean {
 }
 
 export const MENSAJE_FACTURA_YA_REGISTRADA = 'Esta factura ya fue registrada. No hace falta volver a fotografiarla.';
+
+// Casos puntuales de POST /facturas-faltantes (409): el reporte no hace falta
+// porque punto de venta ya subio la factura, o porque ya hay un reporte
+// pendiente de esa misma factura. Mismo criterio que esErrorFacturaYaRegistrada.
+export function esErrorFacturaYaReportada(err: unknown): boolean {
+  return (
+    esErrorHttp(err) &&
+    err.status === 409 &&
+    typeof err.detail === 'string' &&
+    err.detail.includes('ya fue reportada')
+  );
+}
+
+export function esErrorFacturaYaSubida(err: unknown): boolean {
+  return (
+    esErrorHttp(err) &&
+    err.status === 409 &&
+    typeof err.detail === 'string' &&
+    err.detail.includes('ya fue subida')
+  );
+}
+
+// POST /facturas-faltantes/{id}/marcar-subida (409): el mostrador dijo "ya la
+// subi" pero esa factura todavia no esta en entregas (FacturaNoRegistrada).
+export function esErrorFacturaNoRegistrada(err: unknown): boolean {
+  return (
+    esErrorHttp(err) &&
+    err.status === 409 &&
+    typeof err.detail === 'string' &&
+    err.detail.includes('todavía no aparece')
+  );
+}
+
+export const MENSAJE_FACTURA_YA_REPORTADA = 'Esa factura ya fue reportada y sigue pendiente. El punto de venta ya fue avisado.';
+
+export const MENSAJE_FACTURA_YA_SUBIDA = 'Esa factura ya fue subida por el punto de venta. Puedes consultarla y despacharla.';
 
 // Caso puntual de RecepcionTraslado: alguien mas ya confirmo la recepcion de
 // este traslado (ver TrasladoYaRecibido en app/services/traslados_puntos.py

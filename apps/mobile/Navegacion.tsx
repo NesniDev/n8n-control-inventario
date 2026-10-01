@@ -29,6 +29,7 @@ import PantallaCapturaFoto from './PantallaCapturaFoto';
 import PantallaBuscar from './PantallaBuscar';
 import PantallaConfirmando from './PantallaConfirmando';
 import PantallaResultado from './PantallaResultado';
+import PantallaFacturasFaltantes from './PantallaFacturasFaltantes';
 import PantallaTrasladoInicio from './PantallaTrasladoInicio';
 import PantallaTrasladoNuevo from './PantallaTrasladoNuevo';
 import PantallaTrasladoFirmaTransportador from './PantallaTrasladoFirmaTransportador';
@@ -47,6 +48,7 @@ export type DespachosStackParamList = {
   Buscar: undefined;
   Confirmando: undefined;
   Resultado: { mensaje: string };
+  FacturasFaltantes: undefined;
 };
 
 // InicioTraslados -> NuevoTraslado -> FirmaTransportador -> ResultadoTraslado
@@ -131,6 +133,7 @@ function FlujoFoto({ flujo, area }: { flujo: Flujo; area: AreaApp }) {
       <DespachosStack.Screen name="Buscar" component={PantallaBuscar} />
       <DespachosStack.Screen name="Confirmando" component={PantallaConfirmando} />
       <DespachosStack.Screen name="Resultado" component={PantallaResultado} />
+      <DespachosStack.Screen name="FacturasFaltantes" component={PantallaFacturasFaltantes} />
     </DespachosStack.Navigator>
   );
 }

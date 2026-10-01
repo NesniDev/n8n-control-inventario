@@ -419,7 +419,7 @@ export function EntregaProvider({
   );
 }
 
-const RUTAS_CON_VOLVER: string[] = ['Buscar', 'Confirmando', 'Resultado'];
+const RUTAS_CON_VOLVER: string[] = ['Buscar', 'Confirmando', 'Resultado', 'FacturasFaltantes'];
 
 // Header compartido por las pantallas de la sesion logueada -- antes era
 // JSX repetido dentro del unico componente gigante; ahora vive en un solo
