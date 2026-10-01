@@ -1468,7 +1468,29 @@ export default function DashboardPage() {
           tener que leer la tabla entera buscando que esta mal. Dos subgrupos
           separados (en vez de la mezcla anterior) para distinguir revision
           de la IA vs. entregas sin terminar. */}
-      {paraRevisar.length > 0 || conPendiente.length > 0 ? (
+      {entregas === undefined && !entregasError ? (
+        // Reserva la altura tipica de la seccion cargada para que no empuje
+        // lo de abajo cuando llegan los datos.
+        <section className="flex flex-col gap-4" aria-busy>
+          <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
+            Necesita tu atención
+          </h2>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Sin terminar</h3>
+            {Array.from({ length: LIMITE_ATENCION }, (_, i) => (
+              <div key={i} className="h-11 animate-pulse rounded-lg bg-neutral-800" />
+            ))}
+            <div className="h-4 w-24 animate-pulse rounded bg-neutral-800" />
+          </div>
+        </section>
+      ) : paraRevisar.length === 0 && conPendiente.length === 0 ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
+            Necesita tu atención
+          </h2>
+          <p className="text-sm text-neutral-500">Todo al día: no hay entregas en revisión ni sin terminar.</p>
+        </section>
+      ) : (
         <section className="flex flex-col gap-4">
           <h2 className="text-sm font-medium uppercase tracking-wide text-amber-400">
             Necesita tu atención
@@ -1530,7 +1552,7 @@ export default function DashboardPage() {
             </div>
           ) : null}
         </section>
-      ) : null}
+      )}
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">

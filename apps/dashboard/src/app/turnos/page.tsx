@@ -177,6 +177,19 @@ export default function TurnosPage() {
             ))}
           </div>
         </div>
+        {/* Espacio siempre reservado: el aviso aparece al llegar los datos sin empujar el resto de la página. */}
+        <div className="flex min-h-10 min-w-64 flex-1 items-center" aria-live="polite">
+          {historialCorto ? (
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-amber-200">
+              <IconoAviso />
+              <span>
+                <span className="font-medium">Todavía hay pocos datos</span> ({data.semanas}{" "}
+                {data.semanas === 1 ? "semana" : "semanas"}). Tómalo como una primera idea: con 6 a 8 semanas de
+                registros ya es confiable.
+              </span>
+            </p>
+          ) : null}
+        </div>
       </section>
 
       {error ? (
@@ -186,23 +199,15 @@ export default function TurnosPage() {
         />
       ) : null}
 
-      {historialCorto ? (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          <IconoAviso />
-          <p className="leading-relaxed">
-            <span className="font-medium">Todavía hay pocos datos</span> (
-            {data.semanas} {data.semanas === 1 ? "semana" : "semanas"}). Tómalo como una primera idea: los resultados
-            pueden cambiar bastante. Con 6 a 8 semanas de registros ya son confiables.
-          </p>
-        </div>
-      ) : null}
-
       {/* 1. Resumen en frases -- lo primero que hay que entender. */}
       <TarjetaConHeader titulo="En resumen" subtitulo={`Lo más importante de ${nombreSede}, en pocas palabras.`}>
         {cargando ? (
           <div className="flex flex-col gap-3" aria-busy>
-            {[80, 65, 72].map((ancho) => (
-              <div key={ancho} className="h-4 animate-pulse rounded bg-neutral-800" style={{ width: `${ancho}%` }} />
+            {/* 4 lineas con el alto de leading-relaxed (text-sm): igual que las 4 frases cargadas. */}
+            {[80, 65, 72, 70].map((ancho) => (
+              <div key={ancho} className="flex h-[22.75px] items-center">
+                <div className="h-4 animate-pulse rounded bg-neutral-800" style={{ width: `${ancho}%` }} />
+              </div>
             ))}
           </div>
         ) : sinDatos || diaMasMovido === null || !horaMasFuerte ? (
@@ -251,7 +256,7 @@ export default function TurnosPage() {
         subtitulo="Documentos registrados en promedio cada semana, por día."
       >
         {cargando ? (
-          <div className="h-48 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
+          <div className="h-[188px] animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
         ) : sinDatos ? (
           <EstadoVacio titulo="Sin datos en este período" />
         ) : (
@@ -291,12 +296,13 @@ export default function TurnosPage() {
         // vez de ensanchar toda la pagina en pantallas chicas.
         className="min-w-0"
       >
+        {/* key distinta: React no reutiliza el nodo del esqueleto (el navegador lo contaria como salto). */}
         {cargando ? (
-          <div className="h-56 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
+          <div key="esqueleto-hora" className="h-[23.5rem] animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
         ) : sinDatos ? (
           <EstadoVacio titulo="Sin datos en este período" />
         ) : (
-          <div className="flex min-w-0 flex-col gap-4">
+          <div key="grilla-hora" className="flex min-w-0 flex-col gap-4">
             {/* Leyenda arriba: primero se aprende a leer, despues se mira. */}
             <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-300">
               {NIVELES.map((n) => (
@@ -379,11 +385,11 @@ export default function TurnosPage() {
         pildora={data ? `${bloques.length} ${bloques.length === 1 ? "horario" : "horarios"}` : undefined}
       >
         {cargando ? (
-          <div className="h-32 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
+          <div key="esqueleto-horarios" className="h-32 animate-pulse rounded-lg bg-neutral-800/60" aria-busy />
         ) : bloques.length === 0 ? (
           <EstadoVacio titulo="No hay horarios que se destaquen en este período" />
         ) : (
-          <div className="flex flex-col gap-3">
+          <div key="lista-horarios" className="flex flex-col gap-3">
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {bloques.map((b) => (
                 <li
