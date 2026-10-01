@@ -25,6 +25,71 @@ const VIGENCIA_CORTA = 30 * 1000;
 // simulator/dispositivo físico en la misma red, localhost/IP de LAN andan bien.
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
+// Timeouts: con mala señal un fetch sin limite deja el spinner girando para
+// siempre. Las subidas de fotos/firmas y la lectura con IA (gpt-4o) tardan mas.
+const TIMEOUT_DEFAULT_MS = 30 * 1000;
+const TIMEOUT_SUBIDA_MS = 90 * 1000;
+const TIMEOUT_PROCESAR_MS = 90 * 1000;
+
+const MENSAJE_TIMEOUT = 'La conexión tardó demasiado. Revisá la señal e intentá de nuevo.';
+
+// name 'TimeoutError' lo reconoce mensajeError (errorMessages.ts).
+function errorTimeout(): Error {
+  const err = new Error(MENSAJE_TIMEOUT);
+  err.name = 'TimeoutError';
+  return err;
+}
+
+/**
+ * fetch con limite de tiempo. Si el llamador ya pasa `init.signal`, tambien se
+ * respeta: su abort se re-lanza tal cual (no se confunde con el timeout).
+ */
+async function fetchConTimeout(
+  url: string,
+  init: RequestInit = {},
+  ms: number = TIMEOUT_DEFAULT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const externa = init.signal;
+  const alAbortarExterna = () => controller.abort();
+  if (externa) {
+    if (externa.aborted) controller.abort();
+    else externa.addEventListener('abort', alAbortarExterna);
+  }
+  let vencido = false;
+  const timer = setTimeout(() => {
+    vencido = true;
+    controller.abort();
+  }, ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (vencido && !externa?.aborted) throw errorTimeout();
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    externa?.removeEventListener('abort', alAbortarExterna);
+  }
+}
+
+// El SDK de Storage no acepta signal: se corta la espera (la subida puede
+// terminar en segundo plano, es idempotente por path).
+function conLimite<T>(promesa: PromiseLike<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(errorTimeout()), ms);
+    promesa.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
 export interface ItemEntrega {
   id: string;
   descripcion: string;
@@ -145,7 +210,7 @@ export async function fetchSedes(opciones?: OpcionesCache): Promise<Sede[]> {
     'sedes',
     VIGENCIA_REFERENCIA,
     async () => {
-      const res = await fetch(`${API_BASE_URL}/sedes`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/sedes`);
       if (!res.ok) {
         throw new Error(`No se pudieron cargar las sedes (${res.status})`);
       }
@@ -185,7 +250,7 @@ export async function fetchEmpleados(sedeId: string, opciones?: OpcionesCache): 
     VIGENCIA_REFERENCIA,
     async () => {
       const params = new URLSearchParams({ sede_id: sedeId });
-      const res = await fetch(`${API_BASE_URL}/empleados?${params}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/empleados?${params}`);
       if (!res.ok) {
         throw new Error(`No se pudieron cargar los bodegueros (${res.status})`);
       }
@@ -199,7 +264,7 @@ export async function fetchEmpleados(sedeId: string, opciones?: OpcionesCache): 
  * (ver PantallaLogin) -- el PIN solo confirma esa identidad puntual (ver
  * POST /auth/pin en el backend). */
 export async function loginConPin(pin: string, empleadoId: string): Promise<Empleado> {
-  const res = await fetch(`${API_BASE_URL}/auth/pin`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/auth/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pin, empleado_id: empleadoId }),
@@ -226,9 +291,12 @@ export async function subirEvidencia(uri: string): Promise<{ url: string; hash: 
   // WebP, no JPEG -- comprimirParaEnvio (PantallaCapturaFoto.tsx) ya entrega
   // el archivo en ese formato (misma resolucion/calidad, la mitad de peso).
   const path = `${new Date().toISOString().slice(0, 10)}/${hash}.webp`;
-  const { error } = await supabase.storage
-    .from(EVIDENCIA_BUCKET)
-    .upload(path, decode(base64), { contentType: 'image/webp', upsert: false });
+  const { error } = await conLimite(
+    supabase.storage
+      .from(EVIDENCIA_BUCKET)
+      .upload(path, decode(base64), { contentType: 'image/webp', upsert: false }),
+    TIMEOUT_SUBIDA_MS
+  );
 
   if (error) {
     // Conflicto (409, "ya existe") en Storage == misma evidencia ya subida
@@ -295,9 +363,11 @@ async function firmaAWebp(firmaDataUri: string): Promise<ArrayBuffer> {
 // URLs siguen guardadas en entregas.firma_url y funcionan igual.
 export async function subirFirma(entregaId: string, firmaDataUri: string): Promise<{ url: string }> {
   const path = `firmas/${entregaId}.webp`;
-  const { error } = await supabase.storage
-    .from(EVIDENCIA_BUCKET)
-    .upload(path, await firmaAWebp(firmaDataUri), { contentType: 'image/webp', upsert: true });
+  const webp = await firmaAWebp(firmaDataUri);
+  const { error } = await conLimite(
+    supabase.storage.from(EVIDENCIA_BUCKET).upload(path, webp, { contentType: 'image/webp', upsert: true }),
+    TIMEOUT_SUBIDA_MS
+  );
 
   if (error) {
     throw new Error(`No se pudo subir la firma: ${error.message}`);
@@ -333,11 +403,11 @@ export async function procesarEntrega(payload: {
   // Default 'despacho' en el backend si no se manda.
   flujo?: Flujo;
 }): Promise<ResultadoEnvio> {
-  const res = await fetch(`${API_BASE_URL}/entregas/procesar`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/entregas/procesar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, TIMEOUT_PROCESAR_MS);
 
   // 409 = ya estaba todo entregado, nada que actualizar (ver Figura 1);
   // cualquier otro error de negocio llega tambien como { detail } gracias a FastAPI.
@@ -360,7 +430,7 @@ export async function buscarEntrega(
   sedeId: string
 ): Promise<ResultadoEnvio> {
   const params = new URLSearchParams({ tipo, indicativo_numero: indicativoNumero, sede_id: sedeId });
-  const res = await fetch(`${API_BASE_URL}/entregas/buscar?${params}`);
+  const res = await fetchConTimeout(`${API_BASE_URL}/entregas/buscar?${params}`);
   return parsearRespuesta<ResultadoEnvio>(res);
 }
 
@@ -372,7 +442,7 @@ export async function fetchPendientesSede(sedeId: string, opciones?: OpcionesCac
     VIGENCIA_CORTA,
     async () => {
       const params = new URLSearchParams({ sede_id: sedeId });
-      const res = await fetch(`${API_BASE_URL}/entregas/pendientes?${params}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/entregas/pendientes?${params}`);
       return parsearRespuesta<{ despachos: number; remisiones: number }>(res);
     },
     opciones
@@ -391,7 +461,7 @@ export async function fetchResumenHoy(
     VIGENCIA_CORTA,
     async () => {
       const params = new URLSearchParams({ operador_id: operadorId, sede_id: sedeId });
-      const res = await fetch(`${API_BASE_URL}/entregas/resumen-hoy?${params}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/entregas/resumen-hoy?${params}`);
       return parsearRespuesta<{ despachos: number; remisiones: number }>(res);
     },
     opciones
@@ -407,7 +477,7 @@ export async function fetchResumenHoy(
  */
 export async function cancelarEntrega(entregaId: string, operadorId: string, sedeId: string): Promise<void> {
   const params = new URLSearchParams({ operador_id: operadorId, sede_id: sedeId });
-  await fetch(`${API_BASE_URL}/entregas/${entregaId}?${params}`, { method: 'DELETE' });
+  await fetchConTimeout(`${API_BASE_URL}/entregas/${entregaId}?${params}`, { method: 'DELETE' });
   invalidarCache('pendientes:', 'resumenHoy:', `historial:${entregaId}`);
 }
 
@@ -453,7 +523,7 @@ export async function confirmarItems(
   trasladoUrl?: string,
   conceptoTraslado?: string
 ): Promise<{ id: string; items: ItemEntrega[] }> {
-  const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/entregas/${entregaId}/items`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -502,7 +572,7 @@ export async function registrarDevolucion(
     sede_id: string;
   }
 ): Promise<{ item: ItemEntrega }> {
-  const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/devoluciones`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/entregas/${entregaId}/devoluciones`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -547,7 +617,7 @@ export async function fetchHistorialEntrega(entregaId: string, opciones?: Opcion
     VIGENCIA_CORTA,
     async () => {
       const params = new URLSearchParams({ entidad_id: entregaId, limit: '200' });
-      const res = await fetch(`${API_BASE_URL}/logs?${params}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/logs?${params}`);
       return parsearRespuesta<LogEntry[]>(res);
     },
     opciones
@@ -586,7 +656,7 @@ export async function fetchPuntos(opciones?: OpcionesCache): Promise<Punto[]> {
     'puntos',
     VIGENCIA_REFERENCIA,
     async () => {
-      const res = await fetch(`${API_BASE_URL}/puntos`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/puntos`);
       if (!res.ok) {
         throw new Error(`No se pudieron cargar los puntos (${res.status})`);
       }
@@ -603,7 +673,7 @@ export async function fetchUsuariosPunto(puntoId: string, opciones?: OpcionesCac
     `usuariosPunto:${puntoId}`,
     VIGENCIA_REFERENCIA,
     async () => {
-      const res = await fetch(`${API_BASE_URL}/puntos/${puntoId}/usuarios`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/puntos/${puntoId}/usuarios`);
       if (!res.ok) {
         throw new Error(`No se pudo cargar el personal de este punto (${res.status})`);
       }
@@ -616,7 +686,7 @@ export async function fetchUsuariosPunto(puntoId: string, opciones?: OpcionesCac
 /** Login sin correo/contrasena para usuarios de punto -- mismo mecanismo que
  * loginConPin, contra POST /puntos/auth/pin. */
 export async function loginPunto(pin: string, usuarioId: string): Promise<UsuarioPunto> {
-  const res = await fetch(`${API_BASE_URL}/puntos/auth/pin`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/puntos/auth/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pin, usuario_id: usuarioId }),
@@ -721,7 +791,7 @@ export async function crearTrasladoPunto(payload: {
   firma_transporta_url: string;
   creado_por: string;
 }): Promise<Traslado> {
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -750,7 +820,7 @@ export async function fetchTrasladosPunto(
       if (filtro.destinoId) params.set('destino_id', filtro.destinoId);
       if (filtro.origenId) params.set('origen_id', filtro.origenId);
       if (filtro.estado) params.set('estado', filtro.estado);
-      const res = await fetch(`${API_BASE_URL}/traslados-puntos?${params}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos?${params}`);
       return parsearRespuesta<Traslado[]>(res);
     },
     opciones
@@ -762,7 +832,7 @@ export async function fetchTrasladoPunto(id: string, opciones?: OpcionesCache): 
     `traslado:${id}`,
     VIGENCIA_CORTA,
     async () => {
-      const res = await fetch(`${API_BASE_URL}/traslados-puntos/${id}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/${id}`);
       return parsearRespuesta<Traslado>(res);
     },
     opciones
@@ -783,7 +853,7 @@ export async function registrarRecepcion(
   trasladoId: string,
   payload: { items: ItemRecepcionEnvio[]; novedad?: string; firma_recibe_url: string; recibido_por: string }
 ): Promise<Traslado> {
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos/${trasladoId}/recepcion`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/${trasladoId}/recepcion`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -805,9 +875,11 @@ export async function subirFirmaTraslado(
   firmaDataUri: string
 ): Promise<{ url: string }> {
   const path = `firmas-traslados/${trasladoId}-${rol}.webp`;
-  const { error } = await supabase.storage
-    .from(EVIDENCIA_BUCKET)
-    .upload(path, await firmaAWebp(firmaDataUri), { contentType: 'image/webp', upsert: true });
+  const webp = await firmaAWebp(firmaDataUri);
+  const { error } = await conLimite(
+    supabase.storage.from(EVIDENCIA_BUCKET).upload(path, webp, { contentType: 'image/webp', upsert: true }),
+    TIMEOUT_SUBIDA_MS
+  );
 
   if (error) {
     throw new Error(`No se pudo subir la firma: ${error.message}`);
@@ -832,7 +904,7 @@ export async function fetchSupervisores(opciones?: OpcionesCache): Promise<Super
     'supervisores',
     VIGENCIA_REFERENCIA,
     async () => {
-      const res = await fetch(`${API_BASE_URL}/supervisores`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/supervisores`);
       if (!res.ok) {
         throw new Error(`No se pudieron cargar los supervisores (${res.status})`);
       }
@@ -845,7 +917,7 @@ export async function fetchSupervisores(opciones?: OpcionesCache): Promise<Super
 /** Login sin correo/contrasena para supervisores -- mismo mecanismo que
  * loginPunto/loginConPin, contra POST /supervisores/auth/pin. */
 export async function loginSupervisor(pin: string, supervisorId: string): Promise<Supervisor> {
-  const res = await fetch(`${API_BASE_URL}/supervisores/auth/pin`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/supervisores/auth/pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pin, supervisor_id: supervisorId }),
@@ -866,7 +938,7 @@ export async function fetchNovedadesTraslado(estado: EstadoNovedad, opciones?: O
     VIGENCIA_CORTA,
     async () => {
       const params = new URLSearchParams({ estado });
-      const res = await fetch(`${API_BASE_URL}/traslados-puntos/novedades?${params}`);
+      const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/novedades?${params}`);
       return parsearRespuesta<Traslado[]>(res);
     },
     opciones
@@ -888,7 +960,7 @@ export async function resolverNovedadTraslado(
   consecutivoCodigo: string,
   consecutivoNumero: string
 ): Promise<Traslado> {
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos/${trasladoId}/solucion`, {
+  const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/${trasladoId}/solucion`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -914,6 +986,6 @@ export async function buscarConsecutivoTraslado(q: string): Promise<Traslado[]> 
   const texto = q.trim();
   if (!texto) return [];
   const params = new URLSearchParams({ q: texto });
-  const res = await fetch(`${API_BASE_URL}/traslados-puntos/buscar-consecutivo?${params}`);
+  const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/buscar-consecutivo?${params}`);
   return parsearRespuesta<Traslado[]>(res);
 }

@@ -190,6 +190,8 @@ export function mensajeError(err: unknown, contexto?: ContextoError): string {
   }
 
   if (err instanceof Error) {
+    // Timeout de api.ts (fetchConTimeout / conLimite): el mensaje ya viene listo.
+    if (err.name === 'TimeoutError') return err.message;
     // Se agrega el mensaje real de Supabase Storage entre parentesis -- antes
     // esto se tapaba con "revisá tu conexión", que es enganioso cuando la
     // causa real es un permiso (RLS) o el tipo/tamano de archivo, no la red.
