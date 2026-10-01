@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import useSWR from "swr";
+import useSWR, { mutate as mutateGlobal } from "swr";
 import { toast } from "sonner";
 import {
   EXPORT_CSV_URL,
@@ -1102,20 +1102,29 @@ function ModalConfirmarLimpieza({
   );
 }
 
+// Realtime es la via principal de actualizacion; el polling queda como red de
+// seguridad (30s en vivo, 5s si el socket esta caido).
+const POLLING_EN_VIVO_MS = 30000;
+const POLLING_SIN_REALTIME_MS = 5000;
+
+// Revalida "entregas" y todas las variantes filtradas de la tabla.
+const revalidarEntregas = () =>
+  mutateGlobal((key) => key === "entregas" || (Array.isArray(key) && key[0] === "entregas-tabla"));
+
 export default function DashboardPage() {
+  const [enVivo, setEnVivo] = useState(false);
+  const refreshInterval = enVivo ? POLLING_EN_VIVO_MS : POLLING_SIN_REALTIME_MS;
   // SWR dedupea llamadas concurrentes, reintenta ante error y revalida al
   // volver a la pestaña, ademas del polling — sin el useEffect/setInterval
   // manual que teniamos antes.
-  const {
-    data: entregas,
-    error: entregasError,
-    mutate: recargarEntregas,
-  } = useSWR("entregas", fetchEntregas, { refreshInterval: 5000 });
+  const { data: entregas, error: entregasError } = useSWR("entregas", () => fetchEntregas(), {
+    refreshInterval,
+  });
   const {
     data: logs,
     isLoading: logsCargando,
     mutate: recargarLogs,
-  } = useSWR("logs", fetchLogs, { refreshInterval: 5000 });
+  } = useSWR("logs", fetchLogs, { refreshInterval });
   // Para el selector de sede origen en la edicion ampliada de FilaRevision --
   // no cambia seguido, no hace falta refreshInterval.
   const { data: sedes } = useSWR("sedes", fetchSedes);
@@ -1165,16 +1174,24 @@ export default function DashboardPage() {
     setLimiteTabla(150);
   };
 
+  // Con los filtros por defecto la peticion es identica a la del hook base
+  // (/entregas?limit=150): se comparte la key para que SWR la dedupee.
+  const tablaPorDefecto =
+    !fechaDesde && !fechaHasta && sedeFiltro === "todas" && !busquedaDebounced && limiteTabla === 150;
   const { data: entregasTabla, isLoading: entregasTablaCargando } = useSWR(
-    ["entregas-tabla", fechaDesde, fechaHasta, sedeFiltro, busquedaDebounced, limiteTabla],
-    () =>
-      fetchEntregas({
-        sedeId: sedeFiltro === "todas" ? undefined : sedeFiltro,
-        ...fechasCalendarioAISO(fechaDesde, fechaHasta),
-        busqueda: busquedaDebounced || undefined,
-        limit: limiteTabla,
-      }),
-    { refreshInterval: 5000 }
+    tablaPorDefecto
+      ? "entregas"
+      : ["entregas-tabla", fechaDesde, fechaHasta, sedeFiltro, busquedaDebounced, limiteTabla],
+    tablaPorDefecto
+      ? () => fetchEntregas()
+      : () =>
+          fetchEntregas({
+            sedeId: sedeFiltro === "todas" ? undefined : sedeFiltro,
+            ...fechasCalendarioAISO(fechaDesde, fechaHasta),
+            busqueda: busquedaDebounced || undefined,
+            limit: limiteTabla,
+          }),
+    { refreshInterval }
   );
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
@@ -1196,7 +1213,6 @@ export default function DashboardPage() {
   // `procesada` sin nada pendiente, donde no tiene sentido el flujo
   // editable de FilaRevision.
   const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
-  const [enVivo, setEnVivo] = useState(false);
 
   // Token de administrador para los endpoints de borrado (ver
   // _verificar_token_admin en el backend) -- persistido en localStorage para
@@ -1253,10 +1269,10 @@ export default function DashboardPage() {
     const canal = cliente
       .channel("dashboard-entregas-logs")
       .on("postgres_changes", { event: "*", schema: "public", table: "entregas" }, () => {
-        recargarEntregas();
+        revalidarEntregas();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "entrega_items" }, () => {
-        recargarEntregas();
+        revalidarEntregas();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "logs" }, () => {
         recargarLogs();
@@ -1266,7 +1282,7 @@ export default function DashboardPage() {
     return () => {
       cliente.removeChannel(canal);
     };
-  }, [recargarEntregas, recargarLogs]);
+  }, [recargarLogs]);
 
   const error = entregasError instanceof Error ? entregasError.message : null;
 
@@ -1763,7 +1779,7 @@ export default function DashboardPage() {
                         sedes={sedes}
                         onGuardado={() => {
                           setEnRevision(null);
-                          recargarEntregas();
+                          revalidarEntregas();
                         }}
                       />
                     ) : null}
@@ -1847,7 +1863,7 @@ export default function DashboardPage() {
             toast.success(
               `Se eliminaron ${resultado.entregas_borradas} entregas y ${resultado.logs_borrados} logs`
             );
-            recargarEntregas();
+            revalidarEntregas();
             recargarLogs();
           }}
         />
