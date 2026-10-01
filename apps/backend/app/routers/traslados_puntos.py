@@ -15,7 +15,7 @@ from app.models.empleado import PinNuevo
 from app.models.punto import PinLoginPunto, PuntoActualizar, PuntoCrear, UsuarioPuntoActualizar, UsuarioPuntoCrear
 from app.models.supervisor import PinLoginSupervisor, SupervisorActualizar, SupervisorCrear
 from app.models.traslado_punto import RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
-from app.services.admin_auth import verificar_token_admin
+from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.auth_pin import generar_sal, hashear_pin, verificar_pin
 from app.services.traslados_puntos import (
     ConsecutivoDuplicado,
@@ -51,13 +51,17 @@ def _sin_pin(row) -> dict:
 
 
 @router.get("/puntos")
-async def listar_puntos(incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)) -> list[dict]:
+async def listar_puntos(
+    incluir_inactivos: bool = False,
+    authorization: str | None = Header(default=None),
+    x_admin_token: str | None = Header(default=None),
+) -> list[dict]:
     """Publico solo con puntos activos (lo usa el movil); con
-    incluir_inactivos=true exige X-Admin-Token y agrega el campo activo
+    incluir_inactivos=true exige sesion admin (o X-Admin-Token legacy) y agrega el campo activo
     (pantalla /creador)."""
     pool = await get_pool()
     if incluir_inactivos:
-        verificar_token_admin(x_admin_token)
+        await autorizar_admin(authorization, x_admin_token)
         rows = await pool.fetch(
             "select id, nombre, codigo, activo from puntos order by activo desc, codigo nulls last, nombre"
         )
@@ -70,10 +74,10 @@ async def listar_puntos(incluir_inactivos: bool = False, x_admin_token: str | No
     return [{"id": str(r["id"]), "nombre": r["nombre"], "codigo": r["codigo"]} for r in rows]
 
 
-@router.post("/puntos", status_code=201, dependencies=[Depends(verificar_token_admin)])
+@router.post("/puntos", status_code=201, dependencies=[Depends(requiere_admin)])
 async def crear_punto(payload: PuntoCrear) -> dict:
     """Alta de un punto -- protegida con X-Admin-Token (mismo mecanismo que
-    el borrado definitivo de entregas, ver verificar_token_admin). Se usa
+    el borrado definitivo de entregas, ver requiere_admin). Se usa
     desde la pantalla /creador del dashboard, desde aca o desde
     scripts/crear_punto.py."""
     pool = await get_pool()
@@ -88,12 +92,15 @@ async def crear_punto(payload: PuntoCrear) -> dict:
 
 @router.get("/puntos/{punto_id}/usuarios")
 async def listar_usuarios_punto(
-    punto_id: str, incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)
+    punto_id: str,
+    incluir_inactivos: bool = False,
+    authorization: str | None = Header(default=None),
+    x_admin_token: str | None = Header(default=None),
 ) -> list[dict]:
     """Publico solo con usuarios activos (lo usa el login movil); con
-    incluir_inactivos=true exige X-Admin-Token (pantalla /creador)."""
+    incluir_inactivos=true exige sesion admin (o X-Admin-Token legacy) (pantalla /creador)."""
     if incluir_inactivos:
-        verificar_token_admin(x_admin_token)
+        await autorizar_admin(authorization, x_admin_token)
     filtro_estado = "" if incluir_inactivos else " and estado = 'activo'"
     pool = await get_pool()
     rows = await pool.fetch(
@@ -103,7 +110,7 @@ async def listar_usuarios_punto(
     return [_sin_pin(r) for r in rows]
 
 
-@router.post("/puntos/{punto_id}/usuarios", status_code=201, dependencies=[Depends(verificar_token_admin)])
+@router.post("/puntos/{punto_id}/usuarios", status_code=201, dependencies=[Depends(requiere_admin)])
 async def crear_usuario_punto(punto_id: str, payload: UsuarioPuntoCrear) -> dict:
     pool = await get_pool()
     sal = generar_sal()
@@ -125,7 +132,7 @@ async def crear_usuario_punto(punto_id: str, payload: UsuarioPuntoCrear) -> dict
     return _sin_pin(row)
 
 
-@router.patch("/puntos/usuarios/{usuario_id}", dependencies=[Depends(verificar_token_admin)])
+@router.patch("/puntos/usuarios/{usuario_id}", dependencies=[Depends(requiere_admin)])
 async def actualizar_usuario_punto(usuario_id: UUID, payload: UsuarioPuntoActualizar) -> dict:
     """Ruta con 3 segmentos (/puntos/usuarios/{id}): no colisiona con
     PATCH /puntos/{punto_id} (2 segmentos) ni con /puntos/{punto_id}/usuarios."""
@@ -137,7 +144,7 @@ async def actualizar_usuario_punto(usuario_id: UUID, payload: UsuarioPuntoActual
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/puntos/usuarios/{usuario_id}/pin", dependencies=[Depends(verificar_token_admin)])
+@router.post("/puntos/usuarios/{usuario_id}/pin", dependencies=[Depends(requiere_admin)])
 async def resetear_pin_usuario_punto(usuario_id: UUID, payload: PinNuevo) -> dict:
     try:
         await resetear_pin("usuarios_punto", str(usuario_id), payload.pin)
@@ -146,7 +153,7 @@ async def resetear_pin_usuario_punto(usuario_id: UUID, payload: PinNuevo) -> dic
     return {"ok": True}
 
 
-@router.patch("/puntos/{punto_id}", dependencies=[Depends(verificar_token_admin)])
+@router.patch("/puntos/{punto_id}", dependencies=[Depends(requiere_admin)])
 async def actualizar_punto(punto_id: UUID, payload: PuntoActualizar) -> dict:
     try:
         return await actualizar_fila("puntos", str(punto_id), payload.model_dump(exclude_none=True))
@@ -177,20 +184,22 @@ async def login_pin_punto(payload: PinLoginPunto) -> dict:
 
 @router.get("/supervisores")
 async def listar_supervisores(
-    incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)
+    incluir_inactivos: bool = False,
+    authorization: str | None = Header(default=None),
+    x_admin_token: str | None = Header(default=None),
 ) -> list[dict]:
     """Publico solo con supervisores activos (lo usa el login movil); con
-    incluir_inactivos=true exige X-Admin-Token y agrega el estado."""
+    incluir_inactivos=true exige sesion admin (o X-Admin-Token legacy) y agrega el estado."""
     pool = await get_pool()
     if incluir_inactivos:
-        verificar_token_admin(x_admin_token)
+        await autorizar_admin(authorization, x_admin_token)
         rows = await pool.fetch("select id, nombre, estado from supervisores order by estado, nombre")
         return [{"id": str(r["id"]), "nombre": r["nombre"], "estado": r["estado"]} for r in rows]
     rows = await pool.fetch("select id, nombre from supervisores where estado = 'activo' order by nombre")
     return [{"id": str(r["id"]), "nombre": r["nombre"]} for r in rows]
 
 
-@router.post("/supervisores", status_code=201, dependencies=[Depends(verificar_token_admin)])
+@router.post("/supervisores", status_code=201, dependencies=[Depends(requiere_admin)])
 async def crear_supervisor(payload: SupervisorCrear) -> dict:
     """Alta de un supervisor con PIN (equivale a scripts/crear_supervisor.py,
     pero sin la rama de "si ya existe, cambiale el PIN": para eso esta el
@@ -220,7 +229,7 @@ async def login_pin_supervisor(payload: PinLoginSupervisor) -> dict:
 # OJO: estas rutas con {supervisor_id} tienen que declararse DESPUES de
 # POST /supervisores/auth/pin -- FastAPI resuelve por orden de registro y,
 # si quedaran antes, "auth" caeria en el path param (UUID) y daria 422.
-@router.patch("/supervisores/{supervisor_id}", dependencies=[Depends(verificar_token_admin)])
+@router.patch("/supervisores/{supervisor_id}", dependencies=[Depends(requiere_admin)])
 async def actualizar_supervisor(supervisor_id: UUID, payload: SupervisorActualizar) -> dict:
     try:
         return await actualizar_fila("supervisores", str(supervisor_id), payload.model_dump(exclude_none=True))
@@ -230,7 +239,7 @@ async def actualizar_supervisor(supervisor_id: UUID, payload: SupervisorActualiz
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/supervisores/{supervisor_id}/pin", dependencies=[Depends(verificar_token_admin)])
+@router.post("/supervisores/{supervisor_id}/pin", dependencies=[Depends(requiere_admin)])
 async def resetear_pin_supervisor(supervisor_id: UUID, payload: PinNuevo) -> dict:
     try:
         await resetear_pin("supervisores", str(supervisor_id), payload.pin)

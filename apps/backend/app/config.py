@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # (/creador del dashboard). None = deshabilitado (falla cerrado) hasta que se configure explicitamente.
     admin_delete_token: str | None = None
 
+    # Clave con la que se firman los tokens de sesion del dashboard (ver
+    # app/services/sesion_dashboard.py). Opcional: si falta, se deriva de
+    # admin_delete_token.
+    dashboard_session_secret: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

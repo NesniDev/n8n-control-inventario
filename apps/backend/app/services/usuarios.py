@@ -16,6 +16,7 @@ from app.db import get_pool
 from app.models.log import EventoLog
 from app.services.auth_pin import generar_sal, hashear_pin
 from app.services.logging_service import registrar_evento
+from app.services.permisos_dashboard import actor_actual
 
 
 class RegistroNoEncontrado(Exception):
@@ -64,13 +65,14 @@ def serializar(fila: asyncpg.Record | dict) -> dict:
 async def registrar_cambio(
     tabla: str, entidad_id: str, accion: str, detalle: dict[str, Any] | None = None, sede_id: str = "-"
 ) -> None:
-    """Deja el evento en logs. El token admin no identifica a una persona,
-    asi que el actor queda como "admin"."""
+    """Deja el evento en logs. El actor es el de la sesion del dashboard
+    ("dashboard:<usuario>", ver permisos_dashboard.actor_actual); con el token
+    legacy es "dashboard:token", y fuera de una peticion (scripts) "admin"."""
     await registrar_evento(
         EventoLog.ADMIN_CAMBIO,
         entidad_tipo=_ENTIDAD_LOG[tabla],
         entidad_id=entidad_id,
-        actor_id="admin",
+        actor_id=actor_actual.get() or "admin",
         sede_id=sede_id,
         resultado=accion,
         detalle=detalle or {},

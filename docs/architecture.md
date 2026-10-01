@@ -69,6 +69,8 @@ Ver el diagrama enlazado arriba para el flujo visual completo, incluyendo las ra
 ```
 sedes            (id uuid pk, nombre, codigo unique, direccion, timezone, activa, created_at)
 empleados        (id uuid pk, nombre, sede_id, rol, estado, created_at)
+usuarios_dashboard (id uuid pk, usuario unique, nombre, rol admin|supervisor|consulta, pass_hash, pass_salt,
+                   activo, intentos_fallidos, bloqueado_hasta, ultimo_login_at)  -- login del dashboard, fuera de realtime
 entregas         (id uuid pk, tipo, indicativo_numero, hash_evidencia unique, sede_origen_id,
                    estado, confianza_ia jsonb, evidencia_url, operador_id, capturado_at,
                    procesado_at, actualizado_at)

@@ -23,7 +23,7 @@ import {
   type TipoDocumento,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import { useAdminToken } from "@/lib/useAdminToken";
+import { useSesion } from "@/lib/SesionProvider";
 import { EstadoVacio, TarjetaConHeader } from "@/components/ui";
 
 // FEI/FV1 son de Sede Centro, EDP/EDV de Polo Sur (ver _TIPO_SEDE_DUENA en
@@ -311,12 +311,10 @@ function ModalConfirmar({
 
 function FilaRevision({
   entrega,
-  adminToken,
   sedes,
   onGuardado,
 }: {
   entrega: Entrega;
-  adminToken: string;
   // Para el selector de sede origen -- solo se usa cuando la entrega esta
   // pendiente_revision (ver el bloque de campos ampliados mas abajo).
   sedes: Sede[] | undefined;
@@ -325,6 +323,9 @@ function FilaRevision({
   // string y no TipoDocumento: en la practica el tipo real no siempre es
   // uno de los conocidos -- son la sugerencia rapida del datalist, no un
   // limite (ver el <input list=...> mas abajo).
+  // Rol de la sesion: admin/supervisor corrigen y aprueban, solo admin
+  // cancela (borrado definitivo); "consulta" ve todo en solo lectura.
+  const { esAdmin, puedeEditar } = useSesion();
   const [tipo, setTipo] = useState(entrega.tipo);
   const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
   const [items, setItems] = useState<ItemEntrega[]>(entrega.items.map((i) => ({ ...i })));
@@ -417,7 +418,6 @@ function FilaRevision({
             cantidad_entregada: item.cantidad_entregada,
             cantidad_pendiente: item.cantidad_pendiente,
           })),
-          "supervisor",
           notaGeneralCambio ? notaGeneral : undefined
         );
       }
@@ -431,7 +431,7 @@ function FilaRevision({
   };
 
   // Cancelar/eliminar el pedido -- SIEMPRE via el borrado definitivo
-  // (con token de administrador), nunca via DELETE /entregas/{id} (el que
+  // (solo rol admin), nunca via DELETE /entregas/{id} (el que
   // comparte el movil para "cancelar sin confirmar" desde Confirmando): ese
   // otro endpoint exige que nada este confirmado todavia, y aflojarlo
   // dejaria que un bodeguero real borre sin querer una entrega con historial
@@ -446,7 +446,7 @@ function FilaRevision({
     setConfirmandoBorrado(false);
     setGuardando(true);
     try {
-      await eliminarEntrega(entrega.id, adminToken);
+      await eliminarEntrega(entrega.id);
       toast.success("Pedido cancelado");
       onGuardado();
     } catch (err) {
@@ -500,6 +500,7 @@ function FilaRevision({
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Tipo
               <input
+                disabled={!puedeEditar}
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value.toUpperCase())}
                 list="tipos-documento-sugeridos"
@@ -517,6 +518,7 @@ function FilaRevision({
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               N° de documento
               <input
+                disabled={!puedeEditar}
                 value={indicativoNumero}
                 onChange={(e) => setIndicativoNumero(e.target.value)}
                 className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
@@ -529,6 +531,7 @@ function FilaRevision({
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Sede origen
                 <select
+                  disabled={!puedeEditar}
                   value={sedeOrigenId}
                   onChange={(e) => setSedeOrigenId(e.target.value)}
                   className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
@@ -546,6 +549,7 @@ function FilaRevision({
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Operador
                 <input
+                  disabled={!puedeEditar}
                   value={operadorId}
                   onChange={(e) => setOperadorId(e.target.value)}
                   className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark]"
@@ -554,6 +558,7 @@ function FilaRevision({
               <label className="flex flex-col gap-1 text-xs text-neutral-500">
                 Fecha/hora de captura
                 <input
+                  disabled={!puedeEditar}
                   type="datetime-local"
                   value={capturadoAt}
                   onChange={(e) => setCapturadoAt(e.target.value)}
@@ -564,6 +569,7 @@ function FilaRevision({
                 <label className="flex flex-col gap-1 text-xs text-neutral-500">
                   Traslado tipo
                   <input
+                    disabled={!puedeEditar}
                     value={trasladoTipo}
                     onChange={(e) => setTrasladoTipo(e.target.value.toUpperCase())}
                     placeholder="Opcional"
@@ -573,6 +579,7 @@ function FilaRevision({
                 <label className="flex flex-col gap-1 text-xs text-neutral-500">
                   Traslado N°
                   <input
+                    disabled={!puedeEditar}
                     value={trasladoIndicativoNumero}
                     onChange={(e) => setTrasladoIndicativoNumero(e.target.value)}
                     placeholder="Opcional"
@@ -590,6 +597,7 @@ function FilaRevision({
             <label className="flex flex-col gap-1 text-xs text-neutral-500">
               Nota general de la factura
               <textarea
+                disabled={!puedeEditar}
                 value={notaGeneral}
                 onChange={(e) => setNotaGeneral(e.target.value)}
                 placeholder="Observación general sobre todo el documento (opcional)"
@@ -616,7 +624,7 @@ function FilaRevision({
                         <input
                           value={item.descripcion}
                           onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
-                          disabled={sinPendiente}
+                          disabled={sinPendiente || !puedeEditar}
                           className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
@@ -628,13 +636,14 @@ function FilaRevision({
                           onChange={(e) =>
                             actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
                           }
-                          disabled={sinPendiente}
+                          disabled={sinPendiente || !puedeEditar}
                           className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
                       <label className="flex flex-col gap-1 text-xs text-neutral-500">
                         Pendiente
                         <input
+                          disabled={!puedeEditar}
                           type="number"
                           value={item.cantidad_pendiente}
                           onChange={(e) =>
@@ -682,7 +691,11 @@ function FilaRevision({
               la pendiente de algún producto si fue un error.
             </p>
           ) : null}
+          {!puedeEditar ? (
+            <p className="text-xs text-neutral-600">Tu rol es de consulta: puedes ver esta entrega, pero no modificarla.</p>
+          ) : null}
           <div className="flex gap-2">
+            {puedeEditar ? (
             <button
               onClick={() => guardar(false)}
               disabled={guardando}
@@ -690,7 +703,8 @@ function FilaRevision({
             >
               {guardando ? "Guardando..." : "Guardar"}
             </button>
-            {entrega.estado === "pendiente_revision" ? (
+            ) : null}
+            {puedeEditar && entrega.estado === "pendiente_revision" ? (
               <button
                 onClick={() => guardar(true)}
                 disabled={guardando}
@@ -699,11 +713,10 @@ function FilaRevision({
                 {guardando ? "Guardando..." : "Aprobar"}
               </button>
             ) : null}
-            {puedeCancelar ? (
+            {esAdmin && puedeCancelar ? (
               <button
                 onClick={() => setConfirmandoBorrado(true)}
-                disabled={guardando || !adminToken}
-                title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
+                disabled={guardando}
                 className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
               >
                 Cancelar
@@ -1214,10 +1227,9 @@ export default function DashboardPage() {
   // editable de FilaRevision.
   const [entregaDetalle, setEntregaDetalle] = useState<Entrega | null>(null);
 
-  // Token de administrador para los endpoints de borrado (ver
-  // verificar_token_admin en el backend) -- persistido en localStorage, ver
-  // useAdminToken.
-  const [adminToken, setAdminToken] = useAdminToken();
+  // Rol de la sesion: la zona de peligro y el borrado son solo admin, y el
+  // link a Administracion tambien (el backend lo exige igual, 403 si no).
+  const { esAdmin } = useSesion();
 
   const [limpiezaModalAbierta, setLimpiezaModalAbierta] = useState(false);
   const [limpiezaResultado, setLimpiezaResultado] = useState<{
@@ -1361,12 +1373,14 @@ export default function DashboardPage() {
             >
               Planificación de turnos
             </Link>
-            <Link
-              href="/creador"
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
-            >
-              Administración
-            </Link>
+            {esAdmin ? (
+              <Link
+                href="/creador"
+                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+              >
+                Administración
+              </Link>
+            ) : null}
           </div>
         </div>
         <p className="text-sm text-neutral-400">
@@ -1379,24 +1393,6 @@ export default function DashboardPage() {
           No se pudo conectar con el backend ({API_URL_HINT}): {error}
         </div>
       ) : null}
-
-      {/* Habilita "Cancelar" en la cola de revision y la zona de peligro de
-          abajo -- ver verificar_token_admin en el backend. */}
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
-        <label className="flex w-full max-w-xs flex-col gap-1">
-          <span className="text-[10px] leading-none text-neutral-500">Token de administrador</span>
-          <input
-            type="password"
-            value={adminToken}
-            onChange={(e) => setAdminToken(e.target.value)}
-            placeholder="Requerido para borrar entregas"
-            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 [color-scheme:dark]"
-          />
-        </label>
-        <p className="max-w-sm text-xs text-neutral-600">
-          Habilita cancelar entregas en la cola y la zona de peligro más abajo.
-        </p>
-      </div>
 
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
@@ -1771,7 +1767,6 @@ export default function DashboardPage() {
                       <FilaRevision
                         key={`${e.id}-revision`}
                         entrega={e}
-                        adminToken={adminToken}
                         sedes={sedes}
                         onGuardado={() => {
                           setEnRevision(null);
@@ -1819,6 +1814,7 @@ export default function DashboardPage() {
         )}
       </TarjetaConHeader>
 
+      {esAdmin ? (
       <section className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5">
         <div>
           <h2 className="text-sm font-semibold text-red-400">Zona de peligro</h2>
@@ -1830,8 +1826,6 @@ export default function DashboardPage() {
         <div>
           <button
             onClick={() => setLimpiezaModalAbierta(true)}
-            disabled={!adminToken}
-            title={!adminToken ? "Cargá el token de administrador arriba" : undefined}
             className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
           >
             Eliminar TODOS los productos
@@ -1844,6 +1838,7 @@ export default function DashboardPage() {
           </p>
         ) : null}
       </section>
+      ) : null}
 
       {entregaDetalle ? (
         <ModalDetalleEntrega entrega={entregaDetalle} onCerrar={() => setEntregaDetalle(null)} />
@@ -1853,7 +1848,7 @@ export default function DashboardPage() {
         <ModalConfirmarLimpieza
           onCerrar={() => setLimpiezaModalAbierta(false)}
           onConfirmar={async () => {
-            const resultado = await eliminarTodasLasEntregas(adminToken);
+            const resultado = await eliminarTodasLasEntregas();
             setLimpiezaResultado(resultado);
             setLimpiezaModalAbierta(false);
             toast.success(

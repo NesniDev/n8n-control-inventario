@@ -31,7 +31,6 @@ from app.models.entrega import (
     TipoDocumento,
 )
 from app.models.log import EventoLog
-from app.services.admin_auth import verificar_token_admin
 from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.duplicates import (
     CantidadInvalida,
@@ -49,10 +48,23 @@ from app.services.duplicates import (
     requiere_traslado,
 )
 from app.services.logging_service import registrar_evento
+from app.services.permisos_dashboard import (
+    ActorDashboard,
+    actor_para_log,
+    requiere_admin,
+    requiere_supervisor,
+    usuario_dashboard_opcional,
+)
 from app.services.reportes import generar_reporte_mensual_xlsx
 from app.services.vision import ExtraccionFallida, extraer_datos_guia
 
 router = APIRouter(prefix="/entregas", tags=["entregas"])
+
+
+def _exigir_rol_escritura(usuario: dict) -> None:
+    """Un usuario del dashboard con rol 'consulta' es de solo lectura."""
+    if usuario["rol"] not in ("admin", "supervisor"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
 
 
 @router.post("/procesar")
@@ -330,12 +342,14 @@ async def procesar_entrega(payload: EntregaCreate) -> JSONResponse:
     return JSONResponse(status_code=codigo, content=contenido)
 
 
-@router.delete("/todas", dependencies=[Depends(verificar_token_admin)])
-async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
+@router.delete("/todas")
+async def eliminar_todas_las_entregas(
+    actor_id: str = "desconocido", actor: ActorDashboard = Depends(requiere_admin)
+) -> dict:
     """Equivalente al CLI scripts/limpiar_datos.py --si, pero disparable
     desde el dashboard: borra TODAS las entregas (cascada a
     entrega_items/devoluciones) y TODOS los logs. Accion total e
-    irreversible -- protegida por verificar_token_admin. No toca el bucket
+    irreversible -- solo sesion admin (o token legacy, ver requiere_admin). No toca el bucket
     de Storage (evidencia) -- las fotos ya subidas quedan huerfanas, igual
     que si se corriera solo la parte de base de datos de limpiar_datos.py.
 
@@ -355,7 +369,7 @@ async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
         EventoLog.LIMPIEZA_TOTAL,
         entidad_tipo="sistema",
         entidad_id="todas",
-        actor_id=actor_id,
+        actor_id=actor_para_log(actor, actor_id),
         sede_id="todas",
         resultado="ok",
         detalle={"entregas_borradas": total_entregas, "logs_borrados": total_logs},
@@ -363,8 +377,10 @@ async def eliminar_todas_las_entregas(actor_id: str = "desconocido") -> dict:
     return {"entregas_borradas": total_entregas, "logs_borrados": total_logs}
 
 
-@router.delete("/{entrega_id}/definitivo", dependencies=[Depends(verificar_token_admin)])
-async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconocido") -> dict:
+@router.delete("/{entrega_id}/definitivo")
+async def eliminar_entrega_definitivo(
+    entrega_id: str, actor_id: str = "desconocido", actor: ActorDashboard = Depends(requiere_admin)
+) -> dict:
     """Hard delete total de una entrega -- usado por el boton 'Cancelar' del
     dashboard cuando un documento mal escaneado o invalido (o una prueba) no
     debe aprobarse ni corregirse, sino descartarse del todo, INCLUSO si ya
@@ -372,7 +388,7 @@ async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconoc
     / cancelar_entrega_no_confirmada, que ese SI exige que nada este
     confirmado -- ese otro endpoint lo comparte el movil, tocar su condicion
     afectaria la cancelacion real de un bodeguero; este es exclusivo del
-    dashboard y ya pide token de administrador). Solo se protege una entrega
+    dashboard y ya pide sesion admin / token de administrador). Solo se protege una entrega
     ya 100% completada (estado procesada, nada pendiente) -- borrar eso no
     se pidio y sigue sin poder hacerse por aca. entrega_items/devoluciones se
     van solos por 'on delete cascade'; logs no tiene FK, sobrevive."""
@@ -396,7 +412,7 @@ async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconoc
         EventoLog.ENTREGA_ELIMINADA,
         entidad_tipo="entrega",
         entidad_id=entrega_id,
-        actor_id=actor_id,
+        actor_id=actor_para_log(actor, actor_id),
         sede_id=actual["sede_origen_id"],
         resultado="ok",
         detalle={"tipo": actual["tipo"], "indicativo_numero": actual["indicativo_numero"]},
@@ -405,23 +421,51 @@ async def eliminar_entrega_definitivo(entrega_id: str, actor_id: str = "desconoc
 
 
 @router.delete("/{entrega_id}")
-async def cancelar_entrega(entrega_id: str, operador_id: str = "desconocido", sede_id: str = "desconocida") -> dict:
+async def cancelar_entrega(
+    entrega_id: str,
+    operador_id: str = "desconocido",
+    sede_id: str = "desconocida",
+    usuario: dict | None = Depends(usuario_dashboard_opcional),
+) -> dict:
     """El bodeguero cancela en la pantalla de confirmacion (paso 2) sin
     guardar nada -- deshace el insert que hizo POST /procesar (paso 1). Solo
     borra si todavia nadie confirmo cantidades (ver
     cancelar_entrega_no_confirmada); nunca borra una entrega real que ya
     tenia historial. Idempotente y nunca falla: cancelar dos veces, o
-    cancelar algo que ya no existe, simplemente no hace nada."""
+    cancelar algo que ya no existe, simplemente no hace nada.
+
+    LIMITACION CONOCIDA: este endpoint lo comparte la app movil (que no tiene
+    sesion del dashboard), asi que sigue siendo publico: sin header
+    Authorization se comporta como siempre. Si el dashboard manda una sesion,
+    debe ser admin/supervisor (una 'consulta' recibe 403) y el log queda a su
+    nombre -- pero un usuario 'consulta' podria igual llamarlo sin el header."""
+    if usuario is not None:
+        _exigir_rol_escritura(usuario)
+        operador_id = f"dashboard:{usuario['usuario']}"
     cancelado = await cancelar_entrega_no_confirmada(entrega_id, operador_id=operador_id, sede_id=sede_id)
     return {"cancelado": cancelado}
 
 
 @router.patch("/{entrega_id}/items")
-async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> dict:
+async def actualizar_items(
+    entrega_id: str,
+    payload: ActualizarItemsRequest,
+    usuario: dict | None = Depends(usuario_dashboard_opcional),
+) -> dict:
     """Paso 2: confirma una entrega nueva (cantidad_pendiente por item) o
     aplica una actualizacion incremental (entregado_hoy por item). Lo llama
     la app movil apenas el bodeguero confirma en pantalla, y tambien lo usa
-    el dashboard para corregir items desde la revision manual."""
+    el dashboard para corregir items desde la revision manual.
+
+    LIMITACION CONOCIDA: sigue siendo publico porque la app movil no tiene
+    sesion del dashboard. Con header Authorization la sesion debe ser
+    admin/supervisor (403 si es 'consulta') y el actor del log/bodeguero_id es
+    "dashboard:<usuario>"; sin header se comporta exactamente como antes (un
+    usuario 'consulta' podria llamarlo sin el header)."""
+    operador_id = payload.operador_id
+    if usuario is not None:
+        _exigir_rol_escritura(usuario)
+        operador_id = f"dashboard:{usuario['usuario']}"
     pool = await get_pool()
     existente = await pool.fetchrow("select id from entregas where id = $1::uuid", entrega_id)
     if existente is None:
@@ -431,7 +475,7 @@ async def actualizar_items(entrega_id: str, payload: ActualizarItemsRequest) -> 
         items = await aplicar_actualizacion_items(
             entrega_id,
             payload.items,
-            operador_id=payload.operador_id,
+            operador_id=operador_id,
             sede_id=payload.sede_id,
             evidencia_url=payload.evidencia_url,
             hash_evidencia=payload.hash_evidencia,
@@ -727,7 +771,9 @@ _EXPORT_COLUMNAS = [
 
 
 @router.patch("/{entrega_id}/revisar")
-async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
+async def revisar_entrega(
+    entrega_id: str, payload: EntregaRevision, actor: ActorDashboard = Depends(requiere_supervisor)
+) -> dict:
     """Corrige tipo/indicativo_numero de una entrega. Con payload.aprobar=True
     (default) ademas la aprueba, dejandola como 'procesada' -- comportamiento
     historico, usado por el boton "Aprobar" del dashboard para pendiente_revision.
@@ -789,7 +835,7 @@ async def revisar_entrega(entrega_id: str, payload: EntregaRevision) -> dict:
         EventoLog.REVISION_MANUAL_APROBADA,
         entidad_tipo="entrega",
         entidad_id=entrega_id,
-        actor_id=payload.revisado_por,
+        actor_id=actor_para_log(actor, payload.revisado_por),
         sede_id=actual["sede_origen_id"],
         # Distingue en el log si esto aprobo la entrega o solo guardo
         # correcciones dejandola como estaba (ver payload.aprobar).

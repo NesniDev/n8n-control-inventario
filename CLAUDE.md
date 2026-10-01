@@ -167,6 +167,7 @@ usuario en un campo ("Token de administrador", arriba de la página) que se guar
 navegador. Como es por origen, cada dominio nuevo del dashboard (ej. tras migrar de cuenta de Vercel)
 empieza sin ese valor guardado y el borrado da 401 hasta que se vuelve a pegar el token — no es un bug,
 es el campo vacío. El valor esperado es `ADMIN_DELETE_TOKEN` del `.env` del backend.
+En transición: el backend ya acepta también una sesión del dashboard (`Authorization: Bearer`, login en `/dashboard/auth/login`); el token legacy se retira cuando el dashboard salga con login.
 
 ### Actualizaciones de la app móvil (EAS Update / OTA)
 

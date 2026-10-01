@@ -3,8 +3,8 @@
 // Catalogo codigo -> nombre de producto (ver apps/backend/app/services/productos.py):
 // se auto-completa a medida que se procesan/corrigen facturas -- esta pantalla es
 // solo para consultarlo/buscarlo y completar o corregir a mano lo que la
-// extraccion automatica no pudo resolver. Sin login especial (a diferencia de
-// /faia): no es informacion sensible, solo un catalogo interno.
+// extraccion automatica no pudo resolver. Requiere sesion del panel; crear y
+// corregir es solo para admin/supervisor (consulta lo ve en solo lectura).
 
 import { useState } from "react";
 import Link from "next/link";
@@ -12,8 +12,10 @@ import useSWR from "swr";
 import { toast } from "sonner";
 import { actualizarProducto, crearProducto, fetchProductos, type Producto } from "@/lib/api";
 import { ErrorConReintento, EstadoVacio } from "@/components/ui";
+import { useSesion } from "@/lib/SesionProvider";
 
 export default function ProductosPage() {
+  const { puedeEditar } = useSesion();
   const [buscar, setBuscar] = useState("");
   const {
     data: productos,
@@ -47,6 +49,7 @@ export default function ProductosPage() {
   };
 
   const empezarEdicion = (producto: Producto) => {
+    if (!puedeEditar) return;
     setEditandoId(producto.id);
     setNombreEditado(producto.nombre);
   };
@@ -74,8 +77,8 @@ export default function ProductosPage() {
           </p>
           <h1 className="text-2xl font-semibold text-neutral-100">Catálogo de productos</h1>
           <p className="text-sm text-neutral-400">
-            Se completa solo a partir de las facturas procesadas — acá podés buscarlo y corregir un
-            nombre a mano si hace falta.
+            Se completa solo a partir de las facturas procesadas — aquí puedes buscarlo y, si tu rol lo permite,
+            corregir un nombre a mano.
           </p>
         </div>
         <Link
@@ -89,6 +92,7 @@ export default function ProductosPage() {
       {/* Agregar a mano + buscador, en una sola tarjeta de filtros, mismo
           patron que ranking/page.tsx. */}
       <section className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
+        {puedeEditar ? (
         <div className="flex flex-col gap-2">
           <h2 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Agregar a mano</h2>
           <div className="flex flex-wrap items-end gap-2">
@@ -117,6 +121,7 @@ export default function ProductosPage() {
             </button>
           </div>
         </div>
+        ) : null}
 
         <label className="flex flex-col gap-1">
           <span className="text-[10px] leading-none text-neutral-500">Buscar por código o nombre</span>
@@ -185,8 +190,9 @@ export default function ProductosPage() {
                   ) : (
                     <button
                       onClick={() => empezarEdicion(producto)}
-                      className="truncate text-left text-neutral-200 hover:text-neutral-50"
-                      title="Click para corregir el nombre"
+                      disabled={!puedeEditar}
+                      className="truncate text-left text-neutral-200 hover:text-neutral-50 disabled:cursor-default disabled:hover:text-neutral-200"
+                      title={puedeEditar ? "Click para corregir el nombre" : undefined}
                     >
                       {producto.nombre}
                     </button>

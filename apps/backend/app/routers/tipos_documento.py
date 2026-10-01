@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.models.tipo_documento import TipoDocumentoActualizar, TipoDocumentoCrear, normalizar_codigo
 from app.services import tipos_documento as servicio
-from app.services.admin_auth import verificar_token_admin
+from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.usuarios import DatoInvalido, RegistroNoEncontrado
 
 router = APIRouter(prefix="/tipos-documento", tags=["tipos-documento"])
@@ -16,14 +16,16 @@ router = APIRouter(prefix="/tipos-documento", tags=["tipos-documento"])
 
 @router.get("")
 async def listar_tipos_documento(
-    incluir_inactivos: bool = False, x_admin_token: str | None = Header(default=None)
+    incluir_inactivos: bool = False,
+    authorization: str | None = Header(default=None),
+    x_admin_token: str | None = Header(default=None),
 ) -> list[dict]:
     if incluir_inactivos:
-        verificar_token_admin(x_admin_token)
+        await autorizar_admin(authorization, x_admin_token)
     return await servicio.listar(incluir_inactivos)
 
 
-@router.post("", status_code=201, dependencies=[Depends(verificar_token_admin)])
+@router.post("", status_code=201, dependencies=[Depends(requiere_admin)])
 async def crear_tipo_documento(payload: TipoDocumentoCrear) -> dict:
     try:
         return await servicio.crear(payload)
@@ -31,7 +33,7 @@ async def crear_tipo_documento(payload: TipoDocumentoCrear) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.patch("/{codigo}", dependencies=[Depends(verificar_token_admin)])
+@router.patch("/{codigo}", dependencies=[Depends(requiere_admin)])
 async def actualizar_tipo_documento(codigo: str, payload: TipoDocumentoActualizar) -> dict:
     try:
         return await servicio.actualizar(normalizar_codigo(codigo), payload)

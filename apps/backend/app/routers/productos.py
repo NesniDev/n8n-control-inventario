@@ -5,10 +5,11 @@ extraccion automatica no pudo resolver.
 """
 
 import asyncpg
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import get_pool
 from app.models.producto import ProductoActualizar, ProductoCreate
+from app.services.permisos_dashboard import requiere_supervisor
 
 router = APIRouter(prefix="/productos", tags=["productos"])
 
@@ -32,7 +33,7 @@ async def listar_productos(buscar: str | None = None) -> list[dict]:
     return [_con_id(row) for row in rows]
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(requiere_supervisor)])
 async def crear_producto(producto: ProductoCreate) -> dict:
     pool = await get_pool()
     try:
@@ -46,7 +47,7 @@ async def crear_producto(producto: ProductoCreate) -> dict:
     return _con_id(row)
 
 
-@router.patch("/{producto_id}")
+@router.patch("/{producto_id}", dependencies=[Depends(requiere_supervisor)])
 async def actualizar_producto(producto_id: str, cambios: ProductoActualizar) -> dict:
     pool = await get_pool()
     row = await pool.fetchrow(

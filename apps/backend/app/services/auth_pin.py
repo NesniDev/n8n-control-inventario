@@ -21,3 +21,14 @@ def hashear_pin(pin: str, sal: str) -> str:
 
 def verificar_pin(pin: str, sal: str, hash_esperado: str) -> bool:
     return hmac.compare_digest(hashear_pin(pin, sal), hash_esperado)
+
+
+# Contrasenas del dashboard (usuarios_dashboard): misma derivacion PBKDF2 que
+# el PIN, solo con nombres que no dicen "pin". hashear_pin no valida el
+# formato, asi que sirve igual para cualquier texto.
+def hashear_password(password: str, sal: str) -> str:
+    return hashear_pin(password, sal)
+
+
+def verificar_password(password: str, sal: str, hash_esperado: str) -> bool:
+    return verificar_pin(password, sal, hash_esperado)

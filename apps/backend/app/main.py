@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db import close_pool, ensure_schema
-from app.routers import auth, empleados, entregas, facturas_faltantes, logs, productos, ranking, sedes, shifts, tipos_documento, traslados_puntos
+from app.routers import auth, dashboard_auth, empleados, entregas, facturas_faltantes, logs, productos, ranking, sedes, shifts, tipos_documento, traslados_puntos
 
 logger = logging.getLogger("app")
 
@@ -51,6 +51,7 @@ app.include_router(ranking.router)
 app.include_router(traslados_puntos.router)
 app.include_router(tipos_documento.router)
 app.include_router(facturas_faltantes.router)
+app.include_router(dashboard_auth.router)
 
 
 @app.exception_handler(Exception)
@@ -71,7 +72,7 @@ async def excepcion_no_manejada(request: Request, exc: Exception) -> JSONRespons
 # a mano este string en cada cambio que valga la pena poder confirmar desde
 # afuera (ver GET /health) -- unica forma de verificar que un deploy en
 # Dokploy realmente tomo el commit esperado sin entrar al panel.
-_BUILD_MARCADOR = "facturas-mostrador-sin-descartar"
+_BUILD_MARCADOR = "dashboard-login"
 
 
 @app.get("/health")

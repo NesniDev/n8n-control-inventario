@@ -451,6 +451,28 @@ create index if not exists idx_facturas_faltantes_sede_estado
 create index if not exists idx_facturas_faltantes_sede_reporta_estado
     on facturas_faltantes (sede_reporta_id, estado);
 
+-- Usuarios del dashboard (login con usuario y contrasena, roles admin /
+-- supervisor / consulta -- ver app/services/usuarios_dashboard.py). Distinta de
+-- empleados/supervisores (esos entran a la app movil con PIN). NO se agrega a
+-- la publicacion de realtime: guarda hashes de contrasena.
+create table if not exists usuarios_dashboard (
+    id uuid primary key default gen_random_uuid(),
+    usuario text not null unique,
+    nombre text not null,
+    rol text not null,
+    pass_hash text not null,
+    pass_salt text not null,
+    activo boolean not null default true,
+    intentos_fallidos integer not null default 0,
+    bloqueado_hasta timestamptz,
+    creado_at timestamptz not null default now(),
+    ultimo_login_at timestamptz
+);
+
+alter table usuarios_dashboard drop constraint if exists usuarios_dashboard_rol_check;
+alter table usuarios_dashboard add constraint usuarios_dashboard_rol_check
+    check (rol in ('admin', 'supervisor', 'consulta'));
+
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban
 -- agregadas o si la publicacion no existe (p.ej. Postgres self-hosted sin

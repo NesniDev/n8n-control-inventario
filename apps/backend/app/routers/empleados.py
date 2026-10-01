@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.db import get_pool
 from app.models.empleado import EmpleadoActualizar, EmpleadoCreate, PinNuevo
-from app.services.admin_auth import verificar_token_admin
+from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.usuarios import (
     DatoInvalido,
     RegistroNoEncontrado,
@@ -24,7 +24,7 @@ from app.services.usuarios import (
 router = APIRouter(prefix="/empleados", tags=["empleados"])
 
 
-@router.post("", status_code=201, dependencies=[Depends(verificar_token_admin)])
+@router.post("", status_code=201, dependencies=[Depends(requiere_admin)])
 async def crear_empleado(empleado: EmpleadoCreate) -> dict:
     if not await sede_existe(empleado.sede_id):
         raise HTTPException(status_code=400, detail="La sede indicada no existe")
@@ -43,12 +43,13 @@ async def crear_empleado(empleado: EmpleadoCreate) -> dict:
 async def listar_empleados(
     sede_id: str | None = None,
     incluir_inactivos: bool = False,
+    authorization: str | None = Header(default=None),
     x_admin_token: str | None = Header(default=None),
 ) -> list[dict]:
     """Publico solo con empleados activos (lo usa el login movil); con
-    incluir_inactivos=true exige X-Admin-Token (pantalla /creador)."""
+    incluir_inactivos=true exige sesion admin (o X-Admin-Token legacy) (pantalla /creador)."""
     if incluir_inactivos:
-        verificar_token_admin(x_admin_token)
+        await autorizar_admin(authorization, x_admin_token)
     condiciones: list[str] = [] if incluir_inactivos else ["estado = 'activo'"]
     parametros: list[object] = []
     if sede_id:
@@ -60,7 +61,7 @@ async def listar_empleados(
     return [serializar(row) for row in rows]
 
 
-@router.patch("/{empleado_id}", dependencies=[Depends(verificar_token_admin)])
+@router.patch("/{empleado_id}", dependencies=[Depends(requiere_admin)])
 async def actualizar_empleado(empleado_id: UUID, payload: EmpleadoActualizar) -> dict:
     cambios = payload.model_dump(mode="json", exclude_none=True)
     if "sede_id" in cambios and not await sede_existe(cambios["sede_id"]):
@@ -73,7 +74,7 @@ async def actualizar_empleado(empleado_id: UUID, payload: EmpleadoActualizar) ->
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/{empleado_id}/pin", dependencies=[Depends(verificar_token_admin)])
+@router.post("/{empleado_id}/pin", dependencies=[Depends(requiere_admin)])
 async def resetear_pin_empleado(empleado_id: UUID, payload: PinNuevo) -> dict:
     try:
         await resetear_pin("empleados", str(empleado_id), payload.pin)

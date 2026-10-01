@@ -3,8 +3,8 @@
 // Administracion de sedes, empleados (bodega), puntos y sus usuarios,
 // supervisores y tipos de documento -- reemplaza los scripts de alta
 // (scripts/crear_supervisor.py, crear_punto.py) y los curl a POST /empleados.
-// Todo pasa por endpoints protegidos con X-Admin-Token (mismo token que el
-// borrado de entregas, ver useAdminToken). Nunca se borra nada: "Desactivar"
+// Solo para el rol admin de la sesion del panel (los endpoints exigen el
+// Bearer, ver apiFetch en lib/api.ts). Nunca se borra nada: "Desactivar"
 // deja la fila en la base (hay traslados y logs que la referencian) y solo
 // deja de aparecer en la app movil.
 
@@ -18,26 +18,32 @@ import {
   actualizarSede,
   actualizarSupervisor,
   actualizarTipoDocumento,
+  actualizarUsuarioDashboard,
   actualizarUsuarioPunto,
   crearEmpleado,
   crearPunto,
   crearSede,
   crearSupervisor,
   crearTipoDocumento,
+  crearUsuarioDashboard,
   crearUsuarioPunto,
   fetchEmpleadosAdmin,
   fetchPuntosAdmin,
   fetchSedesAdmin,
   fetchSupervisoresAdmin,
   fetchTiposDocumentoAdmin,
+  fetchUsuariosDashboard,
   fetchUsuariosPuntoAdmin,
+  resetearPasswordUsuarioDashboard,
   resetearPinEmpleado,
   resetearPinSupervisor,
   resetearPinUsuarioPunto,
   type EmpleadoAdmin,
   type RolEmpleado,
+  type UsuarioDashboardAdmin,
 } from "@/lib/api";
-import { useAdminToken } from "@/lib/useAdminToken";
+import { useSesion } from "@/lib/SesionProvider";
+import { ETIQUETA_ROL, type RolDashboard } from "@/lib/sesion";
 import { ErrorConReintento, EstadoVacio, TarjetaConHeader } from "@/components/ui";
 
 const INPUT =
@@ -57,14 +63,18 @@ const etiquetaRol = (rol: string) => ROLES.find((r) => r.valor === rol)?.etiquet
 
 const PIN_VALIDO = /^\d{4,6}$/;
 
-type Pestana = "sedes" | "empleados" | "puntos" | "supervisores" | "tipos";
+type Pestana = "sedes" | "empleados" | "puntos" | "supervisores" | "tipos" | "usuarios";
 const PESTANAS: { id: Pestana; etiqueta: string }[] = [
   { id: "sedes", etiqueta: "Sedes" },
   { id: "empleados", etiqueta: "Empleados (bodega)" },
   { id: "puntos", etiqueta: "Puntos y usuarios" },
   { id: "supervisores", etiqueta: "Supervisores" },
   { id: "tipos", etiqueta: "Tipos de documento" },
+  { id: "usuarios", etiqueta: "Usuarios del dashboard" },
 ];
+
+const ROLES_DASHBOARD: RolDashboard[] = ["admin", "supervisor", "consulta"];
+const PASSWORD_MIN = 8;
 
 function Campo({ etiqueta, children, className = "" }: { etiqueta: string; children: ReactNode; className?: string }) {
   return (
@@ -101,14 +111,14 @@ async function ejecutar(accion: () => Promise<unknown>, exito: string): Promise<
 }
 
 // Reset de PIN en la propia fila: boton -> input -> guardar.
-function CambiarPin({ token, onGuardar }: { token: string; onGuardar: (pin: string) => Promise<unknown> }) {
+function CambiarPin({ onGuardar }: { onGuardar: (pin: string) => Promise<unknown> }) {
   const [abierto, setAbierto] = useState(false);
   const [pin, setPin] = useState("");
   const [guardando, setGuardando] = useState(false);
 
   if (!abierto) {
     return (
-      <button onClick={() => setAbierto(true)} disabled={!token} className={BOTON_LINK}>
+      <button onClick={() => setAbierto(true)} className={BOTON_LINK}>
         Cambiar PIN
       </button>
     );
@@ -164,8 +174,8 @@ const FILA = "flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-2.5 text-sm";
 
 // ---------------------------------------------------------------- Sedes
 
-function SeccionSedes({ token }: { token: string }) {
-  const { data, error, isLoading, mutate } = useSWR(["creador-sedes", token], () => fetchSedesAdmin(token));
+function SeccionSedes() {
+  const { data, error, isLoading, mutate } = useSWR(["creador-sedes"], () => fetchSedesAdmin());
   const [nombre, setNombre] = useState("");
   const [codigo, setCodigo] = useState("");
   const [direccion, setDireccion] = useState("");
@@ -177,7 +187,7 @@ function SeccionSedes({ token }: { token: string }) {
   const agregar = async () => {
     setEnviando(true);
     const ok = await ejecutar(
-      () => crearSede(token, { nombre: nombre.trim(), codigo: codigo.trim().toUpperCase(), direccion: direccion.trim() }),
+      () => crearSede({ nombre: nombre.trim(), codigo: codigo.trim().toUpperCase(), direccion: direccion.trim() }),
       "Sede creada"
     );
     setEnviando(false);
@@ -193,15 +203,15 @@ function SeccionSedes({ token }: { token: string }) {
     <TarjetaConHeader titulo="Sedes" subtitulo="Sedes de despachos (login de la app de bodega)." pildora={data ? String(data.length) : undefined}>
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Nombre" className="min-w-[160px] flex-1">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
         </Campo>
         <Campo etiqueta="Código (único)" className="w-32">
-          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} className={INPUT} />
         </Campo>
         <Campo etiqueta="Dirección" className="min-w-[160px] flex-1">
-          <input value={direccion} onChange={(e) => setDireccion(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={direccion} onChange={(e) => setDireccion(e.target.value)} className={INPUT} />
         </Campo>
-        <button onClick={agregar} disabled={!token || enviando || !nombre.trim() || !codigo.trim()} className={BOTON_PRIMARIO}>
+        <button onClick={agregar} disabled={enviando || !nombre.trim() || !codigo.trim()} className={BOTON_PRIMARIO}>
           {enviando ? "Creando…" : "Crear sede"}
         </button>
       </div>
@@ -221,7 +231,7 @@ function SeccionSedes({ token }: { token: string }) {
                     className={BOTON_LINK}
                     disabled={!nombreEdit.trim()}
                     onClick={async () => {
-                      if (await ejecutar(() => actualizarSede(token, sede.id, { nombre: nombreEdit.trim(), direccion: direccionEdit.trim() }), "Sede actualizada")) {
+                      if (await ejecutar(() => actualizarSede(sede.id, { nombre: nombreEdit.trim(), direccion: direccionEdit.trim() }), "Sede actualizada")) {
                         setEditandoId(null);
                         mutate();
                       }
@@ -243,7 +253,7 @@ function SeccionSedes({ token }: { token: string }) {
                   <Insignia activo={sede.activa} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={() => {
                       setEditandoId(sede.id);
                       setNombreEdit(sede.nombre);
@@ -254,9 +264,9 @@ function SeccionSedes({ token }: { token: string }) {
                   </button>
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={async () => {
-                      if (await ejecutar(() => actualizarSede(token, sede.id, { activa: !sede.activa }), sede.activa ? "Sede desactivada" : "Sede activada")) mutate();
+                      if (await ejecutar(() => actualizarSede(sede.id, { activa: !sede.activa }), sede.activa ? "Sede desactivada" : "Sede activada")) mutate();
                     }}
                   >
                     {sede.activa ? "Desactivar" : "Activar"}
@@ -273,9 +283,9 @@ function SeccionSedes({ token }: { token: string }) {
 
 // ------------------------------------------------------------ Empleados
 
-function SeccionEmpleados({ token }: { token: string }) {
-  const { data, error, isLoading, mutate } = useSWR(["creador-empleados", token], () => fetchEmpleadosAdmin(token));
-  const { data: sedes } = useSWR(["creador-sedes", token], () => fetchSedesAdmin(token));
+function SeccionEmpleados() {
+  const { data, error, isLoading, mutate } = useSWR(["creador-empleados"], () => fetchEmpleadosAdmin());
+  const { data: sedes } = useSWR(["creador-sedes"], () => fetchSedesAdmin());
   const [nombre, setNombre] = useState("");
   const [sedeId, setSedeId] = useState("");
   const [rol, setRol] = useState<RolEmpleado>("operador");
@@ -293,7 +303,7 @@ function SeccionEmpleados({ token }: { token: string }) {
 
   const agregar = async () => {
     setEnviando(true);
-    const ok = await ejecutar(() => crearEmpleado(token, { nombre: nombre.trim(), sede_id: sedeId, rol, pin }), "Empleado creado");
+    const ok = await ejecutar(() => crearEmpleado({ nombre: nombre.trim(), sede_id: sedeId, rol, pin }), "Empleado creado");
     setEnviando(false);
     if (ok) {
       setNombre("");
@@ -303,7 +313,7 @@ function SeccionEmpleados({ token }: { token: string }) {
   };
 
   const guardarEdicion = async (empleado: EmpleadoAdmin) => {
-    const ok = await ejecutar(() => actualizarEmpleado(token, empleado.id, edit), "Empleado actualizado");
+    const ok = await ejecutar(() => actualizarEmpleado(empleado.id, edit), "Empleado actualizado");
     if (ok) {
       setEditandoId(null);
       mutate();
@@ -314,10 +324,10 @@ function SeccionEmpleados({ token }: { token: string }) {
     <TarjetaConHeader titulo="Empleados (bodega)" subtitulo="Quienes inician sesión con PIN en la app de despachos." pildora={data ? String(data.length) : undefined}>
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Nombre" className="min-w-[160px] flex-1">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
         </Campo>
         <Campo etiqueta="Sede">
-          <select value={sedeId} onChange={(e) => setSedeId(e.target.value)} disabled={!token} className={INPUT}>
+          <select value={sedeId} onChange={(e) => setSedeId(e.target.value)} className={INPUT}>
             <option value="">Elegir…</option>
             {sedesActivas.map((s) => (
               <option key={s.id} value={s.id}>
@@ -327,7 +337,7 @@ function SeccionEmpleados({ token }: { token: string }) {
           </select>
         </Campo>
         <Campo etiqueta="Rol">
-          <select value={rol} onChange={(e) => setRol(e.target.value as RolEmpleado)} disabled={!token} className={INPUT}>
+          <select value={rol} onChange={(e) => setRol(e.target.value as RolEmpleado)} className={INPUT}>
             {ROLES.map((r) => (
               <option key={r.valor} value={r.valor}>
                 {r.etiqueta}
@@ -342,11 +352,11 @@ function SeccionEmpleados({ token }: { token: string }) {
             maxLength={6}
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-            disabled={!token}
+           
             className={INPUT}
           />
         </Campo>
-        <button onClick={agregar} disabled={!token || enviando || !nombre.trim() || !sedeId || !PIN_VALIDO.test(pin)} className={BOTON_PRIMARIO}>
+        <button onClick={agregar} disabled={enviando || !nombre.trim() || !sedeId || !PIN_VALIDO.test(pin)} className={BOTON_PRIMARIO}>
           {enviando ? "Creando…" : "Crear empleado"}
         </button>
       </div>
@@ -393,7 +403,7 @@ function SeccionEmpleados({ token }: { token: string }) {
                   <Insignia activo={empleado.estado === "activo"} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={() => {
                       setEditandoId(empleado.id);
                       setEdit({ nombre: empleado.nombre, sede_id: empleado.sede_id, rol: empleado.rol });
@@ -401,13 +411,13 @@ function SeccionEmpleados({ token }: { token: string }) {
                   >
                     Editar
                   </button>
-                  <CambiarPin token={token} onGuardar={(p) => resetearPinEmpleado(token, empleado.id, p)} />
+                  <CambiarPin onGuardar={(p) => resetearPinEmpleado(empleado.id, p)} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={async () => {
                       const nuevo = empleado.estado === "activo" ? "inactivo" : "activo";
-                      if (await ejecutar(() => actualizarEmpleado(token, empleado.id, { estado: nuevo }), nuevo === "activo" ? "Empleado activado" : "Empleado desactivado")) mutate();
+                      if (await ejecutar(() => actualizarEmpleado(empleado.id, { estado: nuevo }), nuevo === "activo" ? "Empleado activado" : "Empleado desactivado")) mutate();
                     }}
                   >
                     {empleado.estado === "activo" ? "Desactivar" : "Activar"}
@@ -424,9 +434,9 @@ function SeccionEmpleados({ token }: { token: string }) {
 
 // ------------------------------------------------------ Puntos y usuarios
 
-function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string }) {
-  const { data, error, isLoading, mutate } = useSWR(["creador-usuarios-punto", token, puntoId], () =>
-    fetchUsuariosPuntoAdmin(token, puntoId)
+function UsuariosDePunto({ puntoId }: { puntoId: string }) {
+  const { data, error, isLoading, mutate } = useSWR(["creador-usuarios-punto", puntoId], () =>
+    fetchUsuariosPuntoAdmin(puntoId)
   );
   const [nombre, setNombre] = useState("");
   const [pin, setPin] = useState("");
@@ -436,7 +446,7 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
 
   const agregar = async () => {
     setEnviando(true);
-    const ok = await ejecutar(() => crearUsuarioPunto(token, puntoId, { nombre: nombre.trim(), pin }), "Usuario creado");
+    const ok = await ejecutar(() => crearUsuarioPunto(puntoId, { nombre: nombre.trim(), pin }), "Usuario creado");
     setEnviando(false);
     if (ok) {
       setNombre("");
@@ -449,7 +459,7 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
     <div className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Nombre del usuario" className="min-w-[160px] flex-1">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
         </Campo>
         <Campo etiqueta="PIN (4 a 6 dígitos)" className="w-32">
           <input
@@ -458,11 +468,11 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
             maxLength={6}
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-            disabled={!token}
+           
             className={INPUT}
           />
         </Campo>
-        <button onClick={agregar} disabled={!token || enviando || !nombre.trim() || !PIN_VALIDO.test(pin)} className={BOTON_PRIMARIO}>
+        <button onClick={agregar} disabled={enviando || !nombre.trim() || !PIN_VALIDO.test(pin)} className={BOTON_PRIMARIO}>
           {enviando ? "Creando…" : "Crear usuario"}
         </button>
       </div>
@@ -480,7 +490,7 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
                     className={BOTON_LINK}
                     disabled={!nombreEdit.trim()}
                     onClick={async () => {
-                      if (await ejecutar(() => actualizarUsuarioPunto(token, usuario.id, { nombre: nombreEdit.trim() }), "Usuario actualizado")) {
+                      if (await ejecutar(() => actualizarUsuarioPunto(usuario.id, { nombre: nombreEdit.trim() }), "Usuario actualizado")) {
                         setEditandoId(null);
                         mutate();
                       }
@@ -498,7 +508,7 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
                   <Insignia activo={usuario.estado === "activo"} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={() => {
                       setEditandoId(usuario.id);
                       setNombreEdit(usuario.nombre);
@@ -506,13 +516,13 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
                   >
                     Editar
                   </button>
-                  <CambiarPin token={token} onGuardar={(p) => resetearPinUsuarioPunto(token, usuario.id, p)} />
+                  <CambiarPin onGuardar={(p) => resetearPinUsuarioPunto(usuario.id, p)} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={async () => {
                       const nuevo = usuario.estado === "activo" ? "inactivo" : "activo";
-                      if (await ejecutar(() => actualizarUsuarioPunto(token, usuario.id, { estado: nuevo }), nuevo === "activo" ? "Usuario activado" : "Usuario desactivado")) mutate();
+                      if (await ejecutar(() => actualizarUsuarioPunto(usuario.id, { estado: nuevo }), nuevo === "activo" ? "Usuario activado" : "Usuario desactivado")) mutate();
                     }}
                   >
                     {usuario.estado === "activo" ? "Desactivar" : "Activar"}
@@ -527,8 +537,8 @@ function UsuariosDePunto({ token, puntoId }: { token: string; puntoId: string })
   );
 }
 
-function SeccionPuntos({ token }: { token: string }) {
-  const { data, error, isLoading, mutate } = useSWR(["creador-puntos", token], () => fetchPuntosAdmin(token));
+function SeccionPuntos() {
+  const { data, error, isLoading, mutate } = useSWR(["creador-puntos"], () => fetchPuntosAdmin());
   const [nombre, setNombre] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -537,7 +547,7 @@ function SeccionPuntos({ token }: { token: string }) {
 
   const agregar = async () => {
     setEnviando(true);
-    const ok = await ejecutar(() => crearPunto(token, nombre.trim()), "Punto creado");
+    const ok = await ejecutar(() => crearPunto(nombre.trim()), "Punto creado");
     setEnviando(false);
     if (ok) {
       setNombre("");
@@ -549,9 +559,9 @@ function SeccionPuntos({ token }: { token: string }) {
     <TarjetaConHeader titulo="Puntos y usuarios de punto" subtitulo="Bodegas del flujo de traslados y quienes operan en cada una." pildora={data ? String(data.length) : undefined}>
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Nombre del punto" className="min-w-[200px] flex-1">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
         </Campo>
-        <button onClick={agregar} disabled={!token || enviando || !nombre.trim()} className={BOTON_PRIMARIO}>
+        <button onClick={agregar} disabled={enviando || !nombre.trim()} className={BOTON_PRIMARIO}>
           {enviando ? "Creando…" : "Crear punto"}
         </button>
       </div>
@@ -571,7 +581,7 @@ function SeccionPuntos({ token }: { token: string }) {
                       className={BOTON_LINK}
                       disabled={!nombreEdit.trim()}
                       onClick={async () => {
-                        if (await ejecutar(() => actualizarPunto(token, punto.id, { nombre: nombreEdit.trim() }), "Punto actualizado")) {
+                        if (await ejecutar(() => actualizarPunto(punto.id, { nombre: nombreEdit.trim() }), "Punto actualizado")) {
                           setEditandoId(null);
                           mutate();
                         }
@@ -592,7 +602,7 @@ function SeccionPuntos({ token }: { token: string }) {
                     </button>
                     <button
                       className={BOTON_LINK}
-                      disabled={!token}
+                     
                       onClick={() => {
                         setEditandoId(punto.id);
                         setNombreEdit(punto.nombre);
@@ -602,9 +612,9 @@ function SeccionPuntos({ token }: { token: string }) {
                     </button>
                     <button
                       className={BOTON_LINK}
-                      disabled={!token}
+                     
                       onClick={async () => {
-                        if (await ejecutar(() => actualizarPunto(token, punto.id, { activo: !punto.activo }), punto.activo ? "Punto desactivado" : "Punto activado")) mutate();
+                        if (await ejecutar(() => actualizarPunto(punto.id, { activo: !punto.activo }), punto.activo ? "Punto desactivado" : "Punto activado")) mutate();
                       }}
                     >
                       {punto.activo ? "Desactivar" : "Activar"}
@@ -612,7 +622,7 @@ function SeccionPuntos({ token }: { token: string }) {
                   </>
                 )}
               </div>
-              {abiertoId === punto.id ? <UsuariosDePunto token={token} puntoId={punto.id} /> : null}
+              {abiertoId === punto.id ? <UsuariosDePunto puntoId={punto.id} /> : null}
             </li>
           ))}
         </Lista>
@@ -623,8 +633,8 @@ function SeccionPuntos({ token }: { token: string }) {
 
 // ---------------------------------------------------------- Supervisores
 
-function SeccionSupervisores({ token }: { token: string }) {
-  const { data, error, isLoading, mutate } = useSWR(["creador-supervisores", token], () => fetchSupervisoresAdmin(token));
+function SeccionSupervisores() {
+  const { data, error, isLoading, mutate } = useSWR(["creador-supervisores"], () => fetchSupervisoresAdmin());
   const [nombre, setNombre] = useState("");
   const [pin, setPin] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -633,7 +643,7 @@ function SeccionSupervisores({ token }: { token: string }) {
 
   const agregar = async () => {
     setEnviando(true);
-    const ok = await ejecutar(() => crearSupervisor(token, { nombre: nombre.trim(), pin }), "Supervisor creado");
+    const ok = await ejecutar(() => crearSupervisor({ nombre: nombre.trim(), pin }), "Supervisor creado");
     setEnviando(false);
     if (ok) {
       setNombre("");
@@ -646,7 +656,7 @@ function SeccionSupervisores({ token }: { token: string }) {
     <TarjetaConHeader titulo="Supervisores" subtitulo="Resuelven las novedades de los traslados entre puntos." pildora={data ? String(data.length) : undefined}>
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Nombre" className="min-w-[160px] flex-1">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
         </Campo>
         <Campo etiqueta="PIN (4 a 6 dígitos)" className="w-32">
           <input
@@ -655,11 +665,11 @@ function SeccionSupervisores({ token }: { token: string }) {
             maxLength={6}
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-            disabled={!token}
+           
             className={INPUT}
           />
         </Campo>
-        <button onClick={agregar} disabled={!token || enviando || !nombre.trim() || !PIN_VALIDO.test(pin)} className={BOTON_PRIMARIO}>
+        <button onClick={agregar} disabled={enviando || !nombre.trim() || !PIN_VALIDO.test(pin)} className={BOTON_PRIMARIO}>
           {enviando ? "Creando…" : "Crear supervisor"}
         </button>
       </div>
@@ -678,7 +688,7 @@ function SeccionSupervisores({ token }: { token: string }) {
                     className={BOTON_LINK}
                     disabled={!nombreEdit.trim()}
                     onClick={async () => {
-                      if (await ejecutar(() => actualizarSupervisor(token, sup.id, { nombre: nombreEdit.trim() }), "Supervisor actualizado")) {
+                      if (await ejecutar(() => actualizarSupervisor(sup.id, { nombre: nombreEdit.trim() }), "Supervisor actualizado")) {
                         setEditandoId(null);
                         mutate();
                       }
@@ -696,7 +706,7 @@ function SeccionSupervisores({ token }: { token: string }) {
                   <Insignia activo={sup.estado === "activo"} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={() => {
                       setEditandoId(sup.id);
                       setNombreEdit(sup.nombre);
@@ -704,13 +714,13 @@ function SeccionSupervisores({ token }: { token: string }) {
                   >
                     Editar
                   </button>
-                  <CambiarPin token={token} onGuardar={(p) => resetearPinSupervisor(token, sup.id, p)} />
+                  <CambiarPin onGuardar={(p) => resetearPinSupervisor(sup.id, p)} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={async () => {
                       const nuevo = sup.estado === "activo" ? "inactivo" : "activo";
-                      if (await ejecutar(() => actualizarSupervisor(token, sup.id, { estado: nuevo }), nuevo === "activo" ? "Supervisor activado" : "Supervisor desactivado")) mutate();
+                      if (await ejecutar(() => actualizarSupervisor(sup.id, { estado: nuevo }), nuevo === "activo" ? "Supervisor activado" : "Supervisor desactivado")) mutate();
                     }}
                   >
                     {sup.estado === "activo" ? "Desactivar" : "Activar"}
@@ -727,8 +737,8 @@ function SeccionSupervisores({ token }: { token: string }) {
 
 // ----------------------------------------------------- Tipos de documento
 
-function SeccionTipos({ token }: { token: string }) {
-  const { data, error, isLoading, mutate } = useSWR(["creador-tipos", token], () => fetchTiposDocumentoAdmin(token));
+function SeccionTipos() {
+  const { data, error, isLoading, mutate } = useSWR(["creador-tipos"], () => fetchTiposDocumentoAdmin());
   const [codigo, setCodigo] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -738,7 +748,7 @@ function SeccionTipos({ token }: { token: string }) {
   const agregar = async () => {
     setEnviando(true);
     const ok = await ejecutar(
-      () => crearTipoDocumento(token, { codigo: codigo.trim().toUpperCase(), descripcion: descripcion.trim() }),
+      () => crearTipoDocumento({ codigo: codigo.trim().toUpperCase(), descripcion: descripcion.trim() }),
       "Tipo de documento creado"
     );
     setEnviando(false);
@@ -757,12 +767,12 @@ function SeccionTipos({ token }: { token: string }) {
     >
       <div className="flex flex-wrap items-end gap-2">
         <Campo etiqueta="Código (ej. FEI)" className="w-32">
-          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} maxLength={12} disabled={!token} className={`${INPUT} uppercase`} />
+          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} maxLength={12} className={`${INPUT} uppercase`} />
         </Campo>
         <Campo etiqueta="Descripción (opcional)" className="min-w-[200px] flex-1">
-          <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} disabled={!token} className={INPUT} />
+          <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={INPUT} />
         </Campo>
-        <button onClick={agregar} disabled={!token || enviando || !codigo.trim()} className={BOTON_PRIMARIO}>
+        <button onClick={agregar} disabled={enviando || !codigo.trim()} className={BOTON_PRIMARIO}>
           {enviando ? "Creando…" : "Crear tipo"}
         </button>
       </div>
@@ -781,7 +791,7 @@ function SeccionTipos({ token }: { token: string }) {
                   <button
                     className={BOTON_LINK}
                     onClick={async () => {
-                      if (await ejecutar(() => actualizarTipoDocumento(token, tipo.codigo, { descripcion: descripcionEdit.trim() }), "Tipo actualizado")) {
+                      if (await ejecutar(() => actualizarTipoDocumento(tipo.codigo, { descripcion: descripcionEdit.trim() }), "Tipo actualizado")) {
                         setEditandoCodigo(null);
                         mutate();
                       }
@@ -799,7 +809,7 @@ function SeccionTipos({ token }: { token: string }) {
                   <Insignia activo={tipo.activo} />
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={() => {
                       setEditandoCodigo(tipo.codigo);
                       setDescripcionEdit(tipo.descripcion);
@@ -809,9 +819,9 @@ function SeccionTipos({ token }: { token: string }) {
                   </button>
                   <button
                     className={BOTON_LINK}
-                    disabled={!token}
+                   
                     onClick={async () => {
-                      if (await ejecutar(() => actualizarTipoDocumento(token, tipo.codigo, { activo: !tipo.activo }), tipo.activo ? "Tipo desactivado" : "Tipo activado")) mutate();
+                      if (await ejecutar(() => actualizarTipoDocumento(tipo.codigo, { activo: !tipo.activo }), tipo.activo ? "Tipo desactivado" : "Tipo activado")) mutate();
                     }}
                   >
                     {tipo.activo ? "Desactivar" : "Activar"}
@@ -826,14 +836,251 @@ function SeccionTipos({ token }: { token: string }) {
   );
 }
 
+// ------------------------------------------- Usuarios del dashboard
+
+// Restablecer contraseña en la propia fila: boton -> input -> guardar. Mismo
+// patron que CambiarPin, pero con contraseña (minimo 8) en vez de PIN.
+function RestablecerPassword({ onGuardar }: { onGuardar: (password: string) => Promise<unknown> }) {
+  const [abierto, setAbierto] = useState(false);
+  const [password, setPassword] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} className={BOTON_LINK}>
+        Restablecer contraseña
+      </button>
+    );
+  }
+  const valida = password.length >= PASSWORD_MIN;
+  const guardar = async () => {
+    setGuardando(true);
+    const ok = await ejecutar(() => onGuardar(password), "Contraseña restablecida");
+    setGuardando(false);
+    if (ok) {
+      setAbierto(false);
+      setPassword("");
+    }
+  };
+  return (
+    <span className="flex items-center gap-1.5">
+      <input
+        autoFocus
+        type="password"
+        autoComplete="new-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && valida && guardar()}
+        placeholder="Mínimo 8 caracteres"
+        className={`${INPUT} w-40`}
+      />
+      <button onClick={guardar} disabled={guardando || !valida} className={BOTON_LINK}>
+        Guardar
+      </button>
+      <button
+        onClick={() => {
+          setAbierto(false);
+          setPassword("");
+        }}
+        className="text-xs text-neutral-600 hover:text-neutral-400"
+      >
+        Cancelar
+      </button>
+    </span>
+  );
+}
+
+const FORMATO_FECHA = new Intl.DateTimeFormat("es-CO", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "America/Bogota",
+});
+const fechaCorta = (iso: string | null) => (iso ? FORMATO_FECHA.format(new Date(iso)) : null);
+
+function SeccionUsuariosDashboard() {
+  const { usuario: yo } = useSesion();
+  const { data, error, isLoading, mutate } = useSWR("creador-usuarios-dashboard", () => fetchUsuariosDashboard());
+  // Instante de montaje: para decidir si un bloqueo sigue vigente sin llamar
+  // a Date.now() en el render.
+  const [ahora] = useState(() => Date.now());
+  const [usuario, setUsuario] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [rol, setRol] = useState<RolDashboard>("consulta");
+  const [password, setPassword] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [edit, setEdit] = useState<{ nombre: string; rol: RolDashboard }>({ nombre: "", rol: "consulta" });
+
+  const agregar = async () => {
+    setEnviando(true);
+    const ok = await ejecutar(
+      () => crearUsuarioDashboard({ usuario: usuario.trim().toLowerCase(), nombre: nombre.trim(), rol, password }),
+      "Usuario creado"
+    );
+    setEnviando(false);
+    if (ok) {
+      setUsuario("");
+      setNombre("");
+      setPassword("");
+      mutate();
+    }
+  };
+
+  const guardarEdicion = async (u: UsuarioDashboardAdmin) => {
+    const ok = await ejecutar(
+      () => actualizarUsuarioDashboard(u.id, { nombre: edit.nombre.trim(), rol: edit.rol }),
+      "Usuario actualizado"
+    );
+    if (ok) {
+      setEditandoId(null);
+      mutate();
+    }
+  };
+
+  return (
+    <TarjetaConHeader
+      titulo="Usuarios del dashboard"
+      subtitulo="Quienes inician sesión en este panel con usuario y contraseña. El rol define qué pueden hacer."
+      pildora={data ? String(data.length) : undefined}
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <Campo etiqueta="Usuario (a-z, 0-9 . _ @ -)" className="w-44">
+          <input
+            value={usuario}
+            onChange={(e) => setUsuario(e.target.value)}
+            autoCapitalize="none"
+            autoComplete="off"
+            className={INPUT}
+          />
+        </Campo>
+        <Campo etiqueta="Nombre" className="min-w-[160px] flex-1">
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
+        </Campo>
+        <Campo etiqueta="Rol">
+          <select value={rol} onChange={(e) => setRol(e.target.value as RolDashboard)} className={INPUT}>
+            {ROLES_DASHBOARD.map((r) => (
+              <option key={r} value={r}>
+                {ETIQUETA_ROL[r]}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo etiqueta="Contraseña (mínimo 8)" className="w-44">
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={INPUT}
+          />
+        </Campo>
+        <button
+          onClick={agregar}
+          disabled={enviando || usuario.trim().length < 3 || !nombre.trim() || password.length < PASSWORD_MIN}
+          className={BOTON_PRIMARIO}
+        >
+          {enviando ? "Creando…" : "Crear usuario"}
+        </button>
+      </div>
+
+      {error ? <ErrorConReintento mensaje={error.message} onReintentar={() => mutate()} /> : null}
+      {isLoading || !data ? (
+        error ? null : <Cargando />
+      ) : (
+        <Lista vacio={data.length === 0}>
+          {data.map((u) => {
+            const esYo = u.id === yo?.id;
+            const bloqueado = u.bloqueado_hasta && Date.parse(u.bloqueado_hasta) > ahora ? u.bloqueado_hasta : null;
+            return (
+              <li key={u.id} className={FILA}>
+                {editandoId === u.id ? (
+                  <>
+                    <span className="font-mono text-xs text-neutral-500">{u.usuario}</span>
+                    <input value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })} className={`${INPUT} min-w-[140px] flex-1`} />
+                    <select value={edit.rol} onChange={(e) => setEdit({ ...edit, rol: e.target.value as RolDashboard })} className={INPUT}>
+                      {ROLES_DASHBOARD.map((r) => (
+                        <option key={r} value={r}>
+                          {ETIQUETA_ROL[r]}
+                        </option>
+                      ))}
+                    </select>
+                    <button className={BOTON_LINK} disabled={!edit.nombre.trim()} onClick={() => guardarEdicion(u)}>
+                      Guardar
+                    </button>
+                    <button className="text-xs text-neutral-600 hover:text-neutral-400" onClick={() => setEditandoId(null)}>
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="min-w-[160px] flex-1 text-neutral-200">
+                      {u.nombre}
+                      {esYo ? <span className="ml-1 text-xs text-neutral-500">(tú)</span> : null}
+                      <span className="ml-2 font-mono text-xs text-neutral-500">{u.usuario}</span>
+                      <span className="ml-2 text-xs text-neutral-500">{ETIQUETA_ROL[u.rol]}</span>
+                      <span className="block text-[11px] text-neutral-600">
+                        Último ingreso: {fechaCorta(u.ultimo_login_at) ?? "nunca"}
+                        {bloqueado ? (
+                          <span className="ml-2 text-amber-400">Bloqueado hasta {fechaCorta(bloqueado)}</span>
+                        ) : null}
+                      </span>
+                    </span>
+                    <Insignia activo={u.activo} />
+                    <button
+                      className={BOTON_LINK}
+                      onClick={() => {
+                        setEditandoId(u.id);
+                        setEdit({ nombre: u.nombre, rol: u.rol });
+                      }}
+                    >
+                      Editar
+                    </button>
+                    <RestablecerPassword onGuardar={(p) => resetearPasswordUsuarioDashboard(u.id, p)} />
+                    <button
+                      className={BOTON_LINK}
+                      disabled={esYo && u.activo}
+                      title={esYo && u.activo ? "No puedes desactivarte a ti mismo" : undefined}
+                      onClick={async () => {
+                        if (await ejecutar(() => actualizarUsuarioDashboard(u.id, { activo: !u.activo }), u.activo ? "Usuario desactivado" : "Usuario activado")) mutate();
+                      }}
+                    >
+                      {u.activo ? "Desactivar" : "Activar"}
+                    </button>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </Lista>
+      )}
+    </TarjetaConHeader>
+  );
+}
+
 // ----------------------------------------------------------------- Página
 
 export default function CreadorPage() {
-  const [adminToken, setAdminToken] = useAdminToken();
+  const { esAdmin } = useSesion();
   const [pestana, setPestana] = useState<Pestana>("sedes");
-  // El token se valida en el backend en cada llamada; las secciones solo
-  // montan (y consultan) cuando hay uno escrito.
-  const token = adminToken.trim();
+
+  // Solo admin: el backend ya responde 403 a los demas, esto evita mostrar
+  // una pantalla que no puede cargar nada.
+  if (!esAdmin) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
+        <h1 className="text-2xl font-semibold text-neutral-100">Administración</h1>
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          No tienes permiso para ver esta sección. Solo los administradores pueden acceder.
+        </div>
+        <Link
+          href="/"
+          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+        >
+          ← Volver al panel
+        </Link>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
@@ -842,7 +1089,7 @@ export default function CreadorPage() {
           <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Control logístico · administración</p>
           <h1 className="text-2xl font-semibold text-neutral-100">Administración</h1>
           <p className="text-sm text-neutral-400">
-            Cree y gestione sedes, empleados, puntos, supervisores y tipos de documento. Nada se borra: desactivar
+            Cree y gestione sedes, empleados, puntos, supervisores, tipos de documento y usuarios del dashboard. Nada se borra: desactivar
             solo oculta el registro en las aplicaciones.
           </p>
         </div>
@@ -853,28 +1100,6 @@ export default function CreadorPage() {
           ← Panel
         </Link>
       </header>
-
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 sm:p-4">
-        <label className="flex w-full max-w-xs flex-col gap-1">
-          <span className="text-[10px] leading-none text-neutral-500">Token de administrador</span>
-          <input
-            type="password"
-            value={adminToken}
-            onChange={(e) => setAdminToken(e.target.value)}
-            placeholder="Requerido para crear o modificar"
-            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 [color-scheme:dark]"
-          />
-        </label>
-        <p className="max-w-sm text-xs text-neutral-600">
-          Es el mismo token del panel principal; se guarda solo en este navegador.
-        </p>
-      </div>
-
-      {!token ? (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-          Ingrese el token de administrador para ver y editar los registros.
-        </div>
-      ) : null}
 
       <nav className="flex flex-wrap gap-1.5" aria-label="Secciones">
         {PESTANAS.map((p) => (
@@ -893,15 +1118,12 @@ export default function CreadorPage() {
         ))}
       </nav>
 
-      {token ? (
-        <>
-          {pestana === "sedes" ? <SeccionSedes token={token} /> : null}
-          {pestana === "empleados" ? <SeccionEmpleados token={token} /> : null}
-          {pestana === "puntos" ? <SeccionPuntos token={token} /> : null}
-          {pestana === "supervisores" ? <SeccionSupervisores token={token} /> : null}
-          {pestana === "tipos" ? <SeccionTipos token={token} /> : null}
-        </>
-      ) : null}
+      {pestana === "sedes" ? <SeccionSedes /> : null}
+      {pestana === "empleados" ? <SeccionEmpleados /> : null}
+      {pestana === "puntos" ? <SeccionPuntos /> : null}
+      {pestana === "supervisores" ? <SeccionSupervisores /> : null}
+      {pestana === "tipos" ? <SeccionTipos /> : null}
+      {pestana === "usuarios" ? <SeccionUsuariosDashboard /> : null}
     </main>
   );
 }

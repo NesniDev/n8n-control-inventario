@@ -3,7 +3,44 @@
 // lib/supabase.ts y app/page.tsx) — el polling de 5s de SWR queda como red
 // de seguridad si el socket de Realtime se corta.
 
+import {
+  expirarSesion,
+  leerSesion,
+  tokenActual,
+  type RolDashboard,
+  type Sesion,
+  type UsuarioDashboard,
+} from "./sesion";
+
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+// Punto unico de salida hacia el backend: adjunta Authorization: Bearer cuando
+// hay sesion y, si el backend responde 401 estando logueado, la sesion murio
+// (expiro o fue revocada) -> se limpia y se manda a /login?expirada=1 (ver
+// expirarSesion en sesion.ts). Los links de descarga (<a href>) no pasan por
+// aca: son GET publicos que no pueden mandar headers.
+async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const token = tokenActual();
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  if (res.status === 401 && leerSesion()) {
+    expirarSesion();
+  }
+  return res;
+}
+
+// Mensaje legible de una respuesta de error: usa `detail` del backend (texto,
+// o la lista de un 422 resumida) y si no hay, el texto de respaldo.
+async function mensajeDeError(res: Response, respaldo: string): Promise<string> {
+  const body = await res.json().catch(() => ({}));
+  const detalle = Array.isArray(body?.detail)
+    ? body.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ")
+    : body?.detail;
+  return typeof detalle === "string" && detalle ? detalle : `${respaldo} (${res.status})`;
+}
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 // Tipos mas comunes -- sugerencia rapida (datalist), no una restriccion: en
 // la practica el tipo real de un documento no siempre es uno de estos (ver
@@ -134,7 +171,7 @@ export interface LogEvent {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store" });
+  const res = await apiFetch(path, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`${path} respondio ${res.status}`);
   }
@@ -242,16 +279,19 @@ export async function revisarEntrega(
     aprobar?: boolean;
   }
 ): Promise<Entrega> {
-  const res = await fetch(`${API_BASE_URL}/entregas/${id}/revisar`, {
+  const res = await apiFetch(`/entregas/${id}/revisar`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: JSON_HEADERS,
     body: JSON.stringify(campos),
   });
   if (!res.ok) {
-    throw new Error(`No se pudo guardar la entrega (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudo guardar la entrega"));
   }
   return res.json();
 }
+
+// Usuario de la sesion para los campos operador_id que el backend aun exige.
+const operadorSesion = () => leerSesion()?.usuario.usuario ?? "supervisor";
 
 // Correccion de items desde el dashboard: siempre valores absolutos (el
 // supervisor corrige el dato, no "entrega hoy" como el movil) — ver
@@ -259,38 +299,36 @@ export async function revisarEntrega(
 export async function actualizarItems(
   entregaId: string,
   items: { id: string; descripcion: string; cantidad_entregada: number; cantidad_pendiente: number }[],
-  revisadoPor: string,
   // Nota a nivel documento completo (distinta de la nota por item, que va
   // arriba en `items`). undefined deja el valor actual sin tocar; "" SI
   // borra la nota.
   notaGeneral?: string
 ): Promise<{ id: string; items: ItemEntrega[] }> {
-  const res = await fetch(`${API_BASE_URL}/entregas/${entregaId}/items`, {
+  // operador_id sigue siendo obligatorio en el payload; con sesion el backend
+  // lo reemplaza por "dashboard:<usuario>" para el log, asi que aca va el
+  // mismo usuario como respaldo.
+  const res = await apiFetch(`/entregas/${entregaId}/items`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items, operador_id: revisadoPor, sede_id: "dashboard", nota_general: notaGeneral }),
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ items, operador_id: operadorSesion(), sede_id: "dashboard", nota_general: notaGeneral }),
   });
   if (!res.ok) {
-    throw new Error(`No se pudieron actualizar los items (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudieron actualizar los items"));
   }
   return res.json();
 }
 
 // Borrado definitivo desde el dashboard (boton "Cancelar" de la cola de
-// revision) -- protegido por el header X-Admin-Token en el backend, ver
-// verificar_token_admin en apps/backend/app/services/admin_auth.py.
-export async function eliminarEntrega(id: string, adminToken: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/entregas/${id}/definitivo`, {
-    method: "DELETE",
-    headers: { "X-Admin-Token": adminToken },
-  });
+// revision) -- solo rol admin en el backend (403 si no).
+export async function eliminarEntrega(id: string): Promise<void> {
+  const res = await apiFetch(`/entregas/${id}/definitivo`, { method: "DELETE" });
   if (!res.ok) {
-    throw new Error(`No se pudo eliminar la entrega (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudo eliminar la entrega"));
   }
 }
 
-// DELETE /entregas/{id} (sin token -- el backend no lo pide, lo usa tambien
-// el mobile) -- distinto de eliminarEntrega/definitivo: borra una entrega
+// DELETE /entregas/{id} (con sesion exige admin o supervisor; lo usa tambien
+// el mobile sin sesion) -- distinto de eliminarEntrega/definitivo: borra una entrega
 // que NO este en pendiente_revision, siempre que ningun item haya tenido
 // todavia una entrega parcial (cantidad_pendiente === cantidad_entregada en
 // todos, ver cancelar_entrega_no_confirmada en el backend). Idempotente: si
@@ -299,26 +337,22 @@ export async function cancelarEntrega(id: string): Promise<{ cancelado: boolean 
   // operador_id/sede_id son opcionales en el backend (default "desconocido"),
   // pero se mandan explicitos para que el log de auditoria (actor_id) diga
   // "supervisor"/"dashboard" en vez de eso -- mismo criterio que actualizarItems.
-  const res = await fetch(`${API_BASE_URL}/entregas/${id}?operador_id=supervisor&sede_id=dashboard`, {
-    method: "DELETE",
-  });
+  const res = await apiFetch(
+    `/entregas/${id}?operador_id=${encodeURIComponent(operadorSesion())}&sede_id=dashboard`,
+    { method: "DELETE" }
+  );
   if (!res.ok) {
-    throw new Error(`No se pudo cancelar el pedido (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudo cancelar el pedido"));
   }
   return res.json();
 }
 
-// "Zona de peligro" -- borra TODAS las entregas y logs. Misma proteccion de
-// token que eliminarEntrega.
-export async function eliminarTodasLasEntregas(
-  adminToken: string
-): Promise<{ entregas_borradas: number; logs_borrados: number }> {
-  const res = await fetch(`${API_BASE_URL}/entregas/todas`, {
-    method: "DELETE",
-    headers: { "X-Admin-Token": adminToken },
-  });
+// "Zona de peligro" -- borra TODAS las entregas y logs. Solo admin, igual
+// que eliminarEntrega.
+export async function eliminarTodasLasEntregas(): Promise<{ entregas_borradas: number; logs_borrados: number }> {
+  const res = await apiFetch(`/entregas/todas`, { method: "DELETE" });
   if (!res.ok) {
-    throw new Error(`No se pudo limpiar el sistema (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudo limpiar el sistema"));
   }
   return res.json();
 }
@@ -347,27 +381,25 @@ export const fetchProductos = (buscar?: string) =>
   getJson<Producto[]>(`/productos${buscar ? `?buscar=${encodeURIComponent(buscar)}` : ""}`);
 
 export async function crearProducto(datos: { codigo: string; nombre: string }): Promise<Producto> {
-  const res = await fetch(`${API_BASE_URL}/productos`, {
+  const res = await apiFetch(`/productos`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: JSON_HEADERS,
     body: JSON.stringify(datos),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `No se pudo crear el producto (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudo crear el producto"));
   }
   return res.json();
 }
 
 export async function actualizarProducto(id: string, nombre: string): Promise<Producto> {
-  const res = await fetch(`${API_BASE_URL}/productos/${id}`, {
+  const res = await apiFetch(`/productos/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: JSON_HEADERS,
     body: JSON.stringify({ nombre }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `No se pudo actualizar el producto (${res.status})`);
+    throw new Error(await mensajeDeError(res, "No se pudo actualizar el producto"));
   }
   return res.json();
 }
@@ -435,33 +467,19 @@ export const fetchCargaTurnos = (sedeId: string, semanas: number) =>
   );
 
 // --- Administracion (pantalla /creador) ---------------------------------
-// Todos estos endpoints exigen X-Admin-Token (ver verificar_token_admin en
-// apps/backend/app/services/admin_auth.py). El PIN solo viaja hacia el
-// backend (alta y reset); nunca vuelve en las respuestas.
+// Todos estos endpoints exigen sesion de rol admin (Bearer, ver apiFetch). El
+// PIN solo viaja hacia el backend (alta y reset); nunca vuelve en las
+// respuestas.
 
-async function adminFetch<T>(
-  path: string,
-  adminToken: string,
-  opciones?: { method?: string; body?: unknown }
-): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+async function adminFetch<T>(path: string, opciones?: { method?: string; body?: unknown }): Promise<T> {
+  const res = await apiFetch(path, {
     method: opciones?.method ?? "GET",
     cache: "no-store",
-    headers: {
-      "X-Admin-Token": adminToken,
-      ...(opciones?.body !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
+    headers: opciones?.body !== undefined ? JSON_HEADERS : undefined,
     body: opciones?.body !== undefined ? JSON.stringify(opciones.body) : undefined,
   });
   if (!res.ok) {
-    if (res.status === 401) throw new Error("Token de administrador incorrecto");
-    if (res.status === 503) throw new Error("El backend no tiene configurado el token de administrador (ADMIN_DELETE_TOKEN)");
-    const body = await res.json().catch(() => ({}));
-    // 422 de validacion trae detail como lista; se resume en un solo texto.
-    const detalle = Array.isArray(body.detail)
-      ? body.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ")
-      : body.detail;
-    throw new Error(detalle || `La solicitud falló (${res.status})`);
+    throw new Error(await mensajeDeError(res, "La solicitud falló"));
   }
   return res.json();
 }
@@ -509,67 +527,105 @@ export interface TipoDocumentoAdmin {
   activo: boolean;
 }
 
-export const fetchSedesAdmin = (token: string) => adminFetch<SedeAdmin[]>("/sedes?incluir_inactivas=true", token);
-export const crearSede = (
-  token: string,
-  datos: { nombre: string; codigo: string; direccion?: string; timezone?: string }
-) => adminFetch<{ id: string }>("/sedes", token, { method: "POST", body: datos });
-export const actualizarSede = (
-  token: string,
-  id: string,
+export const fetchSedesAdmin = () => adminFetch<SedeAdmin[]>("/sedes?incluir_inactivas=true");
+export const crearSede = (datos: { nombre: string; codigo: string; direccion?: string; timezone?: string }
+) => adminFetch<{ id: string }>("/sedes", { method: "POST", body: datos });
+export const actualizarSede = (id: string,
   cambios: { nombre?: string; direccion?: string; activa?: boolean }
-) => adminFetch<SedeAdmin>(`/sedes/${id}`, token, { method: "PATCH", body: cambios });
+) => adminFetch<SedeAdmin>(`/sedes/${id}`, { method: "PATCH", body: cambios });
 
-export const fetchEmpleadosAdmin = (token: string) =>
-  adminFetch<EmpleadoAdmin[]>("/empleados?incluir_inactivos=true", token);
-export const crearEmpleado = (
-  token: string,
-  datos: { nombre: string; sede_id: string; rol: RolEmpleado; pin: string }
-) => adminFetch<EmpleadoAdmin>("/empleados", token, { method: "POST", body: datos });
-export const actualizarEmpleado = (
-  token: string,
-  id: string,
+export const fetchEmpleadosAdmin = () =>
+  adminFetch<EmpleadoAdmin[]>("/empleados?incluir_inactivos=true");
+export const crearEmpleado = (datos: { nombre: string; sede_id: string; rol: RolEmpleado; pin: string }
+) => adminFetch<EmpleadoAdmin>("/empleados", { method: "POST", body: datos });
+export const actualizarEmpleado = (id: string,
   cambios: { nombre?: string; sede_id?: string; rol?: RolEmpleado; estado?: "activo" | "inactivo" }
-) => adminFetch<EmpleadoAdmin>(`/empleados/${id}`, token, { method: "PATCH", body: cambios });
-export const resetearPinEmpleado = (token: string, id: string, pin: string) =>
-  adminFetch<{ ok: boolean }>(`/empleados/${id}/pin`, token, { method: "POST", body: { pin } });
+) => adminFetch<EmpleadoAdmin>(`/empleados/${id}`, { method: "PATCH", body: cambios });
+export const resetearPinEmpleado = (id: string, pin: string) =>
+  adminFetch<{ ok: boolean }>(`/empleados/${id}/pin`, { method: "POST", body: { pin } });
 
-export const fetchPuntosAdmin = (token: string) => adminFetch<PuntoAdmin[]>("/puntos?incluir_inactivos=true", token);
-export const crearPunto = (token: string, nombre: string) =>
-  adminFetch<{ id: string; nombre: string }>("/puntos", token, { method: "POST", body: { nombre } });
-export const actualizarPunto = (token: string, id: string, cambios: { nombre?: string; activo?: boolean }) =>
-  adminFetch<PuntoAdmin>(`/puntos/${id}`, token, { method: "PATCH", body: cambios });
+export const fetchPuntosAdmin = () => adminFetch<PuntoAdmin[]>("/puntos?incluir_inactivos=true");
+export const crearPunto = (nombre: string) =>
+  adminFetch<{ id: string; nombre: string }>("/puntos", { method: "POST", body: { nombre } });
+export const actualizarPunto = (id: string, cambios: { nombre?: string; activo?: boolean }) =>
+  adminFetch<PuntoAdmin>(`/puntos/${id}`, { method: "PATCH", body: cambios });
 
-export const fetchUsuariosPuntoAdmin = (token: string, puntoId: string) =>
-  adminFetch<UsuarioPuntoAdmin[]>(`/puntos/${puntoId}/usuarios?incluir_inactivos=true`, token);
-export const crearUsuarioPunto = (token: string, puntoId: string, datos: { nombre: string; pin: string }) =>
-  adminFetch<UsuarioPuntoAdmin>(`/puntos/${puntoId}/usuarios`, token, { method: "POST", body: datos });
-export const actualizarUsuarioPunto = (
-  token: string,
-  id: string,
+export const fetchUsuariosPuntoAdmin = (puntoId: string) =>
+  adminFetch<UsuarioPuntoAdmin[]>(`/puntos/${puntoId}/usuarios?incluir_inactivos=true`);
+export const crearUsuarioPunto = (puntoId: string, datos: { nombre: string; pin: string }) =>
+  adminFetch<UsuarioPuntoAdmin>(`/puntos/${puntoId}/usuarios`, { method: "POST", body: datos });
+export const actualizarUsuarioPunto = (id: string,
   cambios: { nombre?: string; estado?: "activo" | "inactivo" }
-) => adminFetch<UsuarioPuntoAdmin>(`/puntos/usuarios/${id}`, token, { method: "PATCH", body: cambios });
-export const resetearPinUsuarioPunto = (token: string, id: string, pin: string) =>
-  adminFetch<{ ok: boolean }>(`/puntos/usuarios/${id}/pin`, token, { method: "POST", body: { pin } });
+) => adminFetch<UsuarioPuntoAdmin>(`/puntos/usuarios/${id}`, { method: "PATCH", body: cambios });
+export const resetearPinUsuarioPunto = (id: string, pin: string) =>
+  adminFetch<{ ok: boolean }>(`/puntos/usuarios/${id}/pin`, { method: "POST", body: { pin } });
 
-export const fetchSupervisoresAdmin = (token: string) =>
-  adminFetch<SupervisorAdmin[]>("/supervisores?incluir_inactivos=true", token);
-export const crearSupervisor = (token: string, datos: { nombre: string; pin: string }) =>
-  adminFetch<SupervisorAdmin>("/supervisores", token, { method: "POST", body: datos });
-export const actualizarSupervisor = (
-  token: string,
-  id: string,
+export const fetchSupervisoresAdmin = () =>
+  adminFetch<SupervisorAdmin[]>("/supervisores?incluir_inactivos=true");
+export const crearSupervisor = (datos: { nombre: string; pin: string }) =>
+  adminFetch<SupervisorAdmin>("/supervisores", { method: "POST", body: datos });
+export const actualizarSupervisor = (id: string,
   cambios: { nombre?: string; estado?: "activo" | "inactivo" }
-) => adminFetch<SupervisorAdmin>(`/supervisores/${id}`, token, { method: "PATCH", body: cambios });
-export const resetearPinSupervisor = (token: string, id: string, pin: string) =>
-  adminFetch<{ ok: boolean }>(`/supervisores/${id}/pin`, token, { method: "POST", body: { pin } });
+) => adminFetch<SupervisorAdmin>(`/supervisores/${id}`, { method: "PATCH", body: cambios });
+export const resetearPinSupervisor = (id: string, pin: string) =>
+  adminFetch<{ ok: boolean }>(`/supervisores/${id}/pin`, { method: "POST", body: { pin } });
 
-export const fetchTiposDocumentoAdmin = (token: string) =>
-  adminFetch<TipoDocumentoAdmin[]>("/tipos-documento?incluir_inactivos=true", token);
-export const crearTipoDocumento = (token: string, datos: { codigo: string; descripcion: string }) =>
-  adminFetch<TipoDocumentoAdmin>("/tipos-documento", token, { method: "POST", body: datos });
-export const actualizarTipoDocumento = (
-  token: string,
-  codigo: string,
+export const fetchTiposDocumentoAdmin = () =>
+  adminFetch<TipoDocumentoAdmin[]>("/tipos-documento?incluir_inactivos=true");
+export const crearTipoDocumento = (datos: { codigo: string; descripcion: string }) =>
+  adminFetch<TipoDocumentoAdmin>("/tipos-documento", { method: "POST", body: datos });
+export const actualizarTipoDocumento = (codigo: string,
   cambios: { descripcion?: string; activo?: boolean }
-) => adminFetch<TipoDocumentoAdmin>(`/tipos-documento/${encodeURIComponent(codigo)}`, token, { method: "PATCH", body: cambios });
+) => adminFetch<TipoDocumentoAdmin>(`/tipos-documento/${encodeURIComponent(codigo)}`, { method: "PATCH", body: cambios });
+
+// --- Sesion y usuarios del dashboard (login con roles) -------------------
+
+// POST /dashboard/auth/login -- 401 "Usuario o contraseña incorrectos", 423
+// "Demasiados intentos...". Va con fetch plano (no apiFetch): un 401 aca no es
+// "sesion expirada" sino credenciales malas.
+export async function loginDashboard(usuario: string, password: string): Promise<Sesion> {
+  const res = await fetch(`${API_BASE_URL}/dashboard/auth/login`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ usuario, password }),
+  });
+  if (!res.ok) {
+    throw new Error(await mensajeDeError(res, "No se pudo iniciar sesión"));
+  }
+  return res.json();
+}
+
+// Usuario de la sesion actual (refresca nombre/rol por si un admin los cambio).
+export const fetchYo = () => getJson<UsuarioDashboard>("/dashboard/auth/yo");
+
+export async function cambiarPassword(actual: string, nueva: string): Promise<void> {
+  const res = await apiFetch("/dashboard/auth/cambiar-password", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ actual, nueva }),
+  });
+  if (!res.ok) {
+    throw new Error(await mensajeDeError(res, "No se pudo cambiar la contraseña"));
+  }
+}
+
+export interface UsuarioDashboardAdmin extends UsuarioDashboard {
+  activo: boolean;
+  creado_at: string;
+  ultimo_login_at: string | null;
+  bloqueado_hasta: string | null;
+}
+
+export const fetchUsuariosDashboard = () => adminFetch<UsuarioDashboardAdmin[]>("/dashboard/usuarios");
+export const crearUsuarioDashboard = (datos: {
+  usuario: string;
+  nombre: string;
+  rol: RolDashboard;
+  password: string;
+}) => adminFetch<UsuarioDashboardAdmin>("/dashboard/usuarios", { method: "POST", body: datos });
+export const actualizarUsuarioDashboard = (
+  id: string,
+  cambios: { nombre?: string; rol?: RolDashboard; activo?: boolean }
+) => adminFetch<UsuarioDashboardAdmin>(`/dashboard/usuarios/${id}`, { method: "PATCH", body: cambios });
+export const resetearPasswordUsuarioDashboard = (id: string, password: string) =>
+  adminFetch<{ ok: boolean }>(`/dashboard/usuarios/${id}/password`, { method: "POST", body: { password } });
