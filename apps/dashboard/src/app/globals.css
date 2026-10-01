@@ -38,19 +38,6 @@
   --color-info: #60a5fa; /* solo texto/bordes finos, nunca fondos */
 }
 
-@theme {
-  --animate-deslizar: deslizar 180ms ease-out;
-
-  @keyframes deslizar {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(0);
-    }
-  }
-}
-
 @theme inline {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
