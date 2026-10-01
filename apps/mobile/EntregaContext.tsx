@@ -14,7 +14,7 @@ import type { NavigationHelpers } from '@react-navigation/native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { cancelarEntrega, type Empleado, type Flujo, type ItemEntrega, type Sede } from './api';
-import { ACENTO, ESTILO_TAB_BAR, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, type EstadoFinal } from './tema';
+import { ACENTO, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, useEstiloTabBar, type EstadoFinal } from './tema';
 // Type-only -- se borra en compilacion, no genera dependencia circular en
 // runtime (Navegacion.tsx importa EntregaProvider mas abajo, pero solo el
 // componente, no este tipo).
@@ -343,11 +343,12 @@ export function EntregaProvider({
   // "Cerrar sesion" en HeaderEntrega: que el operador no salga a otra tab a
   // mitad de un envio. Igual el estado del stack se conservaria (los tabs no
   // se desmontan), esto es para que no quede la duda de si se envio o no.
+  const estiloTabBar = useEstiloTabBar();
   useEffect(() => {
     navigationTab.setOptions({
-      tabBarStyle: cargando ? [ESTILO_TAB_BAR, { display: 'none' }] : ESTILO_TAB_BAR,
+      tabBarStyle: cargando ? [estiloTabBar, { display: 'none' }] : estiloTabBar,
     });
-  }, [cargando, navigationTab]);
+  }, [cargando, navigationTab, estiloTabBar]);
 
   // Cancelar en la pantalla de confirmacion: procesarEntrega (paso 1) ya
   // insertó la entrega si situacion es 'nueva' -- sin esto, cancelar dejaba

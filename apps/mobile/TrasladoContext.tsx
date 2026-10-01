@@ -12,7 +12,7 @@ import type { NavigationHelpers } from '@react-navigation/native';
 import * as Crypto from 'expo-crypto';
 
 import type { Punto, Supervisor, UsuarioPunto } from './api';
-import { ACENTO, ESTILO_TAB_BAR, NEUTRAL_500, styles } from './tema';
+import { ACENTO, NEUTRAL_500, styles, useEstiloTabBar } from './tema';
 // Type-only -- se borra en compilacion, mismo criterio que EntregaContext.tsx
 // con DespachosStackParamList (sin dependencia de runtime entre los dos
 // archivos).
@@ -139,11 +139,12 @@ export function TrasladoProvider({
   // Mismo criterio que EntregaContext.tsx -- oculta la barra de tabs
   // mientras hay una creacion/recepcion en vuelo, para que no se salga a
   // otra tab a mitad de un envio.
+  const estiloTabBar = useEstiloTabBar();
   useEffect(() => {
     navigationTab.setOptions({
-      tabBarStyle: cargando ? [ESTILO_TAB_BAR, { display: 'none' }] : ESTILO_TAB_BAR,
+      tabBarStyle: cargando ? [estiloTabBar, { display: 'none' }] : estiloTabBar,
     });
-  }, [cargando, navigationTab]);
+  }, [cargando, navigationTab, estiloTabBar]);
 
   // Valor memoizado para que los consumidores del context no re-rendericen sin cambios reales.
   const value: TrasladoContextValue = useMemo(() => ({

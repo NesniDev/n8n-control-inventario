@@ -552,8 +552,10 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
   // hace falta tambien la foto del traslado para poder reenviar.
   const puedeEnviar = !!foto && !!sedeSeleccionada && !cargando && (!necesitaTraslado || !!fotoTraslado);
 
+  // Sin borde inferior: la barra de tabs ya suma ese inset (si no, queda
+  // doble con los 3 botones de Android).
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"

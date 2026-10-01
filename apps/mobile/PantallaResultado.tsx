@@ -20,8 +20,10 @@ export default function PantallaResultado({ route }: Props) {
 
   const infoEstadoFinal = estadoFinal ? ESTADO_INFO[estadoFinal] : null;
 
+  // Sin borde inferior: la barra de tabs ya suma ese inset (si no, queda
+  // doble con los 3 botones de Android).
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"

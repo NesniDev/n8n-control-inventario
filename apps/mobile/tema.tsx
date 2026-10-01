@@ -8,8 +8,10 @@
 // sintaxis JSX (TypeScript la interpreta como type assertion y falla el
 // parseo). Se usa extension .tsx en su lugar; el contenido es idéntico al
 // planeado, cero cambios de logica/valores.
+import { useMemo } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Paleta de la marca, sacada del logo de la empresa (azul noche, dorado y el
 // verde oficial) -- la misma de MARCA en vidrio.tsx, que usan el login y el
@@ -66,6 +68,23 @@ export const ESTILO_TAB_BAR = {
   // Filo dorado muy sutil arriba de la barra (oro del logo).
   borderTopColor: 'rgba(245,197,66,0.28)',
 };
+
+// Alto del contenido de la barra (icono + nombre + margenes del recuadro),
+// sin contar la zona de los botones de Android.
+const ALTO_TAB_BAR = 62;
+
+// Estilo de la barra de tabs con el alto ya resuelto. El alto por defecto de
+// bottom-tabs (49 + inset) no alcanza con el marginVertical del recuadro: el
+// nombre de la tab se desborda hacia abajo y, con la navegacion de 3 botones
+// de Android, queda tapado por esa barra. Lo usan Navegacion.tsx y los
+// setOptions de EntregaContext/TrasladoContext (que reemplazan tabBarStyle
+// entero, asi que tambien tienen que llevar el alto).
+export function useEstiloTabBar() {
+  // Memoizado: los contexts lo usan como dependencia de un useEffect que
+  // llama setOptions, y un objeto nuevo en cada render lo dispararia siempre.
+  const { bottom } = useSafeAreaInsets();
+  return useMemo(() => ({ ...ESTILO_TAB_BAR, height: ALTO_TAB_BAR + bottom }), [bottom]);
+}
 
 export const FUENTE_DISPLAY = 'SpaceGrotesk_700Bold';
 export const FUENTE_DISPLAY_SEMI = 'SpaceGrotesk_600SemiBold';

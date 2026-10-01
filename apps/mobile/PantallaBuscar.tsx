@@ -110,8 +110,10 @@ export default function PantallaBuscar({ navigation }: Props) {
 
   const puedeBuscar = !!indicativoBusqueda.trim() && !!tipoBusqueda.trim() && !cargando;
 
+  // Sin borde inferior: la barra de tabs ya suma ese inset (si no, queda
+  // doble con los 3 botones de Android).
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <EvitarTeclado>
         <ScrollView
           contentContainerStyle={styles.scroll}

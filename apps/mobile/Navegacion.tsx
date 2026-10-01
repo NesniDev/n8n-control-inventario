@@ -39,7 +39,7 @@ import PantallaTrasladoDetalle from './PantallaTrasladoDetalle';
 import PantallaNovedadesSupervision from './PantallaNovedadesSupervision';
 import PantallaNovedadDetalle from './PantallaNovedadDetalle';
 import PantallaInicio from './PantallaInicio';
-import { ESTILO_TAB_BAR, FUENTE_BODY_BOLD } from './tema';
+import { FUENTE_BODY_BOLD, useEstiloTabBar } from './tema';
 import { MARCA } from './vidrio';
 
 export type DespachosStackParamList = {
@@ -203,6 +203,7 @@ const FondoTabs = () => (
 );
 
 function TabsPrincipales() {
+  const estiloTabBar = useEstiloTabBar();
   // El icono de la tab es siempre el de la seccion, tenga o no acceso la
   // sesion -- el aviso de "sin acceso" vive solo dentro de la tab (SinAcceso).
   const opcionesArea = (area: AreaApp) => ({
@@ -219,7 +220,7 @@ function TabsPrincipales() {
         headerShown: false,
         tabBarActiveTintColor: MARCA.oro,
         tabBarInactiveTintColor: TAB_INACTIVA,
-        tabBarStyle: ESTILO_TAB_BAR,
+        tabBarStyle: estiloTabBar,
         tabBarBackground: FondoTabs,
         // La tab activa queda dentro de un recuadro redondeado con un brillo
         // dorado suave (icono + nombre).
