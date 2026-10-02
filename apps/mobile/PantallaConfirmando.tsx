@@ -285,6 +285,12 @@ export default function PantallaConfirmando({ navigation }: Props) {
   const [mostrandoDatosEntrega, setMostrandoDatosEntrega] = useState(false);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [mensaje, setMensaje] = useState('');
+  // "Entregado en el punto de venta" (por producto): ids de los items marcados.
+  // Quedan como "todo entregado" y se mandan como desde_punto_venta, para que
+  // el backend no los acredite como entrega de bodega. valoresPrevios guarda
+  // lo que habia tipeado para restaurarlo al desmarcar.
+  const [puntoVentaIds, setPuntoVentaIds] = useState<Set<string>>(new Set());
+  const [valoresPrevios, setValoresPrevios] = useState<Record<string, string>>({});
   // necesitaTrasladoConfirmar vive en EntregaContext (no local) -- Buscar y
   // CapturaFoto tambien lo setean, ANTES de llegar aca, cuando el backend ya
   // avisa "requiere_traslado" al buscar/reescanear (ver
@@ -529,6 +535,25 @@ export default function PantallaConfirmando({ navigation }: Props) {
     actualizarValorItem(item.id, marcado ? '' : completo);
   };
 
+  // Check "Entregado en el punto de venta" de un item: al marcarlo se guarda
+  // lo tipeado y el item queda en su valor de "todo entregado"; al desmarcarlo
+  // se restaura (o queda vacio, como alternarTodoEntregado).
+  const alternarPuntoVenta = (item: ItemFormulario) => {
+    if (!situacion) return;
+    if (!puntoVentaIds.has(item.id)) {
+      setValoresPrevios((prev) => ({ ...prev, [item.id]: item.valor }));
+      setPuntoVentaIds((prev) => new Set(prev).add(item.id));
+      actualizarValorItem(item.id, String(valorTodoEntregado(item, situacion)));
+    } else {
+      setPuntoVentaIds((prev) => {
+        const siguiente = new Set(prev);
+        siguiente.delete(item.id);
+        return siguiente;
+      });
+      actualizarValorItem(item.id, valoresPrevios[item.id] ?? '');
+    }
+  };
+
   // Items que requieren una cantidad valida para poder confirmar. Para
   // 'nueva' son TODOS -- el pendiente inicial de cada item (incluido el que
   // quedo en 0 via el check "todo entregado") todavia no se guardo en
@@ -642,6 +667,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
         if (situacion === 'actualizable' && esBloqueado(item, situacion)) {
           return { id: item.id, nota, descripcion };
         }
+        const desdePuntoVenta = puntoVentaIds.has(item.id) ? true : undefined;
         return situacion === 'nueva'
           ? {
               id: item.id,
@@ -649,8 +675,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
               nota,
               descripcion,
               cantidad_entregada: cantidadEntregadaCorregida,
+              desde_punto_venta: desdePuntoVenta,
             }
-          : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota, descripcion };
+          : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota, descripcion, desde_punto_venta: desdePuntoVenta };
       });
 
       const firma = firmaFirmada ?? firmaBase64;
@@ -796,8 +823,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
             const bloqueado = situacion ? esBloqueado(item, situacion) : false;
             const tope = situacion ? topeValor(item, situacion) : 0;
             const valorTexto = item.valor.trim();
+            const enPuntoVenta = !bloqueado && puntoVentaIds.has(item.id);
             const marcadoTodoEntregado =
-              !bloqueado && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
+              !bloqueado && !enPuntoVenta && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
             // Se avisa en el momento, sin esperar el error del servidor --
             // el backend igual lo vuelve a validar (ver PATCH /items).
             const excedeTope =
@@ -1043,7 +1071,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   <Text style={styles.previewSubtexto}>Pendiente actual: {item.cantidad_pendiente}</Text>
                 )}
 
-                {bloqueado ? null : (
+                {bloqueado || enPuntoVenta ? null : (
                   <Pressable
                     onPress={() => alternarTodoEntregado(item)}
                     hitSlop={8}
@@ -1060,6 +1088,27 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   </Pressable>
                 )}
 
+                {bloqueado ? null : (
+                  <Pressable
+                    onPress={() => alternarPuntoVenta(item)}
+                    hitSlop={8}
+                    style={[styles.checkboxFila, estilosItem.checkboxFila, enPuntoVenta && estilosItem.checkboxFilaMarcada]}
+                  >
+                    <View style={[styles.checkboxCaja, enPuntoVenta && styles.checkboxCajaMarcada]}>
+                      {enPuntoVenta ? <Ionicons name="checkmark" size={16} color={TEXTO_SOBRE_ACENTO} /> : null}
+                    </View>
+                    <Text style={[styles.checkboxTexto, enPuntoVenta && estilosItem.checkboxTextoMarcado]}>
+                      Entregado en el punto de venta
+                    </Text>
+                  </Pressable>
+                )}
+                {enPuntoVenta ? (
+                  <View style={styles.filaConIcono}>
+                    <Ionicons name="information-circle-outline" size={13} color={NEUTRAL_500} />
+                    <Text style={styles.previewSubtexto}>No se registra como entrega de bodega.</Text>
+                  </View>
+                ) : null}
+
                 <Text style={styles.etiquetaSeccion}>
                   {situacion === 'nueva' ? 'Cantidad pendiente' : 'Entregado hoy'}
                 </Text>
@@ -1069,14 +1118,28 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   keyboardType="number-pad"
                   placeholder="0"
                   placeholderTextColor={NEUTRAL_500}
-                  editable={!bloqueado && !marcadoTodoEntregado}
+                  editable={!bloqueado && !marcadoTodoEntregado && !enPuntoVenta}
                   style={[
                     styles.inputCantidad,
                     estilosItem.inputCantidad,
-                    (bloqueado || marcadoTodoEntregado) && styles.inputCantidadBloqueado,
+                    (bloqueado || marcadoTodoEntregado || enPuntoVenta) && styles.inputCantidadBloqueado,
                     excedeTope && styles.inputCantidadError,
                   ]}
                 />
+                {bloqueado && situacion === 'actualizable' && (item.entregado_en_punto_venta || item.entregado_por_nombre) ? (
+                  <View style={styles.filaConIcono}>
+                    <Ionicons
+                      name={item.entregado_en_punto_venta ? 'storefront-outline' : 'person-outline'}
+                      size={13}
+                      color={NEUTRAL_500}
+                    />
+                    <Text style={styles.previewSubtexto}>
+                      {item.entregado_en_punto_venta
+                        ? 'Entregado en: Punto de venta'
+                        : `Entregado por: ${item.entregado_por_nombre}`}
+                    </Text>
+                  </View>
+                ) : null}
                 {bloqueado ? (
                   <View style={styles.filaConIcono}>
                     <Ionicons name="lock-closed-outline" size={13} color={NEUTRAL_500} />
