@@ -170,15 +170,32 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
       return `Nueva entrega registrada${doc ? ` — ${doc}` : ""} en ${sede}.`;
     case "entrega_actualizada": {
       const detalle = log.detalle as
-        | { items?: { cantidad_pendiente: number }[]; retirado_por?: { nombre: string; telefono: string } | null }
+        | {
+            items?: { cantidad_pendiente: number; desde_punto_venta?: boolean }[];
+            retirado_por?: { nombre: string; telefono: string } | null;
+            desde_punto_venta?: boolean;
+          }
         | undefined;
+      // Cierre "desde el punto de venta": lo registro el bodeguero (actor del
+      // log) pero no lo entrego bodega.
+      if (detalle?.desde_punto_venta) {
+        return `Entregado todo desde el punto de venta${doc ? ` — ${doc}` : ""} (registró ${
+          log.actor_nombre ?? log.actor_id ?? "?"
+        }).`;
+      }
       const pendiente = detalle?.items?.reduce((total, i) => total + (i.cantidad_pendiente ?? 0), 0);
       const retiro = detalle?.retirado_por
         ? ` Retiró ${detalle.retirado_por.nombre} (${detalle.retirado_por.telefono}).`
         : "";
+      // Visita mixta: algunos productos los entrego el punto de venta.
+      const nPuntoVenta = detalle?.items?.filter((i) => i.desde_punto_venta).length ?? 0;
+      const puntoVenta =
+        nPuntoVenta > 0
+          ? ` · ${nPuntoVenta} ${nPuntoVenta === 1 ? "producto entregado" : "productos entregados"} en el punto de venta`
+          : "";
       return `Se confirmaron cantidades${doc ? ` de ${doc}` : ""}${
         pendiente !== undefined ? ` — quedan ${pendiente} pendientes` : ""
-      }.${retiro}`;
+      }.${retiro}${puntoVenta}`;
     }
     case "devolucion_registrada": {
       const detalle = log.detalle as { cantidad?: number; motivo?: string; resolucion?: string } | undefined;
@@ -741,10 +758,30 @@ function formatearFechaHora(fecha: string | null | undefined): string {
 function ModalDetalleEntrega({
   entrega,
   onCerrar,
+  onEliminado,
 }: {
   entrega: Entrega;
   onCerrar: () => void;
+  onEliminado: () => void;
 }) {
+  // Solo admin puede borrar una entrega ya completada (ver
+  // eliminar_entrega_definitivo en el backend, que tambien lo exige).
+  const { esAdmin } = useSesion();
+  const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const eliminar = async () => {
+    setConfirmandoBorrado(false);
+    setEliminando(true);
+    try {
+      await eliminarEntrega(entrega.id);
+      toast.success("Entrega eliminada");
+      onEliminado();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al eliminar");
+    } finally {
+      setEliminando(false);
+    }
+  };
   // historial === null es el estado "cargando" -- evita un setState
   // sincronico al entrar al efecto (regla react-hooks/set-state-in-effect).
   const [historial, setHistorial] = useState<LogEvent[] | null>(null);
@@ -793,11 +830,26 @@ function ModalDetalleEntrega({
   // Cada visita de bodega que confirmo cantidades, en orden -- base tanto de
   // la lista de bodegueros como de la seccion "Fechas" (una fila por entrega,
   // asi se ve cuando el documento se entrego en varias visitas).
+  // Las visitas marcadas desde_punto_venta se excluyen: las registro un
+  // bodeguero pero no las entrego bodega (se listan aparte, abajo).
+  const entregadoDesdePuntoVenta = (log: LogEvent) =>
+    (log.detalle as { desde_punto_venta?: boolean } | undefined)?.desde_punto_venta === true;
   const visitasBodega =
     historial === null
       ? null
       : historial
-          .filter((log) => log.evento === "entrega_actualizada" && log.actor_rol !== "punto_venta")
+          .filter(
+            (log) =>
+              log.evento === "entrega_actualizada" &&
+              log.actor_rol !== "punto_venta" &&
+              !entregadoDesdePuntoVenta(log)
+          )
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const visitasPuntoVenta =
+    historial === null
+      ? []
+      : historial
+          .filter((log) => log.evento === "entrega_actualizada" && entregadoDesdePuntoVenta(log))
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const bodeguerosHistorial =
     visitasBodega === null
@@ -844,10 +896,30 @@ function ModalDetalleEntrega({
               {estadoVisual(entrega).etiqueta}
             </Pildora>
           </div>
-          <button onClick={onCerrar} className="text-muted hover:text-ink" aria-label="Cerrar">
-            <Icono nombre="cerrar" className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {esAdmin ? (
+              <button
+                onClick={() => setConfirmandoBorrado(true)}
+                disabled={eliminando}
+                className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger-fg transition hover:bg-red-500/10 disabled:opacity-50"
+              >
+                {eliminando ? "Eliminando..." : "Eliminar"}
+              </button>
+            ) : null}
+            <button onClick={onCerrar} className="text-muted hover:text-ink" aria-label="Cerrar">
+              <Icono nombre="cerrar" className="h-5 w-5" />
+            </button>
+          </div>
         </div>
+        {confirmandoBorrado ? (
+          <ModalConfirmar
+            titulo="Eliminar entrega"
+            mensaje={`¿Eliminar por completo ${entrega.tipo} ${entrega.indicativo_numero}? Ya está entregada: desaparece del historial y del reporte mensual. Esta acción no se puede deshacer.`}
+            textoConfirmar="Eliminar entrega"
+            onConfirmar={eliminar}
+            onCerrar={() => setConfirmandoBorrado(false)}
+          />
+        ) : null}
 
         {/* Datos clave en tarjetas, no en una lista de texto -- de un vistazo
             se entiende quien/donde/cuando sin tener que leer renglon por
@@ -902,7 +974,9 @@ function ModalDetalleEntrega({
             {visitasBodega === null ? (
               <li className="px-3 py-2 text-xs text-muted">Cargando entregas...</li>
             ) : visitasBodega.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-muted">Todavía no se entregó en bodega.</li>
+              visitasPuntoVenta.length === 0 ? (
+                <li className="px-3 py-2 text-xs text-muted">Todavía no se entregó en bodega.</li>
+              ) : null
             ) : (
               visitasBodega.map((log, i) => (
                 <li key={log.id} className="flex items-start justify-between gap-3 px-3 py-2">
@@ -918,6 +992,15 @@ function ModalDetalleEntrega({
                 </li>
               ))
             )}
+            {visitasPuntoVenta.map((log) => (
+              <li key={log.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                <div className="flex flex-col">
+                  <span className="text-ink">Punto de venta</span>
+                  <span className="text-xs text-muted">Registró {log.actor_nombre ?? log.actor_id ?? "—"}</span>
+                </div>
+                <span className="whitespace-nowrap text-right text-ok-fg">{formatearFechaHora(log.timestamp)}</span>
+              </li>
+            ))}
           </ol>
         </div>
 
@@ -1715,7 +1798,14 @@ export default function DashboardPage() {
       ) : null}
 
       {entregaDetalle ? (
-        <ModalDetalleEntrega entrega={entregaDetalle} onCerrar={() => setEntregaDetalle(null)} />
+        <ModalDetalleEntrega
+          entrega={entregaDetalle}
+          onCerrar={() => setEntregaDetalle(null)}
+          onEliminado={() => {
+            setEntregaDetalle(null);
+            revalidarEntregas();
+          }}
+        />
       ) : null}
 
       {limpiezaModalAbierta ? (
