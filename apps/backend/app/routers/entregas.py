@@ -389,24 +389,20 @@ async def eliminar_entrega_definitivo(
     / cancelar_entrega_no_confirmada, que ese SI exige que nada este
     confirmado -- ese otro endpoint lo comparte el movil, tocar su condicion
     afectaria la cancelacion real de un bodeguero; este es exclusivo del
-    dashboard y ya pide sesion admin / token de administrador). Solo se protege una entrega
-    ya 100% completada (estado procesada, nada pendiente) -- borrar eso no
-    se pidio y sigue sin poder hacerse por aca. entrega_items/devoluciones se
-    van solos por 'on delete cascade'; logs no tiene FK, sobrevive."""
+    dashboard y ya pide sesion admin / token de administrador). Tambien borra
+    una entrega ya 100% completada (procesada, nada pendiente): el admin puede
+    descartar un documento cerrado por error o de prueba. entrega_items/
+    devoluciones se van solos por 'on delete cascade'; logs no tiene FK,
+    sobrevive, y el evento de borrado deja constancia de que estaba completa."""
     pool = await get_pool()
     actual = await pool.fetchrow("select * from entregas where id = $1::uuid", entrega_id)
     if actual is None:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
-    if actual["estado"] != EstadoEntrega.PENDIENTE_REVISION.value:
-        tiene_pendiente = await pool.fetchval(
-            "select exists(select 1 from entrega_items where entrega_id = $1::uuid and cantidad_pendiente > 0)",
-            entrega_id,
-        )
-        if not tiene_pendiente:
-            raise HTTPException(
-                status_code=409,
-                detail="Solo se puede eliminar una entrega pendiente de revision o con productos pendientes",
-            )
+    tiene_pendiente = await pool.fetchval(
+        "select exists(select 1 from entrega_items where entrega_id = $1::uuid and cantidad_pendiente > 0)",
+        entrega_id,
+    )
+    estaba_completa = actual["estado"] == EstadoEntrega.PROCESADA.value and not tiene_pendiente
 
     await pool.execute("delete from entregas where id = $1::uuid", entrega_id)
     await registrar_evento(
@@ -416,7 +412,11 @@ async def eliminar_entrega_definitivo(
         actor_id=actor_para_log(actor, actor_id),
         sede_id=actual["sede_origen_id"],
         resultado="ok",
-        detalle={"tipo": actual["tipo"], "indicativo_numero": actual["indicativo_numero"]},
+        detalle={
+            "tipo": actual["tipo"],
+            "indicativo_numero": actual["indicativo_numero"],
+            "estaba_completa": estaba_completa,
+        },
     )
     return {"eliminado": True}
 
@@ -472,6 +472,20 @@ async def actualizar_items(
     if existente is None:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
+    # Traslado adjuntado al confirmar: se lee con IA solo para guardar su
+    # codigo propio (ej. TB9 7980) y que buscar_entrega lo encuentre tambien
+    # por ese codigo, igual que cuando el traslado llega al crear. Si la
+    # lectura falla no se bloquea la confirmacion: la foto se guarda igual.
+    traslado_tipo = None
+    traslado_indicativo_numero = None
+    if payload.traslado_url:
+        try:
+            extraido_traslado = await extraer_datos_guia(payload.traslado_url)
+            traslado_tipo = (extraido_traslado.get("tipo") or "").strip().upper() or None
+            traslado_indicativo_numero = (extraido_traslado.get("indicativo_numero") or "").strip() or None
+        except ExtraccionFallida:
+            pass
+
     try:
         items = await aplicar_actualizacion_items(
             entrega_id,
@@ -485,6 +499,8 @@ async def actualizar_items(
             nota_general=payload.nota_general,
             retirado_por=payload.retirado_por,
             traslado_url=payload.traslado_url,
+            traslado_tipo=traslado_tipo,
+            traslado_indicativo_numero=traslado_indicativo_numero,
         )
     except CantidadInvalida as exc:
         # 422 y no 502/503/504: mismo motivo que en ExtraccionFallida mas arriba
@@ -542,7 +558,12 @@ _SELECT_ENTREGAS_BASE = """
                     'cantidad_entregada', i.cantidad_entregada,
                     'cantidad_pendiente', i.cantidad_pendiente,
                     'nota', i.nota,
-                    'confirmado', (i.actualizado_at > i.creado_at)
+                    'confirmado', (i.actualizado_at > i.creado_at),
+                    'entregado_en_punto_venta', i.entregado_en_punto_venta,
+                    'entregado_por_nombre', case
+                        when i.entregado_por like 'dashboard:%' then substring(i.entregado_por from 11)
+                        else ent.nombre
+                    end
                 ) order by i.creado_at
             ) filter (where i.id is not null),
             '[]'
@@ -561,6 +582,9 @@ _SELECT_ENTREGAS_BASE = """
     -- bodega toque la entrega (dashboard muestra "NE" en ese caso).
     left join empleados bod on bod.id::text = e.bodeguero_id
     left join entrega_items i on i.entrega_id = e.id
+    -- Quien cerro cada item (ver entrega_items.entregado_por) -- null si fue
+    -- el dashboard (se resuelve en el case) o si no matchea ningun empleado.
+    left join empleados ent on ent.id::text = i.entregado_por
 """
 
 
@@ -659,7 +683,8 @@ async def resumen_hoy(operador_id: str, sede_id: str) -> dict:
     cantidades) hoy, segun el log. No alcanza con los que creo: en Despachos
     el documento lo crea el mostrador al facturar y el bodeguero lo actualiza
     al entregar (ver FacturacionRequerida), asi que contando solo creaciones
-    el bodeguero veia 0 despachos. Los bloqueados por duplicado no cuentan."""
+    el bodeguero veia 0 despachos. Los bloqueados por duplicado no cuentan,
+    ni las visitas marcadas "desde el punto de venta" (no las entrego bodega)."""
     pool = await get_pool()
     row = await pool.fetchrow(
         """
@@ -674,6 +699,7 @@ async def resumen_hoy(operador_id: str, sede_id: str) -> dict:
           and l.entidad_tipo = 'entrega'
           and l.evento in ('entrega_insertada', 'entrega_actualizada')
           and e.estado <> 'duplicado_bloqueado'
+          and not coalesce((l.detalle->>'desde_punto_venta')::boolean, false)
           and (l."timestamp" at time zone s.timezone)::date = (now() at time zone s.timezone)::date
         """,
         operador_id,

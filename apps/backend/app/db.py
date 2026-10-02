@@ -106,6 +106,13 @@ create index if not exists idx_entrega_items_entrega on entrega_items (entrega_i
 -- carga el bodeguero (ej. "llego danado", "faltan 2 cajas"), no viene de la IA.
 alter table entrega_items add column if not exists nota text;
 
+-- Quien cerro el item (pendiente 0): entregado_por es el id del actor, mismo
+-- formato que operador_id (puede ser "dashboard:<usuario>"); el flag marca que
+-- lo entrego el punto de venta y no bodega. Se reescriben en cada confirmacion
+-- (si el item se reabre quedan en null/false).
+alter table entrega_items add column if not exists entregado_por text;
+alter table entrega_items add column if not exists entregado_en_punto_venta boolean not null default false;
+
 -- Migracion desde el modelo anterior (numero_guia/remitente/destinatario/items,
 -- duplicado por numero_guia+remitente) al modelo de documentos (tipo +
 -- indicativo/numero, cantidad entregada/pendiente). Idempotente: corre igual

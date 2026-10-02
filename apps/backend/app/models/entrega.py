@@ -70,6 +70,10 @@ class ItemEntrega(BaseModel):
     # para saber si algo se entrego de verdad -- ver puedeDevolver en
     # apps/mobile/App.tsx y el guard de registrar_devolucion.
     confirmado: bool = True
+    # Quien entrego el item (solo tiene sentido con cantidad_pendiente == 0):
+    # el punto de venta, o el nombre del bodeguero/usuario que lo cerro.
+    entregado_en_punto_venta: bool = False
+    entregado_por_nombre: str | None = None
 
 
 class EntregaCreate(BaseModel):
@@ -160,6 +164,10 @@ class ItemActualizacion(BaseModel):
     # Nota manual por producto -- se puede mandar sola (sin tocar cantidades),
     # ej. para anotar algo de un item que ya esta bloqueado (nada pendiente).
     nota: str | None = None
+    # "Entregado en el punto de venta": este producto lo entrego el punto de
+    # venta, no bodega. Exige que el item quede en pendiente 0 y queda marcado
+    # en el detalle del evento ENTREGA_ACTUALIZADA.
+    desde_punto_venta: bool = False
 
     @model_validator(mode="after")
     def _validar(self) -> "ItemActualizacion":

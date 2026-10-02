@@ -229,10 +229,17 @@ def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: flo
 async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEntrega]:
     rows = await conn.fetch(
         """
-        select id, descripcion, cantidad_entregada, cantidad_pendiente, nota,
-            (actualizado_at > creado_at) as confirmado
-        from entrega_items where entrega_id = $1::uuid
-        order by creado_at
+        select i.id, i.descripcion, i.cantidad_entregada, i.cantidad_pendiente, i.nota,
+            (i.actualizado_at > i.creado_at) as confirmado,
+            i.entregado_en_punto_venta,
+            case
+                when i.entregado_por like 'dashboard:%' then substring(i.entregado_por from 11)
+                else emp.nombre
+            end as entregado_por_nombre
+        from entrega_items i
+        left join empleados emp on emp.id::text = i.entregado_por
+        where i.entrega_id = $1::uuid
+        order by i.creado_at
         """,
         entrega_id,
     )
@@ -244,6 +251,8 @@ async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEn
             cantidad_pendiente=r["cantidad_pendiente"],
             nota=r["nota"],
             confirmado=r["confirmado"],
+            entregado_en_punto_venta=r["entregado_en_punto_venta"],
+            entregado_por_nombre=r["entregado_por_nombre"],
         )
         for r in rows
     ]
@@ -569,6 +578,8 @@ async def aplicar_actualizacion_items(
     nota_general: str | None = None,
     retirado_por: RetiradoPor | None = None,
     traslado_url: str | None = None,
+    traslado_tipo: str | None = None,
+    traslado_indicativo_numero: str | None = None,
 ) -> list[ItemEntrega]:
     """Paso 2: confirma una entrega nueva (cantidad_pendiente absoluta) o
     aplica una actualizacion incremental (entregado_hoy, sumado/restado
@@ -767,7 +778,11 @@ async def aplicar_actualizacion_items(
                     if item.descripcion is not None:
                         await sincronizar_producto(conn, item.descripcion)
 
-            if items:
+            # Items marcados "entregado en el punto de venta": no se acreditan
+            # a bodega. Si TODOS los items enviados lo estan, no se toca
+            # bodeguero_id (el bodeguero queda solo como actor_id del log).
+            ids_punto_venta = {i.id for i in items if i.desde_punto_venta}
+            if items and len(ids_punto_venta) < len(items):
                 # Quien confirmo cantidades reales en ESTA llamada -- a
                 # diferencia de operador_id (el creador, nunca se pisa), esto
                 # SI se actualiza cada vez, asi refleja quien esta con la
@@ -799,10 +814,21 @@ async def aplicar_actualizacion_items(
                 # traslado_url que no hacia falta pero tampoco molesta) --
                 # se guarda como "el traslado vigente" de esta entrega, mismo
                 # campo que ya usa procesar_extraccion al crear.
+                # El codigo propio del traslado (leido en el router) solo pisa
+                # el guardado si se pudo leer -- coalesce conserva el anterior.
                 await conn.execute(
-                    "update entregas set traslado_url = $2, actualizado_at = now() where id = $1::uuid",
+                    """
+                    update entregas
+                    set traslado_url = $2,
+                        traslado_tipo = coalesce($3, traslado_tipo),
+                        traslado_indicativo_numero = coalesce($4, traslado_indicativo_numero),
+                        actualizado_at = now()
+                    where id = $1::uuid
+                    """,
                     entrega_id,
                     traslado_url,
+                    traslado_tipo,
+                    traslado_indicativo_numero,
                 )
 
             if firma_url:
@@ -853,7 +879,40 @@ async def aplicar_actualizacion_items(
                     nota_general,
                 )
 
+            # Quien cerro cada item enviado en esta llamada: si queda en pendiente
+            # 0 se registra al actor (y si fue del punto de venta); si queda con
+            # pendiente se limpia (el item se reabrio). Solo items que cambiaron
+            # cantidades: una nota suelta sobre un item ya bloqueado no debe
+            # pisar a quien lo entrego.
+            for item in items:
+                if item.cantidad_pendiente is None and not (item.entregado_hoy or 0) and not item.desde_punto_venta:
+                    continue
+                await conn.execute(
+                    """
+                    update entrega_items
+                    set entregado_por = case when cantidad_pendiente = 0 then $2 else null end,
+                        entregado_en_punto_venta = (cantidad_pendiente = 0 and $3)
+                    where id = $1::uuid and entrega_id = $4::uuid
+                    """,
+                    item.id,
+                    operador_id,
+                    item.desde_punto_venta,
+                    entrega_id,
+                )
+
             items_actualizados = await _items_de_entrega(conn, entrega_id)
+
+            # Se valida sobre el resultado final (dentro de la transaccion: al
+            # lanzar, se deshace todo lo anterior). "Entregado todo" significa
+            # que ningun item queda pendiente.
+            con_pendiente = [
+                i for i in items_actualizados if i.id in ids_punto_venta and i.cantidad_pendiente > 0
+            ]
+            if con_pendiente:
+                raise CantidadInvalida(
+                    "'Entregado en el punto de venta' exige que no quede nada pendiente, "
+                    f"pero '{con_pendiente[0].descripcion}' aun tiene {con_pendiente[0].cantidad_pendiente} pendiente."
+                )
 
     await registrar_evento(
         EventoLog.ENTREGA_ACTUALIZADA,
@@ -868,6 +927,8 @@ async def aplicar_actualizacion_items(
                     "id": i.id,
                     "cantidad_entregada": i.cantidad_entregada,
                     "cantidad_pendiente": i.cantidad_pendiente,
+                    # Solo presente en los items marcados en esta visita.
+                    **({"desde_punto_venta": True} if i.id in ids_punto_venta else {}),
                 }
                 for i in items_actualizados
             ],
@@ -876,6 +937,10 @@ async def aplicar_actualizacion_items(
             # no hay columna ni tabla nueva, el historial de quien retiro
             # cada visita se arma leyendo estos eventos (ver GET /logs).
             "retirado_por": retirado_por.model_dump() if retirado_por else None,
+            # Solo presente cuando TODA la visita fue del punto de venta (todos
+            # los items enviados marcados): el dashboard y resumen-hoy la
+            # excluyen del conteo de bodega.
+            **({"desde_punto_venta": True} if items and len(ids_punto_venta) == len(items) else {}),
         },
     )
     return items_actualizados
