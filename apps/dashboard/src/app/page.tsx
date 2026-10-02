@@ -32,11 +32,6 @@ const TIPOS_DOCUMENTO: TipoDocumento[] = ["FEI", "FV1", "EDP", "EDV", "TB9", "RM
 
 const API_URL_HINT = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// Cuantas entregas se muestran por grupo en "Necesita tu atención" antes de
-// pedir "Ver todas" -- con hasta 150 entregas cargadas, mostrar todo de una
-// es una pared de botones inmanejable.
-const LIMITE_ATENCION = 5;
-
 function sumar(items: ItemEntrega[], campo: "cantidad_entregada" | "cantidad_pendiente") {
   return items.reduce((total, item) => total + item[campo], 0);
 }
@@ -1123,8 +1118,8 @@ export default function DashboardPage() {
 
   // Filtro por rango de fechas (calendario, ver fechasCalendarioAISO) y por
   // sede de la seccion "Todas las entregas" -- fuente de datos SEPARADA de
-  // `entregas` (el hook base) para que "Cómo va hoy" y "Necesita tu
-  // atención" queden siempre fijos en hoy/todas las sedes, sin importar lo
+  // `entregas` (el hook base) para que "Cómo va hoy" quede siempre fijo en
+  // hoy/todas las sedes, sin importar lo
   // que se elija aca. "" en desde/hasta equivale a "Todo" (sin filtrar).
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -1187,11 +1182,6 @@ export default function DashboardPage() {
   );
 
   const [enRevision, setEnRevision] = useState<string | null>(null);
-  // "Necesita tu atención" arranca colapsado a los N mas urgentes por grupo
-  // -- con hasta 150 entregas cargadas, mostrar todo de una hacia una pared
-  // de botones inmanejable. Cada grupo se expande por separado.
-  const [verTodoRevision, setVerTodoRevision] = useState(false);
-  const [verTodoPendiente, setVerTodoPendiente] = useState(false);
   // Filtro por categoria, aparte del buscador de texto libre (ver
   // entregasFiltradas mas abajo y las tarjetas/botones que lo setean).
   const [filtroEstado, setFiltroEstado] = useState<"todas" | "revision" | "pendiente" | "procesada">(
@@ -1208,8 +1198,8 @@ export default function DashboardPage() {
 
   // Rol de la sesion: la zona de peligro y el borrado son solo admin, y el
   // link a Administracion tambien (el backend lo exige igual, 403 si no).
-  // Consulta (!puedeEditar) no ve lo que es para actuar: "Necesita tu
-  // atencion" ni la tarjeta "Para revision" (la IA no estaba segura).
+  // Consulta (!puedeEditar) no ve lo que es para actuar: la tarjeta "Para
+  // revision" (la IA no estaba segura).
   const { esAdmin, puedeEditar } = useSesion();
 
   const [limpiezaModalAbierta, setLimpiezaModalAbierta] = useState(false);
@@ -1263,13 +1253,16 @@ export default function DashboardPage() {
   // nada nuevo al backend (ver el comentario de limit en lib/api.ts). ---
   const entregasPorId = useMemo(() => new Map((entregas ?? []).map((e) => [e.id, e])), [entregas]);
   const entregasHoy = useMemo(() => (entregas ?? []).filter((e) => esHoy(e.capturado_at)), [entregas]);
+  // Facturadas = documentos capturados hoy; entregadas = de esos, los que ya
+  // no tienen nada pendiente (procesados y con todo entregado).
+  const entregadasHoy = useMemo(
+    () => entregasHoy.filter((e) => e.estado === "procesada" && !tienePendiente(e)),
+    [entregasHoy]
+  );
   const remisionesHoy = useMemo(
     () => entregasHoy.filter((e) => TIPOS_REMISION.includes(e.tipo.toUpperCase())),
     [entregasHoy]
   );
-  // Ordenadas por capturado_at ascendente -- lo mas viejo esperando primero
-  // es lo mas urgente, y es el orden en el que "Necesita tu atención" las
-  // muestra (ver mas abajo).
   const paraRevisar = useMemo(
     () =>
       (entregas ?? [])
@@ -1356,12 +1349,19 @@ export default function DashboardPage() {
       {/* Resumen del dia -- lo primero que ve el dueño, sin leer una tabla. */}
       <section className="flex flex-col gap-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Cómo va hoy</h2>
-        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${puedeEditar ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${puedeEditar ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
           <TarjetaResumen
-            titulo="Entregas hoy"
+            titulo="Facturadas hoy"
             valor={entregasHoy.length}
             tono="neutral"
             detalle={porSedeHoy.length > 0 ? porSedeHoy.map(([sede, n]) => `${sede}: ${n}`).join(" · ") : "Todavía sin movimiento"}
+          />
+          <TarjetaResumen
+            titulo="Entregadas hoy"
+            valor={entregadasHoy.length}
+            tono={entregadasHoy.length > 0 ? "bien" : "neutral"}
+            detalle="Facturas de hoy ya entregadas completas"
+            onClick={() => setFiltroEstado("procesada")}
           />
           <TarjetaResumen
             titulo="Remisiones hoy"
@@ -1394,96 +1394,6 @@ export default function DashboardPage() {
           />
         </div>
       </section>
-
-      {/* Lo que hay que mirar -- separado de "todas las entregas" para no
-          tener que leer la tabla entera buscando que esta mal. Dos subgrupos
-          separados (en vez de la mezcla anterior) para distinguir revision
-          de la IA vs. entregas sin terminar. */}
-      {!puedeEditar ? null : entregas === undefined && !entregasError ? (
-        // Reserva la altura tipica de la seccion cargada para que no empuje
-        // lo de abajo cuando llegan los datos.
-        <section className="flex flex-col gap-4" aria-busy>
-          <h2 className="text-sm font-medium uppercase tracking-wide text-warn">
-            Necesita tu atención
-          </h2>
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">Sin terminar</h3>
-            {Array.from({ length: LIMITE_ATENCION }, (_, i) => (
-              <div key={i} className="h-11 animate-pulse rounded-lg bg-surface-2" />
-            ))}
-            <div className="h-4 w-24 animate-pulse rounded bg-surface-2" />
-          </div>
-        </section>
-      ) : paraRevisar.length === 0 && conPendiente.length === 0 ? (
-        <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-warn">
-            Necesita tu atención
-          </h2>
-          <p className="text-sm text-muted">Todo al día: no hay entregas en revisión ni sin terminar.</p>
-        </section>
-      ) : (
-        <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-warn">
-            Necesita tu atención
-          </h2>
-          {paraRevisar.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-                En revisión{paraRevisar.length > LIMITE_ATENCION ? ` (${paraRevisar.length})` : ""}
-              </h3>
-              {(verTodoRevision ? paraRevisar : paraRevisar.slice(0, LIMITE_ATENCION)).map((e) => (
-                <button
-                  key={e.id}
-                  onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
-                >
-                  <span className="font-medium text-ink">
-                    {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
-                  </span>
-                  <span className="text-xs font-medium text-warn">La IA no está segura — revisar</span>
-                </button>
-              ))}
-              {paraRevisar.length > LIMITE_ATENCION ? (
-                <button
-                  onClick={() => setVerTodoRevision((v) => !v)}
-                  className="self-start text-xs font-medium text-muted hover:text-warn"
-                >
-                  {verTodoRevision ? "Ver menos" : `Ver todas (${paraRevisar.length})`}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {conPendiente.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-                Sin terminar{conPendiente.length > LIMITE_ATENCION ? ` (${conPendiente.length})` : ""}
-              </h3>
-              {(verTodoPendiente ? conPendiente : conPendiente.slice(0, LIMITE_ATENCION)).map((e) => (
-                <button
-                  key={e.id}
-                  onClick={() => setEnRevision(enRevision === e.id ? null : e.id)}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-left text-sm transition hover:bg-amber-500/10"
-                >
-                  <span className="font-medium text-ink">
-                    {e.tipo} {e.indicativo_numero} · {e.sede_origen_nombre ?? e.sede_origen_id}
-                  </span>
-                  <span className="text-xs font-medium text-warn">
-                    Faltan entregar {sumar(e.items, "cantidad_pendiente")} unidades
-                  </span>
-                </button>
-              ))}
-              {conPendiente.length > LIMITE_ATENCION ? (
-                <button
-                  onClick={() => setVerTodoPendiente((v) => !v)}
-                  className="self-start text-xs font-medium text-muted hover:text-warn"
-                >
-                  {verTodoPendiente ? "Ver menos" : `Ver todas (${conPendiente.length})`}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
-      )}
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
