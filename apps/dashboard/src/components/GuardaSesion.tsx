@@ -79,12 +79,12 @@ function BarraUsuario() {
     <header className="sticky top-0 z-30 border-b border-line bg-brand-night/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-2 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="El Imperio, panel de despachos">
+          {/* El SVG del logo es negro (trazado de potrace): se usa como mascara
+              para pintarlo con el dorado de marca sobre el fondo oscuro. */}
           <span
             aria-hidden
-            className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-gold text-sm font-bold text-brand-ink"
-          >
-            EI
-          </span>
+            className="h-9 w-9 bg-brand-gold [mask:url(/logo.svg)_center/contain_no-repeat]"
+          />
           <span className="hidden flex-col leading-tight sm:flex">
             <span className="text-sm font-semibold text-ink">El Imperio</span>
             <span className="text-[11px] text-muted">Panel de Despachos</span>
