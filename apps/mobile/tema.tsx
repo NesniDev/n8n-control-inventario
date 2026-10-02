@@ -159,7 +159,24 @@ export const styles = StyleSheet.create({
   recuadroFila: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%' },
   recuadroEmpleadoTexto: { color: NEUTRAL_400, fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
   recuadroSedeTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_DISPLAY, flexShrink: 1 },
-  cerrarSesion: { color: '#f87171', fontSize: 12, fontFamily: FUENTE_BODY_SEMI, marginTop: 6 },
+  // Boton "Cerrar sesion" del encabezado: pastilla roja tenue con icono de
+  // salida, en vez de un texto suelto -- se distingue como accion y es mas
+  // facil de tocar.
+  cerrarSesionBoton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(248,113,113,0.35)',
+    backgroundColor: 'rgba(248,113,113,0.12)',
+  },
+  cerrarSesionBotonPresionado: { backgroundColor: 'rgba(248,113,113,0.24)' },
+  cerrarSesionBotonDeshabilitado: { borderColor: NEUTRAL_700, backgroundColor: 'transparent' },
+  cerrarSesion: { color: '#f87171', fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
   cerrarSesionDeshabilitado: { color: NEUTRAL_500 },
   tarjeta: {
     backgroundColor: NEUTRAL_850,

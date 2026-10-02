@@ -226,7 +226,13 @@ export function HeaderTraslado() {
             cerrarSesion();
           }}
           hitSlop={8}
+          style={({ pressed }) => [
+            styles.cerrarSesionBoton,
+            pressed && styles.cerrarSesionBotonPresionado,
+            cargando && styles.cerrarSesionBotonDeshabilitado,
+          ]}
         >
+          <Ionicons name="log-out-outline" size={14} color={cargando ? NEUTRAL_500 : '#f87171'} />
           <Text style={[styles.cerrarSesion, cargando && styles.cerrarSesionDeshabilitado]}>Cerrar sesión</Text>
         </Pressable>
       </View>
