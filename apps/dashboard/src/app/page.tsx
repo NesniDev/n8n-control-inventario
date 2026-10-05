@@ -830,18 +830,175 @@ function formatearFechaHora(fecha: string | null | undefined): string {
   return fecha ? FORMATO_FECHA_HORA.format(new Date(fecha)) : "—";
 }
 
+// Edicion de una entrega desde el boton "Editar" del detalle (solo admin):
+// tipo, N° de documento y, por producto, nombre y cantidades. Guarda con los
+// mismos endpoints que la revision manual -- el backend lo registra como
+// correccion del admin (ver "Cambios del admin").
+function ModalEditarEntrega({
+  entrega,
+  onCerrar,
+  onGuardado,
+}: {
+  entrega: Entrega;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [tipo, setTipo] = useState(entrega.tipo);
+  const [indicativoNumero, setIndicativoNumero] = useState(entrega.indicativo_numero);
+  const [items, setItems] = useState<ItemEntrega[]>(entrega.items);
+  const [guardando, setGuardando] = useState(false);
+
+  const actualizarItem = (id: string, cambios: Partial<ItemEntrega>) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...cambios } : item)));
+  };
+
+  const guardar = async () => {
+    if (!tipo.trim() || !indicativoNumero.trim()) {
+      toast.error("Tipo y N° de documento no pueden quedar vacíos");
+      return;
+    }
+    if (items.some((item) => !item.descripcion.trim())) {
+      toast.error("Ningún producto puede quedar sin nombre");
+      return;
+    }
+    if (items.some((item) => item.cantidad_entregada < 0 || item.cantidad_pendiente < 0)) {
+      toast.error("Las cantidades no pueden ser negativas");
+      return;
+    }
+    setGuardando(true);
+    try {
+      await revisarEntrega(entrega.id, { tipo, indicativo_numero: indicativoNumero, aprobar: false });
+      if (items.length > 0) {
+        await actualizarItems(
+          entrega.id,
+          items.map((item) => ({
+            id: item.id,
+            descripcion: item.descripcion.trim(),
+            cantidad_entregada: item.cantidad_entregada,
+            cantidad_pendiente: item.cantidad_pendiente,
+          }))
+        );
+      }
+      toast.success("Entrega actualizada");
+      onGuardado();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al guardar");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const claseInput = "rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark]";
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+      onClick={guardando ? undefined : onCerrar}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-xl border border-line bg-surface p-5"
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-lg font-semibold text-ink">
+            Editar {entrega.tipo} {entrega.indicativo_numero}
+          </h3>
+          <button onClick={onCerrar} disabled={guardando} className="text-muted hover:text-ink" aria-label="Cerrar">
+            <Icono nombre="cerrar" className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            Tipo
+            <input
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value.toUpperCase())}
+              list="tipos-documento-editar"
+              className={claseInput}
+            />
+            <datalist id="tipos-documento-editar">
+              {TIPOS_DOCUMENTO.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            N° de documento
+            <input value={indicativoNumero} onChange={(e) => setIndicativoNumero(e.target.value)} className={claseInput} />
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted">Productos</span>
+          {items.length === 0 ? (
+            <p className="text-xs text-subtle">Sin productos registrados.</p>
+          ) : (
+            items.map((item) => (
+              <div key={item.id} className="flex flex-col gap-2 rounded-md border border-line p-2">
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  Nombre del producto
+                  <input
+                    value={item.descripcion}
+                    onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
+                    className={claseInput}
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    Entregado
+                    <input
+                      type="number"
+                      min={0}
+                      value={item.cantidad_entregada}
+                      onChange={(e) => actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })}
+                      className={claseInput}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    Pendiente
+                    <input
+                      type="number"
+                      min={0}
+                      value={item.cantidad_pendiente}
+                      onChange={(e) => actualizarItem(item.id, { cantidad_pendiente: Number(e.target.value) })}
+                      className={claseInput}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Boton onClick={onCerrar} disabled={guardando}>
+            Cancelar
+          </Boton>
+          <Boton variante="primario" onClick={guardar} disabled={guardando}>
+            {guardando ? "Guardando..." : "Guardar cambios"}
+          </Boton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalDetalleEntrega({
   entrega,
   onCerrar,
   onEliminado,
+  onEditado,
 }: {
   entrega: Entrega;
   onCerrar: () => void;
   onEliminado: () => void;
+  onEditado: () => void;
 }) {
-  // Solo admin puede borrar una entrega ya completada (ver
+  // Solo admin puede borrar o editar una entrega ya completada (ver
   // eliminar_entrega_definitivo en el backend, que tambien lo exige).
   const { esAdmin } = useSesion();
+  const [editando, setEditando] = useState(false);
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const eliminar = async () => {
@@ -878,13 +1035,16 @@ function ModalDetalleEntrega({
   }, [entrega.id]);
 
   // Cerrar con Escape ademas del click en el fondo/la X.
+  // Mientras se edita, Escape cierra solo el editor, no el detalle.
   useEffect(() => {
     const alPresionarTecla = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") onCerrar();
+      if (ev.key !== "Escape") return;
+      if (editando) setEditando(false);
+      else onCerrar();
     };
     document.addEventListener("keydown", alPresionarTecla);
     return () => document.removeEventListener("keydown", alPresionarTecla);
-  }, [onCerrar]);
+  }, [onCerrar, editando]);
 
   // describirEvento espera un mapa de entregas por id -- aca alcanza con la
   // propia entrega del modal, ya que el historial es siempre de ella.
@@ -991,6 +1151,15 @@ function ModalDetalleEntrega({
           <div className="flex items-center gap-2">
             {esAdmin ? (
               <button
+                onClick={() => setEditando(true)}
+                disabled={eliminando}
+                className="rounded-md border border-info/40 px-3 py-1.5 text-xs font-medium text-info transition hover:bg-info/10 disabled:opacity-50"
+              >
+                Editar
+              </button>
+            ) : null}
+            {esAdmin ? (
+              <button
                 onClick={() => setConfirmandoBorrado(true)}
                 disabled={eliminando}
                 className="rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-danger-fg transition hover:bg-red-500/10 disabled:opacity-50"
@@ -1003,6 +1172,9 @@ function ModalDetalleEntrega({
             </button>
           </div>
         </div>
+        {editando ? (
+          <ModalEditarEntrega entrega={entrega} onCerrar={() => setEditando(false)} onGuardado={onEditado} />
+        ) : null}
         {confirmandoBorrado ? (
           <ModalConfirmar
             titulo="Eliminar entrega"
@@ -1781,10 +1953,8 @@ export default function DashboardPage() {
                 // Una entrega totalmente procesada (sin nada pendiente) ya no
                 // se corrige a mano de rutina -- abre el detalle visual de
                 // solo lectura en vez del flujo editable de FilaRevision.
-                // Excepcion: el admin si la abre editable, para corregir
-                // nombres de producto o cantidades mal leidas (las fotos
-                // siguen a mano con el boton "Ver fotos").
-                const puedeEditar = e.estado === "pendiente_revision" || tienePendiente(e) || esAdmin;
+                // El admin la corrige desde el boton "Editar" de ese detalle.
+                const puedeEditar = e.estado === "pendiente_revision" || tienePendiente(e);
                 return (
                   <Fragment key={e.id}>
                     <tr
@@ -1928,6 +2098,10 @@ export default function DashboardPage() {
           entrega={entregaDetalle}
           onCerrar={() => setEntregaDetalle(null)}
           onEliminado={() => {
+            setEntregaDetalle(null);
+            revalidarEntregas();
+          }}
+          onEditado={() => {
             setEntregaDetalle(null);
             revalidarEntregas();
           }}
