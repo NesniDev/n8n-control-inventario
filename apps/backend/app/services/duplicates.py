@@ -666,7 +666,24 @@ async def aplicar_actualizacion_items(
                         fila_entrega["tipo"], fila_entrega["indicativo_numero"]
                     )
 
+        # Correccion manual desde el dashboard (sesion -> "dashboard:<usuario>",
+        # o sede_id fijo "dashboard" que manda actualizarItems): no es una
+        # confirmacion de bodega, asi que no pisa bodeguero_id ni entregado_por,
+        # y deja en el log el antes/despues de cada campo para la seccion
+        # "Cambios del admin" del dashboard.
+        es_correccion_dashboard = operador_id.startswith("dashboard:") or sede_id == "dashboard"
+        cambios: list[dict] = []
+
         async with conn.transaction():
+            antes = {}
+            if es_correccion_dashboard:
+                filas_antes = await conn.fetch(
+                    "select id, descripcion, cantidad_entregada, cantidad_pendiente"
+                    " from entrega_items where entrega_id = $1::uuid",
+                    entrega_id,
+                )
+                antes = {str(f["id"]): f for f in filas_antes}
+
             for item in items:
                 if item.entregado_hoy is not None:
                     # Delta atomico en SQL -- no se lee-modifica-escribe desde
@@ -782,7 +799,7 @@ async def aplicar_actualizacion_items(
             # a bodega. Si TODOS los items enviados lo estan, no se toca
             # bodeguero_id (el bodeguero queda solo como actor_id del log).
             ids_punto_venta = {i.id for i in items if i.desde_punto_venta}
-            if items and len(ids_punto_venta) < len(items):
+            if items and len(ids_punto_venta) < len(items) and not es_correccion_dashboard:
                 # Quien confirmo cantidades reales en ESTA llamada -- a
                 # diferencia de operador_id (el creador, nunca se pisa), esto
                 # SI se actualiza cada vez, asi refleja quien esta con la
@@ -887,6 +904,19 @@ async def aplicar_actualizacion_items(
             for item in items:
                 if item.cantidad_pendiente is None and not (item.entregado_hoy or 0) and not item.desde_punto_venta:
                     continue
+                if es_correccion_dashboard:
+                    # El admin no pasa a ser "quien entrego": solo se limpia si
+                    # su correccion reabrio el item (vuelve a tener pendiente).
+                    await conn.execute(
+                        """
+                        update entrega_items
+                        set entregado_por = null, entregado_en_punto_venta = false
+                        where id = $1::uuid and entrega_id = $2::uuid and cantidad_pendiente > 0
+                        """,
+                        item.id,
+                        entrega_id,
+                    )
+                    continue
                 await conn.execute(
                     """
                     update entrega_items
@@ -901,6 +931,22 @@ async def aplicar_actualizacion_items(
                 )
 
             items_actualizados = await _items_de_entrega(conn, entrega_id)
+
+            for despues in items_actualizados:
+                previo = antes.get(despues.id)
+                if previo is None:
+                    continue
+                for campo in ("descripcion", "cantidad_entregada", "cantidad_pendiente"):
+                    if previo[campo] != getattr(despues, campo):
+                        cambios.append(
+                            {
+                                "item_id": despues.id,
+                                "producto": despues.descripcion,
+                                "campo": campo,
+                                "antes": previo[campo],
+                                "despues": getattr(despues, campo),
+                            }
+                        )
 
             # Se valida sobre el resultado final (dentro de la transaccion: al
             # lanzar, se deshace todo lo anterior). "Entregado todo" significa
@@ -941,6 +987,9 @@ async def aplicar_actualizacion_items(
             # los items enviados marcados): el dashboard y resumen-hoy la
             # excluyen del conteo de bodega.
             **({"desde_punto_venta": True} if items and len(ids_punto_venta) == len(items) else {}),
+            # Solo en correcciones del dashboard: el dashboard las muestra
+            # aparte ("Cambios del admin") y no las cuenta como visita de bodega.
+            **({"correccion_dashboard": True, "cambios": cambios} if es_correccion_dashboard else {}),
         },
     )
     return items_actualizados

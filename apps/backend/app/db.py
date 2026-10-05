@@ -521,6 +521,34 @@ begin
         end;
     end if;
 end $$;
+
+-- Reparacion de datos: antes, una correccion desde el dashboard pisaba
+-- bodeguero_id y entrega_items.entregado_por con el actor del dashboard
+-- ("dashboard:<usuario>" o "supervisor"). Ahora las correcciones del dashboard
+-- ya no tocan esas columnas (ver aplicar_actualizacion_items); esto devuelve
+-- las filas viejas al ultimo bodeguero real segun logs. Idempotente: despues
+-- de correr, esas columnas solo tienen ids de empleados o null.
+update entregas e
+set bodeguero_id = (
+    select l.actor_id
+    from logs l
+    join empleados emp on emp.id::text = l.actor_id
+    where l.entidad_id = e.id::text
+      and l.evento = 'entrega_actualizada'
+      and emp.rol <> 'punto_venta'
+    order by l."timestamp" desc
+    limit 1
+)
+where e.bodeguero_id is not null
+  and not exists (select 1 from empleados emp where emp.id::text = e.bodeguero_id);
+
+update entrega_items i
+set entregado_por = e.bodeguero_id
+from entregas e
+where e.id = i.entrega_id
+  and i.entregado_por is not null
+  and i.entregado_por is distinct from e.bodeguero_id
+  and not exists (select 1 from empleados emp where emp.id::text = i.entregado_por);
 """
 
 

@@ -868,7 +868,21 @@ async def revisar_entrega(
         # Distingue en el log si esto aprobo la entrega o solo guardo
         # correcciones dejandola como estaba (ver payload.aprobar).
         resultado="ok" if payload.aprobar else "guardado_sin_aprobar",
-        detalle={"campos_corregidos": list(campos.keys())},
+        detalle={
+            "campos_corregidos": list(campos.keys()),
+            # Solo los campos que de verdad cambiaron (el dashboard reenvia
+            # tipo/indicativo aunque no se toquen) -- seccion "Cambios del
+            # admin" del dashboard.
+            "cambios": [
+                {
+                    "campo": campo,
+                    "antes": "" if actual[campo] is None else str(actual[campo]),
+                    "despues": "" if row[campo] is None else str(row[campo]),
+                }
+                for campo in campos
+                if actual[campo] != row[campo]
+            ],
+        },
     )
 
     resultado = dict(row)

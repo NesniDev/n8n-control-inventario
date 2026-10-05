@@ -111,6 +111,64 @@ function datetimeLocalAIso(valor: string): string | undefined {
   return fecha.toISOString();
 }
 
+// Actor del dashboard (no un empleado de bodega): "dashboard:<usuario>" con
+// sesion, o el "supervisor" fijo de antes del login.
+function esActorDashboard(actorId: string | null | undefined): boolean {
+  return actorId != null && (actorId.startsWith("dashboard:") || actorId === "supervisor");
+}
+
+// Correccion manual hecha desde el dashboard -- no es una visita de bodega,
+// se muestra aparte en "Cambios del admin". Los logs nuevos traen
+// detalle.correccion_dashboard; los viejos se reconocen por el actor/sede.
+function esCorreccionAdmin(log: LogEvent): boolean {
+  if (log.evento === "revision_manual_aprobada") return true;
+  if (log.evento !== "entrega_actualizada") return false;
+  return (
+    (log.detalle as { correccion_dashboard?: boolean } | undefined)?.correccion_dashboard === true ||
+    log.sede_id === "dashboard" ||
+    esActorDashboard(log.actor_id)
+  );
+}
+
+function nombreActorAdmin(log: LogEvent): string {
+  if (log.actor_id.startsWith("dashboard:")) return log.actor_id.slice("dashboard:".length);
+  return log.actor_nombre ?? log.actor_id;
+}
+
+// Bodeguero a mostrar: nunca el usuario del dashboard (una correccion del
+// admin no lo convierte en quien entrego).
+function nombreBodeguero(entrega: Entrega): string {
+  if (entrega.bodeguero_nombre) return entrega.bodeguero_nombre;
+  if (!entrega.bodeguero_id || esActorDashboard(entrega.bodeguero_id)) return "NE";
+  return entrega.bodeguero_id;
+}
+
+interface CambioAdmin {
+  campo: string;
+  antes: string | number;
+  despues: string | number;
+  producto?: string;
+}
+
+const NOMBRES_CAMPO: Record<string, string> = {
+  descripcion: "Nombre",
+  cantidad_entregada: "Entregado",
+  cantidad_pendiente: "Pendiente",
+  tipo: "Tipo",
+  indicativo_numero: "N° de documento",
+  sede_origen_id: "Sede origen",
+  operador_id: "Operador",
+  capturado_at: "Fecha de captura",
+  traslado_tipo: "Traslado tipo",
+  traslado_indicativo_numero: "Traslado N°",
+};
+
+function describirCambioAdmin(cambio: CambioAdmin): string {
+  const campo = NOMBRES_CAMPO[cambio.campo] ?? cambio.campo;
+  const prefijo = cambio.producto && cambio.campo !== "descripcion" ? `${cambio.producto} · ` : "";
+  return `${prefijo}${campo}: ${cambio.antes === "" ? "—" : cambio.antes} → ${cambio.despues === "" ? "—" : cambio.despues}`;
+}
+
 interface EventoHistorial {
   fecha: string;
   texto: string;
@@ -137,9 +195,10 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
         // RetiradoPor en el backend, solo presente si esa visita se firmo).
         const retiradoPor = log.detalle?.retirado_por as { nombre: string; telefono: string } | null | undefined;
         const sufijoRetira = retiradoPor ? ` · Retirado por ${retiradoPor.nombre} (${retiradoPor.telefono})` : "";
+        const prefijoAdmin = esCorreccionAdmin(log) ? `Corrección de ${nombreActorAdmin(log)} · ` : "";
         eventos.push({
           fecha: log.timestamp,
-          texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}${sufijoRetira}`,
+          texto: `${prefijoAdmin}Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}${sufijoRetira}`,
         });
       }
     } else if (log.evento === "devolucion_registrada" && (log.detalle as { item_id?: string })?.item_id === itemId) {
@@ -176,6 +235,12 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
             desde_punto_venta?: boolean;
           }
         | undefined;
+      if (esCorreccionAdmin(log)) {
+        const cambios = (log.detalle as { cambios?: CambioAdmin[] } | undefined)?.cambios;
+        return `${nombreActorAdmin(log)} corrigió${doc ? ` ${doc}` : ""} desde el dashboard${
+          cambios ? ` (${cambios.length} ${cambios.length === 1 ? "cambio" : "cambios"})` : ""
+        }.`;
+      }
       // Cierre "desde el punto de venta": lo registro el bodeguero (actor del
       // log) pero no lo entrego bodega.
       if (detalle?.desde_punto_venta) {
@@ -842,9 +907,21 @@ function ModalDetalleEntrega({
             (log) =>
               log.evento === "entrega_actualizada" &&
               log.actor_rol !== "punto_venta" &&
-              !entregadoDesdePuntoVenta(log)
+              !entregadoDesdePuntoVenta(log) &&
+              !esCorreccionAdmin(log)
           )
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  // Correcciones manuales desde el dashboard -- seccion "Cambios del admin".
+  const correccionesAdmin =
+    historial === null
+      ? []
+      : historial
+          .filter(esCorreccionAdmin)
+          .map((log) => ({ log, cambios: (log.detalle as { cambios?: CambioAdmin[] } | undefined)?.cambios }))
+          // Guardados que no cambiaron nada (ej. "Guardar" sin tocar campos)
+          // no son un cambio que mostrar.
+          .filter(({ cambios }) => cambios === undefined || cambios.length > 0)
+          .sort((a, b) => new Date(a.log.timestamp).getTime() - new Date(b.log.timestamp).getTime());
   const visitasPuntoVenta =
     historial === null
       ? []
@@ -948,7 +1025,7 @@ function ModalDetalleEntrega({
               <span className="text-ink">
                 {bodeguerosHistorial && bodeguerosHistorial.length > 0
                   ? bodeguerosHistorial.join(", ")
-                  : (entrega.bodeguero_nombre ?? entrega.bodeguero_id ?? "NE")}
+                  : nombreBodeguero(entrega)}
               </span>
             </div>
           </div>
@@ -1003,6 +1080,34 @@ function ModalDetalleEntrega({
             ))}
           </ol>
         </div>
+
+        {/* Correcciones manuales desde el dashboard, aparte de las visitas de
+            bodega: quien corrigio, cuando y que valor cambio. Los logs de
+            antes de este registro no traen el detalle del cambio. */}
+        {correccionesAdmin.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">Cambios del admin</span>
+            <ol className="flex flex-col divide-y divide-line rounded-md border border-line bg-page text-sm">
+              {correccionesAdmin.map(({ log, cambios }) => (
+                <li key={log.id} className="flex flex-col gap-1 px-3 py-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-ink">{nombreActorAdmin(log)}</span>
+                    <span className="whitespace-nowrap text-right text-warn">{formatearFechaHora(log.timestamp)}</span>
+                  </div>
+                  {cambios ? (
+                    <ul className="flex flex-col gap-0.5 text-xs text-muted">
+                      {cambios.map((cambio, i) => (
+                        <li key={i}>{describirCambioAdmin(cambio)}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-xs text-subtle">Corrección sin detalle (registrada antes de guardar los cambios).</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
 
         {/* Nota a nivel documento completo (distinta de la nota por
             producto, que se ve mas abajo dentro de cada item) -- en su
@@ -1683,7 +1788,7 @@ export default function DashboardPage() {
                         {nombreSedeCorto(e.sede_origen_nombre) ?? e.sede_origen_id}
                       </td>
                       <td className="px-4 py-3 text-soft">
-                        {e.bodeguero_nombre ?? e.bodeguero_id ?? "NE"}
+                        {nombreBodeguero(e)}
                       </td>
                       <td
                         className="max-w-[220px] truncate px-4 py-3 text-muted"
