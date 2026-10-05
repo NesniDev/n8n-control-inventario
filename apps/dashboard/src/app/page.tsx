@@ -143,6 +143,16 @@ function nombreBodeguero(entrega: Entrega): string {
   return entrega.bodeguero_id;
 }
 
+// Marca de "el admin corrigio algo en esta entrega" (ver
+// Entrega.modificada_por_admin) -- el detalle esta en "Cambios del admin".
+function IconoModificadaAdmin() {
+  return (
+    <span title="Modificada por el admin" aria-label="Modificada por el admin" className="text-warn">
+      <Icono nombre="usuarioAdmin" />
+    </span>
+  );
+}
+
 interface CambioAdmin {
   campo: string;
   antes: string | number;
@@ -969,9 +979,14 @@ function ModalDetalleEntrega({
             <h3 className="text-lg font-semibold text-ink">
               {entrega.tipo} {entrega.indicativo_numero}
             </h3>
-            <Pildora tono={estadoVisual(entrega).tono} className="mt-1">
-              {estadoVisual(entrega).etiqueta}
-            </Pildora>
+            <div className="mt-1 flex items-center gap-2">
+              <Pildora tono={estadoVisual(entrega).tono}>{estadoVisual(entrega).etiqueta}</Pildora>
+              {entrega.modificada_por_admin ? (
+                <span className="flex items-center gap-1 text-xs text-warn">
+                  <IconoModificadaAdmin /> Modificada por el admin
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {esAdmin ? (
@@ -1780,7 +1795,10 @@ export default function DashboardPage() {
                           : setEntregaDetalle(e)
                       }
                     >
-                      <td className="px-4 py-3 font-mono text-soft">{e.tipo || "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-soft">
+                        {e.tipo || "—"}
+                        {e.modificada_por_admin ? <IconoModificadaAdmin /> : null}
+                      </td>
                       <td className="px-4 py-3 font-mono text-soft">
                         {e.indicativo_numero || "—"}
                       </td>

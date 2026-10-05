@@ -551,6 +551,16 @@ async def crear_devolucion(entrega_id: str, payload: DevolucionCreate) -> dict:
 _SELECT_ENTREGAS_BASE = """
     select e.*, s.nombre as sede_origen_nombre, op.nombre as operador_nombre,
         op.rol as operador_rol, bod.nombre as bodeguero_nombre,
+        -- El admin corrigio algo de verdad desde el dashboard (logs con
+        -- detalle.cambios no vacio, ver aplicar_actualizacion_items y
+        -- revisar_entrega) -- el dashboard lo marca con un icono.
+        exists (
+            select 1 from logs l
+            where l.entidad_tipo = 'entrega'
+              and l.entidad_id = e.id::text
+              and l.evento in ('entrega_actualizada', 'revision_manual_aprobada')
+              and jsonb_array_length(coalesce(l.detalle->'cambios', '[]'::jsonb)) > 0
+        ) as modificada_por_admin,
         coalesce(
             json_agg(
                 json_build_object(

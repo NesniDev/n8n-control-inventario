@@ -91,6 +91,9 @@ export interface Entrega {
   // nadie confirmó) -- se muestra como "NE" en la UI.
   bodeguero_id: string | null;
   bodeguero_nombre: string | null;
+  // true si el admin corrigio algo desde el dashboard (ver "Cambios del
+  // admin" en el detalle). Opcional mientras el backend no este desplegado.
+  modificada_por_admin?: boolean;
   confianza_ia: Record<string, number>;
   evidencia_url: string;
   // Foto tal como quedó en la creación del documento -- nunca se pisa

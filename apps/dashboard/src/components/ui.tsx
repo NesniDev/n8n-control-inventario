@@ -230,6 +230,8 @@ const RUTAS_ICONO = {
   descarga: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
   izquierda: "m12 19-7-7 7-7M19 12H5",
   derecha: "M5 12h14M12 5l7 7-7 7",
+  usuarioAdmin:
+    "M5 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0M10 15H6a4 4 0 0 0-4 4v2M15 15a3 3 0 1 0 6 0a3 3 0 1 0-6 0M21.7 16.4l-.9-.3M15.2 13.9l-.9-.3M16.6 18.7l.3-.9M19.1 12.2l.3-.9M19.6 18.7l-.4-1M16.8 12.3l-.4-1M14.3 16.6l1-.4M20.7 13.8l1-.4",
 } as const;
 
 export type NombreIcono = keyof typeof RUTAS_ICONO;
