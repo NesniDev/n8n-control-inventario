@@ -625,7 +625,7 @@ function FilaRevision({
                         <input
                           value={item.descripcion}
                           onChange={(e) => actualizarItem(item.id, { descripcion: e.target.value })}
-                          disabled={sinPendiente || !puedeEditar}
+                          disabled={(sinPendiente && !esAdmin) || !puedeEditar}
                           className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
@@ -637,7 +637,7 @@ function FilaRevision({
                           onChange={(e) =>
                             actualizarItem(item.id, { cantidad_entregada: Number(e.target.value) })
                           }
-                          disabled={sinPendiente || !puedeEditar}
+                          disabled={(sinPendiente && !esAdmin) || !puedeEditar}
                           className="rounded-lg border border-line bg-page px-2 py-1.5 text-sm text-ink [color-scheme:dark] disabled:opacity-40"
                         />
                       </label>
@@ -686,7 +686,7 @@ function FilaRevision({
             )}
           </div>
 
-          {sinPendiente ? (
+          {sinPendiente && !esAdmin ? (
             <p className="text-xs text-subtle">
               Sin pendiente en ningún producto — tipo e indicativo/número quedan bloqueados. Cambiá
               la pendiente de algún producto si fue un error.
@@ -1661,7 +1661,10 @@ export default function DashboardPage() {
                 // Una entrega totalmente procesada (sin nada pendiente) ya no
                 // se corrige a mano de rutina -- abre el detalle visual de
                 // solo lectura en vez del flujo editable de FilaRevision.
-                const puedeEditar = e.estado === "pendiente_revision" || tienePendiente(e);
+                // Excepcion: el admin si la abre editable, para corregir
+                // nombres de producto o cantidades mal leidas (las fotos
+                // siguen a mano con el boton "Ver fotos").
+                const puedeEditar = e.estado === "pendiente_revision" || tienePendiente(e) || esAdmin;
                 return (
                   <Fragment key={e.id}>
                     <tr
