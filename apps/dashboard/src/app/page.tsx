@@ -212,17 +212,22 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
         });
       }
     } else if (log.evento === "devolucion_registrada" && (log.detalle as { item_id?: string })?.item_id === itemId) {
-      const detalle = log.detalle as { cantidad: number; motivo: string; resolucion: string };
-      const resolucion = detalle.resolucion === "reposicion" ? "repuesto" : "reembolsado";
+      const detalle = log.detalle as { cantidad: number; motivo: string; motivo_detalle?: string | null; resolucion: string };
+      const resolucion =
+        detalle.resolucion === "reposicion"
+          ? "repuesto"
+          : detalle.resolucion === "no_lo_lleva"
+            ? "no lo lleva"
+            : "reembolsado";
       eventos.push({
         fecha: log.timestamp,
-        texto: `Devolución de ${detalle.cantidad} (${detalle.motivo}) — ${resolucion}`,
+        texto: `Devolución de ${detalle.cantidad} (${motivoDevolucionLegible(detalle.motivo, detalle.motivo_detalle)}) — ${resolucion}`,
       });
     } else if (log.evento === "item_no_entregado" && (log.detalle as { item_id?: string })?.item_id === itemId) {
-      const detalle = log.detalle as { cantidad: number; motivo: string };
+      const detalle = log.detalle as { cantidad: number; motivo: string; motivo_detalle?: string | null };
       eventos.push({
         fecha: log.timestamp,
-        texto: `No se entrega ${detalle.cantidad} (${motivoNoEntregadoLegible(detalle.motivo)})`,
+        texto: `No se entrega ${detalle.cantidad} (${motivoNoEntregadoLegible(detalle.motivo, detalle.motivo_detalle)})`,
       });
     }
   }
@@ -233,12 +238,30 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
 const MOTIVOS_NO_ENTREGADO: Record<string, string> = {
   facturado_de_mas: "Facturado de más",
   producto_equivocado: "Producto equivocado",
+  // Ya no se ofrece al registrar, pero hay logs viejos con este valor.
   sin_existencia: "Sin existencia",
   otro: "Otro",
 };
 
-function motivoNoEntregadoLegible(motivo: string | undefined): string {
+// Si el motivo es "otro" y el operador escribio por que, se muestra ese texto
+// en vez de "Otro".
+function motivoNoEntregadoLegible(motivo: string | undefined, detalle?: string | null): string {
+  if (motivo === "otro" && detalle) return detalle;
   return motivo ? (MOTIVOS_NO_ENTREGADO[motivo] ?? motivo) : "sin motivo";
+}
+
+// Mismos valores que MotivoDevolucion en el backend (app/models/devolucion.py).
+const MOTIVOS_DEVOLUCION: Record<string, string> = {
+  danado: "Dañado",
+  equivocado: "Equivocado",
+  vencido: "Vencido",
+  no_era_lo_pedido: "No era lo pedido",
+  otro: "Otro",
+};
+
+function motivoDevolucionLegible(motivo: string | undefined, detalle?: string | null): string {
+  if (motivo === "otro" && detalle) return detalle;
+  return motivo ? (MOTIVOS_DEVOLUCION[motivo] ?? motivo) : "sin motivo";
 }
 
 // Traduce un evento tecnico de `logs` a una frase que el dueño del negocio
@@ -291,17 +314,27 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
       }.${retiro}${puntoVenta}`;
     }
     case "devolucion_registrada": {
-      const detalle = log.detalle as { cantidad?: number; motivo?: string; resolucion?: string } | undefined;
-      const resolucion = detalle?.resolucion === "reposicion" ? "se repone" : "se reembolsa el dinero";
-      return `Devolución${doc ? ` en ${doc}` : ""} de ${detalle?.cantidad ?? "?"} unidades (${
-        detalle?.motivo ?? "sin motivo"
-      }) — ${resolucion}.`;
+      const detalle = log.detalle as
+        | { cantidad?: number; motivo?: string; motivo_detalle?: string | null; resolucion?: string }
+        | undefined;
+      const resolucion =
+        detalle?.resolucion === "reposicion"
+          ? "se repone"
+          : detalle?.resolucion === "no_lo_lleva"
+            ? "el cliente no lo lleva"
+            : "se reembolsa el dinero";
+      return `Devolución${doc ? ` en ${doc}` : ""} de ${detalle?.cantidad ?? "?"} unidades (${motivoDevolucionLegible(
+        detalle?.motivo,
+        detalle?.motivo_detalle
+      )}) — ${resolucion}.`;
     }
     case "item_no_entregado": {
-      const detalle = log.detalle as { cantidad?: number; producto?: string; motivo?: string } | undefined;
+      const detalle = log.detalle as
+        | { cantidad?: number; producto?: string; motivo?: string; motivo_detalle?: string | null }
+        | undefined;
       return `No se entregaron ${detalle?.cantidad ?? "?"} de ${detalle?.producto ?? "un producto"}${
         doc ? ` en ${doc}` : ""
-      } (${motivoNoEntregadoLegible(detalle?.motivo)}).`;
+      } (${motivoNoEntregadoLegible(detalle?.motivo, detalle?.motivo_detalle)}).`;
     }
     case "duplicado_bloqueado": {
       const detalle = log.detalle as { tipo?: string; indicativo_numero?: string } | undefined;

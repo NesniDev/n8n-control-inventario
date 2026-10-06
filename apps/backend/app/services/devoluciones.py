@@ -23,9 +23,10 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
 
     - reposicion: cantidad_entregada baja, cantidad_pendiente sube la misma
       cantidad -- el total del item no cambia, se debe re-entregar lo correcto.
-    - reembolso: cantidad_entregada baja, cantidad_pendiente queda igual --
-      el total del item se achica, esas unidades quedan cerradas del todo
-      (se devolvio el dinero, no se debe una reposicion).
+    - reembolso / no_lo_lleva: cantidad_entregada baja, cantidad_pendiente
+      queda igual -- el total del item se achica, esas unidades quedan
+      cerradas del todo (se devolvio el dinero o el cliente no se lo lleva,
+      no se debe una reposicion).
 
     En los dos casos el UPDATE es atomico y condicionado (mismo patron que
     aplicar_actualizacion_items con entregado_hoy): "and cantidad_entregada
@@ -44,6 +45,7 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # reembolso y no_lo_lleva comparten efecto: la unidad se cierra.
             if payload.resolucion == ResolucionDevolucion.REPOSICION:
                 fila = await conn.fetchrow(
                     """
@@ -99,13 +101,14 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
 
             await conn.execute(
                 """
-                insert into devoluciones (entrega_id, item_id, cantidad, motivo, resolucion, operador_id, sede_id)
-                values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+                insert into devoluciones (entrega_id, item_id, cantidad, motivo, motivo_detalle, resolucion, operador_id, sede_id)
+                values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)
                 """,
                 entrega_id,
                 payload.item_id,
                 payload.cantidad,
                 payload.motivo.value,
+                payload.motivo_detalle,
                 payload.resolucion.value,
                 payload.operador_id,
                 payload.sede_id,
@@ -122,6 +125,7 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
             "item_id": payload.item_id,
             "cantidad": payload.cantidad,
             "motivo": payload.motivo.value,
+            "motivo_detalle": payload.motivo_detalle,
             "resolucion": payload.resolucion.value,
         },
     )

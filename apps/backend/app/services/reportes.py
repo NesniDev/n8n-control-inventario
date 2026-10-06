@@ -36,11 +36,13 @@ _MOTIVOS_LEGIBLES = {
 _RESOLUCIONES_LEGIBLES = {
     "reposicion": "Reposición",
     "reembolso": "Reembolso",
+    "no_lo_lleva": "No lo lleva",
 }
 # Mismos valores que MotivoNoEntregado en app/models/no_entregado.py.
 _MOTIVOS_NO_ENTREGADO_LEGIBLES = {
     "facturado_de_mas": "Facturado de más",
     "producto_equivocado": "Producto equivocado",
+    # Ya no se ofrece, pero hay filas viejas con este valor.
     "sin_existencia": "Sin existencia",
     "otro": "Otro",
 }
@@ -91,6 +93,14 @@ def _ocasiones_por_entrega(
     return ocasiones
 
 
+def _motivo_legible(mapa: dict[str, str], motivo: str, detalle: str | None) -> str:
+    """Si el motivo es 'otro' y el operador escribio por que, se muestra ese
+    texto en vez de "Otro"."""
+    if motivo == "otro" and detalle:
+        return detalle
+    return mapa.get(motivo, motivo)
+
+
 def _devoluciones_por_entrega(devoluciones_rows: list) -> dict[str, list[str]]:
     """Un resumen legible por devolucion (ver app/services/devoluciones.py),
     ya ordenadas por fecha -- una entrega puede tener mas de una."""
@@ -98,7 +108,7 @@ def _devoluciones_por_entrega(devoluciones_rows: list) -> dict[str, list[str]]:
     for d in devoluciones_rows:
         entrega_id = str(d["entrega_id"])
         fecha = d["creado_at"].strftime("%d/%m/%Y")
-        motivo = _MOTIVOS_LEGIBLES.get(d["motivo"], d["motivo"])
+        motivo = _motivo_legible(_MOTIVOS_LEGIBLES, d["motivo"], d["motivo_detalle"])
         resolucion = _RESOLUCIONES_LEGIBLES.get(d["resolucion"], d["resolucion"])
         resumen[entrega_id].append(f"{fecha}: {d['cantidad']} und ({motivo}, {resolucion})")
     return resumen
@@ -111,7 +121,7 @@ def _no_entregados_por_entrega(no_entregados_rows: list) -> dict[str, list[str]]
     for n in no_entregados_rows:
         entrega_id = str(n["entrega_id"])
         fecha = n["creado_at"].strftime("%d/%m/%Y")
-        motivo = _MOTIVOS_NO_ENTREGADO_LEGIBLES.get(n["motivo"], n["motivo"])
+        motivo = _motivo_legible(_MOTIVOS_NO_ENTREGADO_LEGIBLES, n["motivo"], n["motivo_detalle"])
         resumen[entrega_id].append(f"{fecha}: {n['cantidad']} und ({motivo})")
     return resumen
 
@@ -154,14 +164,14 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
     )
 
     devoluciones_rows = await pool.fetch(
-        "select entrega_id, cantidad, motivo, resolucion, creado_at from devoluciones order by entrega_id, creado_at"
+        "select entrega_id, cantidad, motivo, motivo_detalle, resolucion, creado_at from devoluciones order by entrega_id, creado_at"
     )
     devoluciones_por_entrega = _devoluciones_por_entrega(
         [r for r in devoluciones_rows if str(r["entrega_id"]) in ids_relevantes]
     )
 
     no_entregados_rows = await pool.fetch(
-        "select entrega_id, cantidad, motivo, creado_at from items_no_entregados order by entrega_id, creado_at"
+        "select entrega_id, cantidad, motivo, motivo_detalle, creado_at from items_no_entregados order by entrega_id, creado_at"
     )
     no_entregados_por_entrega = _no_entregados_por_entrega(
         [r for r in no_entregados_rows if str(r["entrega_id"]) in ids_relevantes]

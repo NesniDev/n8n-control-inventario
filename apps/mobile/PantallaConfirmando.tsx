@@ -77,32 +77,55 @@ const MOTIVOS_DEVOLUCION: { valor: MotivoDevolucion; texto: string }[] = [
   { valor: 'otro', texto: 'Otro' },
 ];
 
+const TEXTO_MOTIVO_DEVOLUCION: Record<string, string> = Object.fromEntries(
+  MOTIVOS_DEVOLUCION.map((m) => [m.valor, m.texto])
+);
+
 interface DevolucionDraft {
   cantidad: string;
   motivo: MotivoDevolucion | null;
+  // Texto libre, solo cuando motivo === 'otro'.
+  motivoDetalle: string;
   resolucion: ResolucionDevolucion | null;
 }
 
-const DEVOLUCION_DRAFT_VACIO: DevolucionDraft = { cantidad: '', motivo: null, resolucion: null };
+const DEVOLUCION_DRAFT_VACIO: DevolucionDraft = { cantidad: '', motivo: null, motivoDetalle: '', resolucion: null };
 
 // Lista fija de motivos de "No se entrega" (mismos valores que el backend).
 const MOTIVOS_NO_ENTREGADO: { valor: MotivoNoEntregado; texto: string }[] = [
   { valor: 'facturado_de_mas', texto: 'Facturado de más' },
   { valor: 'producto_equivocado', texto: 'Producto equivocado' },
-  { valor: 'sin_existencia', texto: 'Sin existencia' },
   { valor: 'otro', texto: 'Otro' },
 ];
 
-const TEXTO_MOTIVO_NO_ENTREGADO: Record<string, string> = Object.fromEntries(
-  MOTIVOS_NO_ENTREGADO.map((m) => [m.valor, m.texto])
-);
+// 'sin_existencia' ya no se ofrece, pero se conserva el texto para mostrar
+// registros viejos que lo traen guardado.
+const TEXTO_MOTIVO_NO_ENTREGADO: Record<string, string> = {
+  ...Object.fromEntries(MOTIVOS_NO_ENTREGADO.map((m) => [m.valor, m.texto])),
+  sin_existencia: 'Sin existencia',
+};
 
 interface NoEntregadoDraft {
   cantidad: string;
   motivo: MotivoNoEntregado | null;
+  // Texto libre, solo cuando motivo === 'otro'.
+  motivoDetalle: string;
 }
 
-const NO_ENTREGADO_DRAFT_VACIO: NoEntregadoDraft = { cantidad: '', motivo: null };
+const NO_ENTREGADO_DRAFT_VACIO: NoEntregadoDraft = { cantidad: '', motivo: null, motivoDetalle: '' };
+
+// Si el motivo es 'otro' y el operador escribio por que, se muestra ese texto
+// en vez de "Otro".
+function textoMotivo(mapa: Record<string, string>, motivo: string, detalle?: string | null): string {
+  if (motivo === 'otro' && detalle) return detalle;
+  return mapa[motivo] ?? motivo;
+}
+
+const TEXTO_RESOLUCION_DEVOLUCION: Record<string, string> = {
+  reposicion: 'repuesto',
+  reembolso: 'reembolsado',
+  no_lo_lleva: 'no lo lleva',
+};
 
 interface EventoHistorial {
   fecha: string;
@@ -135,15 +158,16 @@ function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial
         });
       }
     } else if (log.evento === 'devolucion_registrada' && log.detalle?.item_id === itemId) {
-      const resolucion = log.detalle.resolucion === 'reposicion' ? 'repuesto' : 'reembolsado';
+      const resolucion = TEXTO_RESOLUCION_DEVOLUCION[log.detalle.resolucion] ?? log.detalle.resolucion;
+      const motivo = textoMotivo(TEXTO_MOTIVO_DEVOLUCION, log.detalle.motivo, log.detalle.motivo_detalle);
       eventos.push({
         fecha: log.timestamp,
-        texto: `Devolución de ${log.detalle.cantidad} (${log.detalle.motivo}) -- ${resolucion}`,
+        texto: `Devolución de ${log.detalle.cantidad} (${motivo}) -- ${resolucion}`,
         esDevolucion: true,
         esNoEntregado: false,
       });
     } else if (log.evento === 'item_no_entregado' && log.detalle?.item_id === itemId) {
-      const motivo = TEXTO_MOTIVO_NO_ENTREGADO[log.detalle.motivo] ?? log.detalle.motivo;
+      const motivo = textoMotivo(TEXTO_MOTIVO_NO_ENTREGADO, log.detalle.motivo, log.detalle.motivo_detalle);
       eventos.push({
         fecha: log.timestamp,
         texto: `No se entrega ${log.detalle.cantidad} (${motivo})`,
@@ -540,6 +564,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
     const draft = devolucionDrafts[item.id];
     const cantidad = Number((draft?.cantidad ?? '').trim());
     if (!draft?.motivo || !draft?.resolucion || !/^\d+$/.test(draft.cantidad.trim())) return;
+    if (draft.motivo === 'otro' && draft.motivoDetalle.trim() === '') return;
     if (cantidad <= 0 || cantidad > item.cantidad_entregada) return;
 
     setCargando(true);
@@ -549,6 +574,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
         item_id: item.id,
         cantidad,
         motivo: draft.motivo,
+        ...(draft.motivo === 'otro' ? { motivo_detalle: draft.motivoDetalle.trim() } : {}),
         resolucion: draft.resolucion,
         operador_id: empleado.id,
         sede_id: sede?.id ?? '',
@@ -588,6 +614,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
     const draft = noEntregadoDrafts[item.id];
     const cantidad = Number((draft?.cantidad ?? '').trim());
     if (!draft?.motivo || !/^\d+$/.test(draft.cantidad.trim())) return;
+    if (draft.motivo === 'otro' && draft.motivoDetalle.trim() === '') return;
     if (cantidad <= 0 || cantidad > item.cantidad_pendiente) return;
 
     setCargando(true);
@@ -597,6 +624,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
         item_id: item.id,
         cantidad,
         motivo: draft.motivo,
+        ...(draft.motivo === 'otro' ? { motivo_detalle: draft.motivoDetalle.trim() } : {}),
         operador_id: empleado.id,
         sede_id: sede?.id ?? '',
       });
@@ -952,7 +980,11 @@ export default function PantallaConfirmando({ navigation }: Props) {
               Number(draft.cantidad.trim()) > 0 &&
               Number(draft.cantidad.trim()) <= item.cantidad_entregada;
             const puedeRegistrarDevolucion =
-              cantidadDevolucionValida && !!draft.motivo && !!draft.resolucion && !cargando;
+              cantidadDevolucionValida &&
+              !!draft.motivo &&
+              (draft.motivo !== 'otro' || draft.motivoDetalle.trim() !== '') &&
+              !!draft.resolucion &&
+              !cargando;
             // "No se entrega" cierra pendiente sin entregar: solo aplica sobre
             // un documento que ya existia y todavia tiene pendiente.
             const puedeNoEntregar = situacion === 'actualizable' && item.cantidad_pendiente > 0;
@@ -967,7 +999,10 @@ export default function PantallaConfirmando({ navigation }: Props) {
               Number(draftNoEntregado.cantidad.trim()) > 0 &&
               Number(draftNoEntregado.cantidad.trim()) <= item.cantidad_pendiente;
             const puedeRegistrarNoEntregado =
-              cantidadNoEntregadoValida && !!draftNoEntregado.motivo && !cargando;
+              cantidadNoEntregadoValida &&
+              !!draftNoEntregado.motivo &&
+              (draftNoEntregado.motivo !== 'otro' || draftNoEntregado.motivoDetalle.trim() !== '') &&
+              !cargando;
             // El historial de fechas solo tiene sentido para algo que ya
             // existia antes -- un documento recien escaneado sin confirmar
             // todavia no tiene nada que mostrar.
@@ -1143,6 +1178,15 @@ export default function PantallaConfirmando({ navigation }: Props) {
                         );
                       })}
                     </View>
+                    {draftNoEntregado.motivo === 'otro' ? (
+                      <TextInput
+                        value={draftNoEntregado.motivoDetalle}
+                        onChangeText={(texto) => actualizarDraftNoEntregado(item.id, { motivoDetalle: texto })}
+                        placeholder="Escribe el motivo"
+                        placeholderTextColor="#8193bb"
+                        style={styles.inputCantidad}
+                      />
+                    ) : null}
                     <Text style={styles.previewSubtexto}>
                       Esa cantidad queda cerrada sin entregarse -- deja de estar pendiente.
                     </Text>
@@ -1192,12 +1236,23 @@ export default function PantallaConfirmando({ navigation }: Props) {
                       })}
                     </View>
 
+                    {draft.motivo === 'otro' ? (
+                      <TextInput
+                        value={draft.motivoDetalle}
+                        onChangeText={(texto) => actualizarDraftDevolucion(item.id, { motivoDetalle: texto })}
+                        placeholder="Escribe el motivo"
+                        placeholderTextColor="#8193bb"
+                        style={styles.inputCantidad}
+                      />
+                    ) : null}
+
                     <Text style={styles.etiquetaSeccion}>Resolución</Text>
                     <View style={styles.chipsEnvoltorio}>
                       {(
                         [
                           { valor: 'reposicion', texto: 'Repongo', icono: 'repeat-outline' },
                           { valor: 'reembolso', texto: 'Reembolso', icono: 'cash-outline' },
+                          { valor: 'no_lo_lleva', texto: 'No lo lleva', icono: 'close-circle-outline' },
                         ] as const
                       ).map((r) => {
                         const activo = draft.resolucion === r.valor;
@@ -1220,6 +1275,10 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     ) : draft.resolucion === 'reembolso' ? (
                       <Text style={styles.previewSubtexto}>
                         Se devuelve el dinero -- esa cantidad queda cerrada, no vuelve a pendiente.
+                      </Text>
+                    ) : draft.resolucion === 'no_lo_lleva' ? (
+                      <Text style={styles.previewSubtexto}>
+                        El cliente no se lo lleva -- esa cantidad queda cerrada, no vuelve a pendiente.
                       </Text>
                     ) : null}
 

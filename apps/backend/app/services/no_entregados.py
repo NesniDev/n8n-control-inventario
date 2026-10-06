@@ -68,13 +68,14 @@ async def registrar_no_entregado(entrega_id: str, payload: NoEntregadoCreate) ->
 
             await conn.execute(
                 """
-                insert into items_no_entregados (entrega_id, item_id, cantidad, motivo, operador_id, sede_id)
-                values ($1::uuid, $2::uuid, $3, $4, $5, $6)
+                insert into items_no_entregados (entrega_id, item_id, cantidad, motivo, motivo_detalle, operador_id, sede_id)
+                values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
                 """,
                 entrega_id,
                 payload.item_id,
                 payload.cantidad,
                 payload.motivo.value,
+                payload.motivo_detalle,
                 payload.operador_id,
                 payload.sede_id,
             )
@@ -91,6 +92,7 @@ async def registrar_no_entregado(entrega_id: str, payload: NoEntregadoCreate) ->
             "producto": fila["descripcion"],
             "cantidad": payload.cantidad,
             "motivo": payload.motivo.value,
+            "motivo_detalle": payload.motivo_detalle,
         },
     )
 

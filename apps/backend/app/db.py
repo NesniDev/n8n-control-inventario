@@ -244,6 +244,7 @@ create index if not exists idx_logs_entidad on logs (entidad_tipo, entidad_id);
 -- 'reposicion' hace que esa cantidad vuelva a quedar pendiente (se debe
 -- re-entregar); 'reembolso' la finaliza -- no vuelve a pendiente, esas
 -- unidades salen del total (se devolvio el dinero, no un reemplazo).
+-- 'no_lo_lleva' tiene el mismo efecto que 'reembolso'.
 create table if not exists devoluciones (
     id uuid primary key default gen_random_uuid(),
     entrega_id uuid not null references entregas(id) on delete cascade,
@@ -257,6 +258,9 @@ create table if not exists devoluciones (
 );
 
 create index if not exists idx_devoluciones_entrega on devoluciones (entrega_id);
+
+-- Texto que escribe el operador cuando el motivo es 'otro'.
+alter table devoluciones add column if not exists motivo_detalle text;
 
 -- "No se entrega": unidades facturadas de mas o equivocadas que nunca se
 -- entregaron (ver app/services/no_entregados.py). Se cierran sin entregarse:
@@ -276,6 +280,9 @@ create table if not exists items_no_entregados (
 );
 
 create index if not exists idx_items_no_entregados_entrega on items_no_entregados (entrega_id);
+
+-- Texto que escribe el operador cuando el motivo es 'otro'.
+alter table items_no_entregados add column if not exists motivo_detalle text;
 
 -- Catalogo codigo -> nombre de producto, deducido de entrega_items.descripcion (ver
 -- app/services/productos.py) -- se auto-completa a medida que se procesan/corrigen

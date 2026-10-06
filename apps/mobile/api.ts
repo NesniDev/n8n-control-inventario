@@ -569,8 +569,10 @@ export type MotivoDevolucion = 'danado' | 'equivocado' | 'vencido' | 'no_era_lo_
 
 // reposicion: la cantidad vuelve a quedar pendiente (se debe re-entregar).
 // reembolso: se devuelve el dinero -- la cantidad queda finalizada, no
-// vuelve a pendiente. Mismos valores que ResolucionDevolucion del backend.
-export type ResolucionDevolucion = 'reposicion' | 'reembolso';
+// vuelve a pendiente. no_lo_lleva: el cliente no se lleva el producto, mismo
+// efecto en cantidades que reembolso. Mismos valores que ResolucionDevolucion
+// del backend.
+export type ResolucionDevolucion = 'reposicion' | 'reembolso' | 'no_lo_lleva';
 
 /**
  * El cliente devuelve un producto ya entregado. Es una accion propia,
@@ -585,6 +587,8 @@ export async function registrarDevolucion(
     cantidad: number;
     motivo: MotivoDevolucion;
     resolucion: ResolucionDevolucion;
+    // Solo se manda (y es obligatorio) cuando motivo es 'otro'.
+    motivo_detalle?: string;
     operador_id: string;
     sede_id: string;
   }
@@ -602,7 +606,9 @@ export async function registrarDevolucion(
 }
 
 // Lista fija -- mismos valores que app.models.no_entregado.MotivoNoEntregado.
-export type MotivoNoEntregado = 'facturado_de_mas' | 'producto_equivocado' | 'sin_existencia' | 'otro';
+// 'sin_existencia' ya no se ofrece al registrar (el backend lo rechaza), pero
+// puede venir en logs viejos.
+export type MotivoNoEntregado = 'facturado_de_mas' | 'producto_equivocado' | 'otro';
 
 /**
  * Marca unidades de un producto como "No se entrega" (facturadas de mas o
@@ -615,6 +621,8 @@ export async function registrarNoEntregado(
     item_id: string;
     cantidad: number;
     motivo: MotivoNoEntregado;
+    // Solo se manda (y es obligatorio) cuando motivo es 'otro'.
+    motivo_detalle?: string;
     operador_id: string;
     sede_id: string;
   }
