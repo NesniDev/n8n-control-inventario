@@ -326,10 +326,6 @@ export default function PantallaConfirmando({ navigation }: Props) {
   // veces no lee bien el nombre (letra chica, foto poco clara), asi que se
   // puede corregir a mano antes de confirmar (ver alternarDescripcion).
   const [descripcionesAbiertas, setDescripcionesAbiertas] = useState<Set<string>>(new Set());
-  // Ids de items con el editor de "Cantidad leida" abierto -- solo aplica a
-  // 'nueva' (ver alternarCantidadLeida): la IA tambien se puede equivocar
-  // leyendo el total del documento, no solo el nombre.
-  const [cantidadesLeidasAbiertas, setCantidadesLeidasAbiertas] = useState<Set<string>>(new Set());
   // Ids de items con el formulario de devolucion abierto, y su borrador
   // (cantidad/motivo/resolucion) mientras se completa -- se descarta al
   // cerrar o al registrar con exito (ver alternarDevolucion).
@@ -430,12 +426,6 @@ export default function PantallaConfirmando({ navigation }: Props) {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, descripcion } : item)));
   };
 
-  const actualizarCantidadLeidaItem = (id: string, textoCrudo: string) => {
-    const limpio = textoCrudo.replace(/[^0-9]/g, '');
-    const cantidad_entregada = limpio === '' ? 0 : Number(limpio);
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, cantidad_entregada } : item)));
-  };
-
   // Que items tienen el editor de nota abierto -- separado del texto en si,
   // asi se puede abrir el editor sin que eso cuente como "tiene nota".
   const alternarNota = (id: string) => {
@@ -453,18 +443,6 @@ export default function PantallaConfirmando({ navigation }: Props) {
   // Mismo patron que alternarNota -- separado del texto en si.
   const alternarDescripcion = (id: string) => {
     setDescripcionesAbiertas((prev) => {
-      const siguiente = new Set(prev);
-      if (siguiente.has(id)) {
-        siguiente.delete(id);
-      } else {
-        siguiente.add(id);
-      }
-      return siguiente;
-    });
-  };
-
-  const alternarCantidadLeida = (id: string) => {
-    setCantidadesLeidasAbiertas((prev) => {
       const siguiente = new Set(prev);
       if (siguiente.has(id)) {
         siguiente.delete(id);
@@ -819,16 +797,6 @@ export default function PantallaConfirmando({ navigation }: Props) {
         // no lo lee bien y se puede editar a mano (ver actualizarDescripcionItem).
         const descripcion =
           item.descripcion.trim() !== item.descripcionOriginal.trim() ? item.descripcion.trim() : undefined;
-        // Mismo criterio para la cantidad leida -- solo tiene sentido en
-        // 'nueva' (ver actualizarCantidadLeidaItem); en 'actualizable' la
-        // cantidad se maneja aparte, con el delta de entregado_hoy.
-        // Si se corrigio la cantidad leida, el backend no puede derivar lo
-        // entregado (partiria del total mal leido), asi que se manda explicito:
-        // total corregido menos lo que queda pendiente.
-        const cantidadEntregadaCorregida =
-          situacion === 'nueva' && item.cantidad_entregada !== item.cantidadEntregadaOriginal
-            ? Math.max(0, item.cantidad_entregada - Number(item.valor.trim()))
-            : undefined;
         // Un item bloqueado (ver esBloqueado) solo puede estar en
         // itemsAEnviar por tener una nota o descripcion nueva -- no hay
         // cantidad que mandar, y mandar entregado_hoy/cantidad_pendiente
@@ -845,7 +813,6 @@ export default function PantallaConfirmando({ navigation }: Props) {
               cantidad_pendiente: Number(item.valor.trim()),
               nota,
               descripcion,
-              cantidad_entregada: cantidadEntregadaCorregida,
               desde_punto_venta: desdePuntoVenta,
               desde_otra_bodega: desdeOtraBodega,
             }
@@ -1030,8 +997,6 @@ export default function PantallaConfirmando({ navigation }: Props) {
             const puedeEditarDescripcion = true;
             const descripcionAbierta = puedeEditarDescripcion && descripcionesAbiertas.has(item.id);
             const descripcionEditada = item.descripcion.trim() !== item.descripcionOriginal.trim();
-            const cantidadLeidaAbierta = cantidadesLeidasAbiertas.has(item.id);
-            const cantidadLeidaEditada = item.cantidad_entregada !== item.cantidadEntregadaOriginal;
             // Una devolucion es sobre algo ya entregado antes -- no tiene
             // sentido en un documento recien escaneado sin confirmar
             // (situacion 'nueva'), ni si todavia no se entrego nada.
@@ -1365,30 +1330,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   </View>
                 ) : null}
 
+                {/* La cantidad leida es solo informativa: no se edita a mano. */}
                 {situacion === 'nueva' ? (
-                  <View style={styles.filaConIcono}>
-                    {cantidadLeidaAbierta ? (
-                      <>
-                        <Text style={styles.previewSubtexto}>Cantidad leída:</Text>
-                        <TextInput
-                          value={String(item.cantidad_entregada)}
-                          onChangeText={(texto) => actualizarCantidadLeidaItem(item.id, texto)}
-                          keyboardType="number-pad"
-                          autoFocus
-                          style={[styles.inputCantidad, styles.inputCantidadLeida]}
-                        />
-                      </>
-                    ) : (
-                      <Text style={styles.previewSubtexto}>Cantidad leída: {item.cantidad_entregada}</Text>
-                    )}
-                    <Pressable onPress={() => alternarCantidadLeida(item.id)} hitSlop={8}>
-                      <Ionicons
-                        name={cantidadLeidaEditada || cantidadLeidaAbierta ? 'pencil' : 'pencil-outline'}
-                        size={16}
-                        color={cantidadLeidaEditada || cantidadLeidaAbierta ? ACENTO : NEUTRAL_400}
-                      />
-                    </Pressable>
-                  </View>
+                  <Text style={styles.previewSubtexto}>Cantidad leída: {item.cantidad_entregada}</Text>
                 ) : (
                   <Text style={styles.previewSubtexto}>Pendiente actual: {item.cantidad_pendiente}</Text>
                 )}
