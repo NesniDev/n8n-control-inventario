@@ -112,6 +112,7 @@ alter table entrega_items add column if not exists nota text;
 -- (si el item se reabre quedan en null/false).
 alter table entrega_items add column if not exists entregado_por text;
 alter table entrega_items add column if not exists entregado_en_punto_venta boolean not null default false;
+alter table entrega_items add column if not exists entregado_en_otra_bodega boolean not null default false;
 
 -- Migracion desde el modelo anterior (numero_guia/remitente/destinatario/items,
 -- duplicado por numero_guia+remitente) al modelo de documentos (tipo +

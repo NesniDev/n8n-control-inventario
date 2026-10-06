@@ -301,7 +301,11 @@ export default function PantallaConfirmando({ navigation }: Props) {
     necesitaTrasladoConfirmar,
     setNecesitaTrasladoConfirmar,
     cancelarConfirmacion,
+    flujo,
   } = useEntrega();
+  // Solo Remisiones: boton "Se entregó todo" y check "Entregado en otra bodega"
+  // (en lugar del de punto de venta). Despachos queda como siempre.
+  const esRemision = flujo === 'remision';
 
   const [firmaBase64, setFirmaBase64] = useState<string | null>(null);
   const [mostrandoFirma, setMostrandoFirma] = useState(false);
@@ -351,6 +355,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
   // lo que habia tipeado para restaurarlo al desmarcar.
   const [puntoVentaIds, setPuntoVentaIds] = useState<Set<string>>(new Set());
   const [valoresPrevios, setValoresPrevios] = useState<Record<string, string>>({});
+  // "Entregado en otra bodega" (solo Remisiones): misma mecanica que el punto
+  // de venta (comparte valoresPrevios), pero se manda como desde_otra_bodega.
+  const [otraBodegaIds, setOtraBodegaIds] = useState<Set<string>>(new Set());
   // necesitaTrasladoConfirmar vive en EntregaContext (no local) -- Buscar y
   // CapturaFoto tambien lo setean, ANTES de llegar aca, cuando el backend ya
   // avisa "requiere_traslado" al buscar/reescanear (ver
@@ -677,6 +684,46 @@ export default function PantallaConfirmando({ navigation }: Props) {
     }
   };
 
+  // Check "Entregado en otra bodega" (solo Remisiones): igual que
+  // alternarPuntoVenta pero con su propio set.
+  const alternarOtraBodega = (item: ItemFormulario) => {
+    if (!situacion) return;
+    if (!otraBodegaIds.has(item.id)) {
+      setValoresPrevios((prev) => ({ ...prev, [item.id]: item.valor }));
+      setOtraBodegaIds((prev) => new Set(prev).add(item.id));
+      actualizarValorItem(item.id, String(valorTodoEntregado(item, situacion)));
+    } else {
+      setOtraBodegaIds((prev) => {
+        const siguiente = new Set(prev);
+        siguiente.delete(item.id);
+        return siguiente;
+      });
+      actualizarValorItem(item.id, valoresPrevios[item.id] ?? '');
+    }
+  };
+
+  // Boton "Se entregó todo" (solo Remisiones): deja todos los items no
+  // bloqueados en su valor de "todo entregado" y limpia las marcas de punto de
+  // venta / otra bodega (cuentan como entregados por esta bodega). No guarda:
+  // el bodeguero revisa y confirma con el boton de siempre.
+  const marcarTodoEntregado = () => {
+    if (!situacion) return;
+    const sit = situacion;
+    const ids = new Set(items.filter((item) => !esBloqueado(item, sit)).map((item) => item.id));
+    setItems((prev) =>
+      prev.map((item) => (ids.has(item.id) ? { ...item, valor: String(valorTodoEntregado(item, sit)) } : item)),
+    );
+    setPuntoVentaIds((prev) => new Set([...prev].filter((id) => !ids.has(id))));
+    setOtraBodegaIds((prev) => new Set([...prev].filter((id) => !ids.has(id))));
+  };
+
+  const confirmarSeEntregoTodo = () => {
+    Alert.alert('¿Se entregó todo?', 'Revisa los nombres de los productos y las cantidades antes de confirmar.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Sí, marcar todo', onPress: marcarTodoEntregado },
+    ]);
+  };
+
   // Items que requieren una cantidad valida para poder confirmar. Para
   // 'nueva' son TODOS -- el pendiente inicial de cada item (incluido el que
   // quedo en 0 via el check "todo entregado") todavia no se guardo en
@@ -791,6 +838,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
           return { id: item.id, nota, descripcion };
         }
         const desdePuntoVenta = puntoVentaIds.has(item.id) ? true : undefined;
+        const desdeOtraBodega = otraBodegaIds.has(item.id) ? true : undefined;
         return situacion === 'nueva'
           ? {
               id: item.id,
@@ -799,8 +847,16 @@ export default function PantallaConfirmando({ navigation }: Props) {
               descripcion,
               cantidad_entregada: cantidadEntregadaCorregida,
               desde_punto_venta: desdePuntoVenta,
+              desde_otra_bodega: desdeOtraBodega,
             }
-          : { id: item.id, entregado_hoy: Number(item.valor.trim()), nota, descripcion, desde_punto_venta: desdePuntoVenta };
+          : {
+              id: item.id,
+              entregado_hoy: Number(item.valor.trim()),
+              nota,
+              descripcion,
+              desde_punto_venta: desdePuntoVenta,
+              desde_otra_bodega: desdeOtraBodega,
+            };
       });
 
       const firma = firmaFirmada ?? firmaBase64;
@@ -942,13 +998,25 @@ export default function PantallaConfirmando({ navigation }: Props) {
             </Pressable>
           </View>
 
+          {esRemision && situacion !== null && !cargando && items.some((item) => !esBloqueado(item, situacion)) ? (
+            <Pressable
+              onPress={confirmarSeEntregoTodo}
+              style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+            >
+              <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-done-outline" texto="Se entregó todo" />
+            </Pressable>
+          ) : null}
+
           {items.map((item) => {
             const bloqueado = situacion ? esBloqueado(item, situacion) : false;
             const tope = situacion ? topeValor(item, situacion) : 0;
             const valorTexto = item.valor.trim();
             const enPuntoVenta = !bloqueado && puntoVentaIds.has(item.id);
+            const enOtraBodega = !bloqueado && otraBodegaIds.has(item.id);
+            // Cualquiera de las dos marcas "no acreditadas" bloquea el input.
+            const enNoAcreditado = enPuntoVenta || enOtraBodega;
             const marcadoTodoEntregado =
-              !bloqueado && !enPuntoVenta && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
+              !bloqueado && !enNoAcreditado && situacion !== null && valorTexto === String(valorTodoEntregado(item, situacion));
             // Se avisa en el momento, sin esperar el error del servidor --
             // el backend igual lo vuelve a validar (ver PATCH /items).
             const excedeTope =
@@ -1325,7 +1393,7 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   <Text style={styles.previewSubtexto}>Pendiente actual: {item.cantidad_pendiente}</Text>
                 )}
 
-                {bloqueado || enPuntoVenta ? null : (
+                {bloqueado || enNoAcreditado ? null : (
                   <Pressable
                     onPress={() => alternarTodoEntregado(item)}
                     hitSlop={8}
@@ -1342,7 +1410,20 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   </Pressable>
                 )}
 
-                {bloqueado ? null : (
+                {bloqueado ? null : esRemision ? (
+                  <Pressable
+                    onPress={() => alternarOtraBodega(item)}
+                    hitSlop={8}
+                    style={[styles.checkboxFila, estilosItem.checkboxFila, enOtraBodega && estilosItem.checkboxFilaMarcada]}
+                  >
+                    <View style={[styles.checkboxCaja, enOtraBodega && styles.checkboxCajaMarcada]}>
+                      {enOtraBodega ? <Ionicons name="checkmark" size={16} color={TEXTO_SOBRE_ACENTO} /> : null}
+                    </View>
+                    <Text style={[styles.checkboxTexto, enOtraBodega && estilosItem.checkboxTextoMarcado]}>
+                      Entregado en otra bodega
+                    </Text>
+                  </Pressable>
+                ) : (
                   <Pressable
                     onPress={() => alternarPuntoVenta(item)}
                     hitSlop={8}
@@ -1362,6 +1443,12 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     <Text style={styles.previewSubtexto}>No se registra como entrega de bodega.</Text>
                   </View>
                 ) : null}
+                {enOtraBodega ? (
+                  <View style={styles.filaConIcono}>
+                    <Ionicons name="information-circle-outline" size={13} color={NEUTRAL_500} />
+                    <Text style={styles.previewSubtexto}>No se registra como entrega de esta bodega.</Text>
+                  </View>
+                ) : null}
 
                 <Text style={styles.etiquetaSeccion}>
                   {situacion === 'nueva' ? 'Cantidad pendiente' : 'Entregado hoy'}
@@ -1372,25 +1459,33 @@ export default function PantallaConfirmando({ navigation }: Props) {
                   keyboardType="number-pad"
                   placeholder="0"
                   placeholderTextColor={NEUTRAL_500}
-                  editable={!bloqueado && !marcadoTodoEntregado && !enPuntoVenta}
+                  editable={!bloqueado && !marcadoTodoEntregado && !enNoAcreditado}
                   style={[
                     styles.inputCantidad,
                     estilosItem.inputCantidad,
-                    (bloqueado || marcadoTodoEntregado || enPuntoVenta) && styles.inputCantidadBloqueado,
+                    (bloqueado || marcadoTodoEntregado || enNoAcreditado) && styles.inputCantidadBloqueado,
                     excedeTope && styles.inputCantidadError,
                   ]}
                 />
-                {bloqueado && situacion === 'actualizable' && (item.entregado_en_punto_venta || item.entregado_por_nombre) ? (
+                {bloqueado && situacion === 'actualizable' && (item.entregado_en_punto_venta || item.entregado_en_otra_bodega || item.entregado_por_nombre) ? (
                   <View style={styles.filaConIcono}>
                     <Ionicons
-                      name={item.entregado_en_punto_venta ? 'storefront-outline' : 'person-outline'}
+                      name={
+                        item.entregado_en_otra_bodega
+                          ? 'business-outline'
+                          : item.entregado_en_punto_venta
+                            ? 'storefront-outline'
+                            : 'person-outline'
+                      }
                       size={13}
                       color={NEUTRAL_500}
                     />
                     <Text style={styles.previewSubtexto}>
-                      {item.entregado_en_punto_venta
-                        ? 'Entregado en: Punto de venta'
-                        : `Entregado por: ${item.entregado_por_nombre}`}
+                      {item.entregado_en_otra_bodega
+                        ? 'Entregado en otra bodega'
+                        : item.entregado_en_punto_venta
+                          ? 'Entregado en: Punto de venta'
+                          : `Entregado por: ${item.entregado_por_nombre}`}
                     </Text>
                   </View>
                 ) : null}

@@ -594,6 +594,7 @@ _SELECT_ENTREGAS_BASE = """
                     'nota', i.nota,
                     'confirmado', (i.actualizado_at > i.creado_at),
                     'entregado_en_punto_venta', i.entregado_en_punto_venta,
+                    'entregado_en_otra_bodega', i.entregado_en_otra_bodega,
                     'entregado_por_nombre', case
                         when i.entregado_por like 'dashboard:%' then substring(i.entregado_por from 11)
                         else ent.nombre
@@ -734,6 +735,7 @@ async def resumen_hoy(operador_id: str, sede_id: str) -> dict:
           and l.evento in ('entrega_insertada', 'entrega_actualizada')
           and e.estado <> 'duplicado_bloqueado'
           and not coalesce((l.detalle->>'desde_punto_venta')::boolean, false)
+          and not coalesce((l.detalle->>'desde_otra_bodega')::boolean, false)
           and (l."timestamp" at time zone s.timezone)::date = (now() at time zone s.timezone)::date
         """,
         operador_id,

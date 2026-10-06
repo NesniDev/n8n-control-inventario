@@ -61,6 +61,8 @@ export interface ItemEntrega {
   cantidad_pendiente: number;
   // Unidades cerradas sin entregarse ("No se entrega" desde la app movil).
   cantidad_no_entregada?: number;
+  // Remisiones: el item lo entrego otra bodega (no se acredita a esta).
+  entregado_en_otra_bodega?: boolean;
 }
 
 export interface Entrega {

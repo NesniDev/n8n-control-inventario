@@ -281,9 +281,10 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
     case "entrega_actualizada": {
       const detalle = log.detalle as
         | {
-            items?: { cantidad_pendiente: number; desde_punto_venta?: boolean }[];
+            items?: { cantidad_pendiente: number; desde_punto_venta?: boolean; desde_otra_bodega?: boolean }[];
             retirado_por?: { nombre: string; telefono: string } | null;
             desde_punto_venta?: boolean;
+            desde_otra_bodega?: boolean;
           }
         | undefined;
       if (esCorreccionAdmin(log)) {
@@ -299,6 +300,12 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
           log.actor_nombre ?? log.actor_id ?? "?"
         }).`;
       }
+      // Idem para remisiones entregadas por otra bodega.
+      if (detalle?.desde_otra_bodega) {
+        return `Entregado todo desde otra bodega${doc ? ` — ${doc}` : ""} (registró ${
+          log.actor_nombre ?? log.actor_id ?? "?"
+        }).`;
+      }
       const pendiente = detalle?.items?.reduce((total, i) => total + (i.cantidad_pendiente ?? 0), 0);
       const retiro = detalle?.retirado_por
         ? ` Retiró ${detalle.retirado_por.nombre} (${detalle.retirado_por.telefono}).`
@@ -309,9 +316,14 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
         nPuntoVenta > 0
           ? ` · ${nPuntoVenta} ${nPuntoVenta === 1 ? "producto entregado" : "productos entregados"} en el punto de venta`
           : "";
+      const nOtraBodega = detalle?.items?.filter((i) => i.desde_otra_bodega).length ?? 0;
+      const otraBodega =
+        nOtraBodega > 0
+          ? ` · ${nOtraBodega} ${nOtraBodega === 1 ? "producto entregado" : "productos entregados"} en otra bodega`
+          : "";
       return `Se confirmaron cantidades${doc ? ` de ${doc}` : ""}${
         pendiente !== undefined ? ` — quedan ${pendiente} pendientes` : ""
-      }.${retiro}${puntoVenta}`;
+      }.${retiro}${puntoVenta}${otraBodega}`;
     }
     case "devolucion_registrada": {
       const detalle = log.detalle as
@@ -1126,6 +1138,8 @@ function ModalDetalleEntrega({
   // bodeguero pero no las entrego bodega (se listan aparte, abajo).
   const entregadoDesdePuntoVenta = (log: LogEvent) =>
     (log.detalle as { desde_punto_venta?: boolean } | undefined)?.desde_punto_venta === true;
+  const entregadoDesdeOtraBodega = (log: LogEvent) =>
+    (log.detalle as { desde_otra_bodega?: boolean } | undefined)?.desde_otra_bodega === true;
   const visitasBodega =
     historial === null
       ? null
@@ -1135,6 +1149,7 @@ function ModalDetalleEntrega({
               log.evento === "entrega_actualizada" &&
               log.actor_rol !== "punto_venta" &&
               !entregadoDesdePuntoVenta(log) &&
+              !entregadoDesdeOtraBodega(log) &&
               !esCorreccionAdmin(log)
           )
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -1154,6 +1169,12 @@ function ModalDetalleEntrega({
       ? []
       : historial
           .filter((log) => log.evento === "entrega_actualizada" && entregadoDesdePuntoVenta(log))
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const visitasOtraBodega =
+    historial === null
+      ? []
+      : historial
+          .filter((log) => log.evento === "entrega_actualizada" && entregadoDesdeOtraBodega(log))
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const bodeguerosHistorial =
     visitasBodega === null
@@ -1295,7 +1316,7 @@ function ModalDetalleEntrega({
             {visitasBodega === null ? (
               <li className="px-3 py-2 text-xs text-muted">Cargando entregas...</li>
             ) : visitasBodega.length === 0 ? (
-              visitasPuntoVenta.length === 0 ? (
+              visitasPuntoVenta.length === 0 && visitasOtraBodega.length === 0 ? (
                 <li className="px-3 py-2 text-xs text-muted">Todavía no se entregó en bodega.</li>
               ) : null
             ) : (
@@ -1317,6 +1338,15 @@ function ModalDetalleEntrega({
               <li key={log.id} className="flex items-start justify-between gap-3 px-3 py-2">
                 <div className="flex flex-col">
                   <span className="text-ink">Punto de venta</span>
+                  <span className="text-xs text-muted">Registró {log.actor_nombre ?? log.actor_id ?? "—"}</span>
+                </div>
+                <span className="whitespace-nowrap text-right text-ok-fg">{formatearFechaHora(log.timestamp)}</span>
+              </li>
+            ))}
+            {visitasOtraBodega.map((log) => (
+              <li key={log.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                <div className="flex flex-col">
+                  <span className="text-ink">Otra bodega</span>
                   <span className="text-xs text-muted">Registró {log.actor_nombre ?? log.actor_id ?? "—"}</span>
                 </div>
                 <span className="whitespace-nowrap text-right text-ok-fg">{formatearFechaHora(log.timestamp)}</span>

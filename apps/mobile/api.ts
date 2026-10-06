@@ -108,6 +108,8 @@ export interface ItemEntrega {
   // Quien entrego el item (solo con cantidad_pendiente === 0): el punto de
   // venta, o el nombre del bodeguero que lo cerro. Datos viejos: ambos vacios.
   entregado_en_punto_venta?: boolean;
+  // Remisiones: lo entrego otra bodega (no esta).
+  entregado_en_otra_bodega?: boolean;
   entregado_por_nombre?: string | null;
 }
 
@@ -508,6 +510,8 @@ export async function confirmarItems(
     // "Entregado en el punto de venta": el backend exige que el item quede en
     // pendiente 0 y no lo acredita como entrega de bodega.
     desde_punto_venta?: boolean;
+    // Remisiones: "Entregado en otra bodega" (mismo trato que desde_punto_venta).
+    desde_otra_bodega?: boolean;
   } & (
     | { cantidad_pendiente: number }
     | { entregado_hoy: number }

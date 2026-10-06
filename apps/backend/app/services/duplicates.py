@@ -233,6 +233,7 @@ async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEn
             i.cantidad_no_entregada, i.nota,
             (i.actualizado_at > i.creado_at) as confirmado,
             i.entregado_en_punto_venta,
+            i.entregado_en_otra_bodega,
             case
                 when i.entregado_por like 'dashboard:%' then substring(i.entregado_por from 11)
                 else emp.nombre
@@ -254,6 +255,7 @@ async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEn
             nota=r["nota"],
             confirmado=r["confirmado"],
             entregado_en_punto_venta=r["entregado_en_punto_venta"],
+            entregado_en_otra_bodega=r["entregado_en_otra_bodega"],
             entregado_por_nombre=r["entregado_por_nombre"],
         )
         for r in rows
@@ -800,8 +802,12 @@ async def aplicar_actualizacion_items(
             # Items marcados "entregado en el punto de venta": no se acreditan
             # a bodega. Si TODOS los items enviados lo estan, no se toca
             # bodeguero_id (el bodeguero queda solo como actor_id del log).
+            # Lo mismo aplica a "entregado en otra bodega" (solo remisiones): no
+            # se acredita a esta bodega, pero se guarda aparte.
             ids_punto_venta = {i.id for i in items if i.desde_punto_venta}
-            if items and len(ids_punto_venta) < len(items) and not es_correccion_dashboard:
+            ids_otra_bodega = {i.id for i in items if i.desde_otra_bodega}
+            ids_no_acreditados = ids_punto_venta | ids_otra_bodega
+            if items and len(ids_no_acreditados) < len(items) and not es_correccion_dashboard:
                 # Quien confirmo cantidades reales en ESTA llamada -- a
                 # diferencia de operador_id (el creador, nunca se pisa), esto
                 # SI se actualiza cada vez, asi refleja quien esta con la
@@ -904,7 +910,7 @@ async def aplicar_actualizacion_items(
             # cantidades: una nota suelta sobre un item ya bloqueado no debe
             # pisar a quien lo entrego.
             for item in items:
-                if item.cantidad_pendiente is None and not (item.entregado_hoy or 0) and not item.desde_punto_venta:
+                if item.cantidad_pendiente is None and not (item.entregado_hoy or 0) and not item.desde_punto_venta and not item.desde_otra_bodega:
                     continue
                 if es_correccion_dashboard:
                     # El admin no pasa a ser "quien entrego": solo se limpia si
@@ -912,7 +918,8 @@ async def aplicar_actualizacion_items(
                     await conn.execute(
                         """
                         update entrega_items
-                        set entregado_por = null, entregado_en_punto_venta = false
+                        set entregado_por = null, entregado_en_punto_venta = false,
+                            entregado_en_otra_bodega = false
                         where id = $1::uuid and entrega_id = $2::uuid and cantidad_pendiente > 0
                         """,
                         item.id,
@@ -923,13 +930,15 @@ async def aplicar_actualizacion_items(
                     """
                     update entrega_items
                     set entregado_por = case when cantidad_pendiente = 0 then $2 else null end,
-                        entregado_en_punto_venta = (cantidad_pendiente = 0 and $3)
+                        entregado_en_punto_venta = (cantidad_pendiente = 0 and $3),
+                        entregado_en_otra_bodega = (cantidad_pendiente = 0 and $5)
                     where id = $1::uuid and entrega_id = $4::uuid
                     """,
                     item.id,
                     operador_id,
                     item.desde_punto_venta,
                     entrega_id,
+                    item.desde_otra_bodega,
                 )
 
             items_actualizados = await _items_de_entrega(conn, entrega_id)
@@ -954,11 +963,12 @@ async def aplicar_actualizacion_items(
             # lanzar, se deshace todo lo anterior). "Entregado todo" significa
             # que ningun item queda pendiente.
             con_pendiente = [
-                i for i in items_actualizados if i.id in ids_punto_venta and i.cantidad_pendiente > 0
+                i for i in items_actualizados if i.id in ids_no_acreditados and i.cantidad_pendiente > 0
             ]
             if con_pendiente:
+                etiqueta = "Entregado en otra bodega" if con_pendiente[0].id in ids_otra_bodega else "Entregado en el punto de venta"
                 raise CantidadInvalida(
-                    "'Entregado en el punto de venta' exige que no quede nada pendiente, "
+                    f"'{etiqueta}' exige que no quede nada pendiente, "
                     f"pero '{con_pendiente[0].descripcion}' aun tiene {con_pendiente[0].cantidad_pendiente} pendiente."
                 )
 
@@ -977,6 +987,7 @@ async def aplicar_actualizacion_items(
                     "cantidad_pendiente": i.cantidad_pendiente,
                     # Solo presente en los items marcados en esta visita.
                     **({"desde_punto_venta": True} if i.id in ids_punto_venta else {}),
+                    **({"desde_otra_bodega": True} if i.id in ids_otra_bodega else {}),
                 }
                 for i in items_actualizados
             ],
@@ -989,6 +1000,8 @@ async def aplicar_actualizacion_items(
             # los items enviados marcados): el dashboard y resumen-hoy la
             # excluyen del conteo de bodega.
             **({"desde_punto_venta": True} if items and len(ids_punto_venta) == len(items) else {}),
+            # Idem para "otra bodega" (solo remisiones).
+            **({"desde_otra_bodega": True} if items and len(ids_otra_bodega) == len(items) else {}),
             # Solo en correcciones del dashboard: el dashboard las muestra
             # aparte ("Cambios del admin") y no las cuenta como visita de bodega.
             **({"correccion_dashboard": True, "cambios": cambios} if es_correccion_dashboard else {}),

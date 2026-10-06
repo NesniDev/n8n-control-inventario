@@ -54,6 +54,7 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
                         cantidad_pendiente = cantidad_pendiente + $2,
                         entregado_por = null,
                         entregado_en_punto_venta = false,
+                        entregado_en_otra_bodega = false,
                         actualizado_at = now()
                     where id = $1::uuid and entrega_id = $3::uuid
                         and cantidad_entregada >= $2 and actualizado_at > creado_at

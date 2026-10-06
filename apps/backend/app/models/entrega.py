@@ -76,6 +76,8 @@ class ItemEntrega(BaseModel):
     # Quien entrego el item (solo tiene sentido con cantidad_pendiente == 0):
     # el punto de venta, o el nombre del bodeguero/usuario que lo cerro.
     entregado_en_punto_venta: bool = False
+    # Remisiones: lo entrego otra bodega (no se acredita a esta).
+    entregado_en_otra_bodega: bool = False
     entregado_por_nombre: str | None = None
 
 
@@ -171,6 +173,9 @@ class ItemActualizacion(BaseModel):
     # venta, no bodega. Exige que el item quede en pendiente 0 y queda marcado
     # en el detalle del evento ENTREGA_ACTUALIZADA.
     desde_punto_venta: bool = False
+    # Remisiones: "Entregado en otra bodega". Mismo trato que desde_punto_venta
+    # (no se acredita a esta bodega, exige pendiente 0), pero se guarda aparte.
+    desde_otra_bodega: bool = False
 
     @model_validator(mode="after")
     def _validar(self) -> "ItemActualizacion":
