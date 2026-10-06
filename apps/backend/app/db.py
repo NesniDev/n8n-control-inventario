@@ -258,6 +258,25 @@ create table if not exists devoluciones (
 
 create index if not exists idx_devoluciones_entrega on devoluciones (entrega_id);
 
+-- "No se entrega": unidades facturadas de mas o equivocadas que nunca se
+-- entregaron (ver app/services/no_entregados.py). Se cierran sin entregarse:
+-- salen de cantidad_pendiente y suman en cantidad_no_entregada. Registro
+-- aparte de las devoluciones (esas exigen que ya se hayan entregado).
+alter table entrega_items add column if not exists cantidad_no_entregada integer not null default 0;
+
+create table if not exists items_no_entregados (
+    id uuid primary key default gen_random_uuid(),
+    entrega_id uuid not null references entregas(id) on delete cascade,
+    item_id uuid not null references entrega_items(id) on delete cascade,
+    cantidad integer not null check (cantidad > 0),
+    motivo text not null,
+    operador_id text not null,
+    sede_id text not null,
+    creado_at timestamptz not null default now()
+);
+
+create index if not exists idx_items_no_entregados_entrega on items_no_entregados (entrega_id);
+
 -- Catalogo codigo -> nombre de producto, deducido de entrega_items.descripcion (ver
 -- app/services/productos.py) -- se auto-completa a medida que se procesan/corrigen
 -- facturas, sin backfill de lo historico. unique(codigo) es lo que garantiza "sin que
@@ -501,6 +520,10 @@ begin
         end;
         begin
             alter publication supabase_realtime add table devoluciones;
+        exception when duplicate_object then null;
+        end;
+        begin
+            alter publication supabase_realtime add table items_no_entregados;
         exception when duplicate_object then null;
         end;
         begin

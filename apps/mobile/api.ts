@@ -95,6 +95,9 @@ export interface ItemEntrega {
   descripcion: string;
   cantidad_entregada: number;
   cantidad_pendiente: number;
+  // Unidades cerradas sin entregarse ("No se entrega") -- opcional por
+  // compatibilidad con respuestas viejas del backend.
+  cantidad_no_entregada?: number;
   // Nota manual del bodeguero (una sola, se sobreescribe) -- no la pone la
   // IA, es informacion adicional libre sobre ese producto puntual.
   nota: string | null;
@@ -587,6 +590,36 @@ export async function registrarDevolucion(
   }
 ): Promise<{ item: ItemEntrega }> {
   const res = await fetchConTimeout(`${API_BASE_URL}/entregas/${entregaId}/devoluciones`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const resultado = await parsearRespuesta<{ item: ItemEntrega }>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('pendientes:', 'resumenHoy:', `historial:${entregaId}`);
+  return resultado;
+}
+
+// Lista fija -- mismos valores que app.models.no_entregado.MotivoNoEntregado.
+export type MotivoNoEntregado = 'facturado_de_mas' | 'producto_equivocado' | 'sin_existencia' | 'otro';
+
+/**
+ * Marca unidades de un producto como "No se entrega" (facturadas de mas o
+ * equivocadas): salen de pendiente sin haberse entregado. Accion propia e
+ * inmediata, igual que registrarDevolucion.
+ */
+export async function registrarNoEntregado(
+  entregaId: string,
+  payload: {
+    item_id: string;
+    cantidad: number;
+    motivo: MotivoNoEntregado;
+    operador_id: string;
+    sede_id: string;
+  }
+): Promise<{ item: ItemEntrega }> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/entregas/${entregaId}/no-entregados`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

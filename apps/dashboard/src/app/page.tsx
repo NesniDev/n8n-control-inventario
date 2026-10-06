@@ -218,9 +218,27 @@ function historialDeItem(historial: LogEvent[], itemId: string): EventoHistorial
         fecha: log.timestamp,
         texto: `Devolución de ${detalle.cantidad} (${detalle.motivo}) — ${resolucion}`,
       });
+    } else if (log.evento === "item_no_entregado" && (log.detalle as { item_id?: string })?.item_id === itemId) {
+      const detalle = log.detalle as { cantidad: number; motivo: string };
+      eventos.push({
+        fecha: log.timestamp,
+        texto: `No se entrega ${detalle.cantidad} (${motivoNoEntregadoLegible(detalle.motivo)})`,
+      });
     }
   }
   return eventos;
+}
+
+// Mismos valores que MotivoNoEntregado en el backend (app/models/no_entregado.py).
+const MOTIVOS_NO_ENTREGADO: Record<string, string> = {
+  facturado_de_mas: "Facturado de más",
+  producto_equivocado: "Producto equivocado",
+  sin_existencia: "Sin existencia",
+  otro: "Otro",
+};
+
+function motivoNoEntregadoLegible(motivo: string | undefined): string {
+  return motivo ? (MOTIVOS_NO_ENTREGADO[motivo] ?? motivo) : "sin motivo";
 }
 
 // Traduce un evento tecnico de `logs` a una frase que el dueño del negocio
@@ -278,6 +296,12 @@ function describirEvento(log: LogEvent, entregasPorId: Map<string, Entrega>): st
       return `Devolución${doc ? ` en ${doc}` : ""} de ${detalle?.cantidad ?? "?"} unidades (${
         detalle?.motivo ?? "sin motivo"
       }) — ${resolucion}.`;
+    }
+    case "item_no_entregado": {
+      const detalle = log.detalle as { cantidad?: number; producto?: string; motivo?: string } | undefined;
+      return `No se entregaron ${detalle?.cantidad ?? "?"} de ${detalle?.producto ?? "un producto"}${
+        doc ? ` en ${doc}` : ""
+      } (${motivoNoEntregadoLegible(detalle?.motivo)}).`;
     }
     case "duplicado_bloqueado": {
       const detalle = log.detalle as { tipo?: string; indicativo_numero?: string } | undefined;
@@ -1347,6 +1371,9 @@ function ModalDetalleEntrega({
                   <span className="text-soft">{item.descripcion}</span>
                   <span className="flex shrink-0 items-center gap-1 text-ok-fg">
                     <Icono nombre="check" className="h-3.5 w-3.5" /> {item.cantidad_entregada}
+                    {(item.cantidad_no_entregada ?? 0) > 0 ? (
+                      <span className="ml-2 text-xs text-muted">No entregado {item.cantidad_no_entregada}</span>
+                    ) : null}
                   </span>
                 </li>
               ))}

@@ -25,6 +25,9 @@ class EventoLog(StrEnum):
     # Se registro la devolucion de un producto ya entregado -- ver
     # app/services/devoluciones.py.
     DEVOLUCION_REGISTRADA = "devolucion_registrada"
+    # Unidades de un producto cerradas sin entregarse (facturado de mas,
+    # producto equivocado, etc.) -- ver app/services/no_entregados.py.
+    ITEM_NO_ENTREGADO = "item_no_entregado"
     # Borrado definitivo de una entrega en pendiente_revision desde el
     # dashboard (boton "Cancelar" de la cola de revision) -- ver
     # DELETE /entregas/{id}/definitivo en entregas.py.

@@ -229,7 +229,8 @@ def marcar_estado_por_confianza(confianza: dict[str, float], min_confidence: flo
 async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEntrega]:
     rows = await conn.fetch(
         """
-        select i.id, i.descripcion, i.cantidad_entregada, i.cantidad_pendiente, i.nota,
+        select i.id, i.descripcion, i.cantidad_entregada, i.cantidad_pendiente,
+            i.cantidad_no_entregada, i.nota,
             (i.actualizado_at > i.creado_at) as confirmado,
             i.entregado_en_punto_venta,
             case
@@ -249,6 +250,7 @@ async def _items_de_entrega(conn: asyncpg.Connection, entrega_id) -> list[ItemEn
             descripcion=r["descripcion"],
             cantidad_entregada=r["cantidad_entregada"],
             cantidad_pendiente=r["cantidad_pendiente"],
+            cantidad_no_entregada=r["cantidad_no_entregada"],
             nota=r["nota"],
             confirmado=r["confirmado"],
             entregado_en_punto_venta=r["entregado_en_punto_venta"],

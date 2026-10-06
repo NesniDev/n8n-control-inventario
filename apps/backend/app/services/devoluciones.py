@@ -55,7 +55,8 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
                         actualizado_at = now()
                     where id = $1::uuid and entrega_id = $3::uuid
                         and cantidad_entregada >= $2 and actualizado_at > creado_at
-                    returning id, descripcion, cantidad_entregada, cantidad_pendiente, nota
+                    returning id, descripcion, cantidad_entregada, cantidad_pendiente,
+                        cantidad_no_entregada, nota
                     """,
                     payload.item_id,
                     payload.cantidad,
@@ -69,7 +70,8 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
                         actualizado_at = now()
                     where id = $1::uuid and entrega_id = $3::uuid
                         and cantidad_entregada >= $2 and actualizado_at > creado_at
-                    returning id, descripcion, cantidad_entregada, cantidad_pendiente, nota
+                    returning id, descripcion, cantidad_entregada, cantidad_pendiente,
+                        cantidad_no_entregada, nota
                     """,
                     payload.item_id,
                     payload.cantidad,
@@ -129,6 +131,7 @@ async def registrar_devolucion(entrega_id: str, payload: DevolucionCreate) -> It
         descripcion=fila["descripcion"],
         cantidad_entregada=fila["cantidad_entregada"],
         cantidad_pendiente=fila["cantidad_pendiente"],
+        cantidad_no_entregada=fila["cantidad_no_entregada"],
         nota=fila["nota"],
         confirmado=True,  # el guard de arriba ya exigio actualizado_at > creado_at
     )

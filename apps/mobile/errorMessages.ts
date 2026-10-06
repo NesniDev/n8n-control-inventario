@@ -12,6 +12,7 @@ export type ContextoError =
   | 'firma'
   | 'entrega'
   | 'devolucion'
+  | 'no_entregado'
   | 'traslado'
   | 'factura_faltante';
 
@@ -26,6 +27,7 @@ const MENSAJES_POR_CONTEXTO: Record<ContextoError, string> = {
   firma: 'No se pudo subir la firma. Revisá tu conexión e intentá de nuevo.',
   entrega: 'No se pudo procesar la entrega. Intentá de nuevo.',
   devolucion: 'No se pudo registrar la devolución. Intentá de nuevo.',
+  no_entregado: 'No se pudo registrar el producto como no entregado. Intentá de nuevo.',
   // Cubre crear el traslado y confirmar la recepcion -- los dos caminos del
   // flujo de Traslados que llaman a mensajeError (ver PantallaTraslado*.tsx).
   traslado: 'No se pudo procesar el traslado. Intentá de nuevo.',

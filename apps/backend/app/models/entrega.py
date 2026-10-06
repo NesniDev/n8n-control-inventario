@@ -60,6 +60,9 @@ class ItemEntrega(BaseModel):
     descripcion: str
     cantidad_entregada: int
     cantidad_pendiente: int
+    # Unidades cerradas sin entregarse (facturadas de mas o equivocadas) --
+    # ver app/services/no_entregados.py.
+    cantidad_no_entregada: int = 0
     # Nota manual del bodeguero (una sola, se sobreescribe) -- no la pone la
     # IA, es informacion adicional libre sobre ese producto puntual.
     nota: str | None = None

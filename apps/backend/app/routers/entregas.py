@@ -32,7 +32,9 @@ from app.models.entrega import (
 )
 from app.models.log import EventoLog
 from app.services.permisos_dashboard import usuario_dashboard
+from app.models.no_entregado import NoEntregadoCreate
 from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
+from app.services.no_entregados import NoEntregadoInvalido, registrar_no_entregado
 from app.services.duplicates import (
     CantidadInvalida,
     DespachoEnRemisiones,
@@ -548,6 +550,27 @@ async def crear_devolucion(entrega_id: str, payload: DevolucionCreate) -> dict:
     return {"item": item.model_dump()}
 
 
+@router.post("/{entrega_id}/no-entregados")
+async def crear_no_entregado(entrega_id: str, payload: NoEntregadoCreate) -> dict:
+    """Marca unidades de un producto como 'no se entrega' (facturado de mas,
+    producto equivocado, sin existencia...). Se cierran sin entregarse: salen
+    de pendiente y quedan registradas aparte de las devoluciones."""
+    pool = await get_pool()
+    existente = await pool.fetchrow("select id from entregas where id = $1::uuid", entrega_id)
+    if existente is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+
+    try:
+        item = await registrar_no_entregado(entrega_id, payload)
+    except NoEntregadoInvalido as exc:
+        # 422 y no 502/503/504 -- misma trampa de Traefik que CantidadInvalida.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RolNoAutorizado as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    return {"item": item.model_dump()}
+
+
 _SELECT_ENTREGAS_BASE = """
     select e.*, s.nombre as sede_origen_nombre, op.nombre as operador_nombre,
         op.rol as operador_rol, bod.nombre as bodeguero_nombre,
@@ -567,6 +590,7 @@ _SELECT_ENTREGAS_BASE = """
                     'id', i.id, 'descripcion', i.descripcion,
                     'cantidad_entregada', i.cantidad_entregada,
                     'cantidad_pendiente', i.cantidad_pendiente,
+                    'cantidad_no_entregada', i.cantidad_no_entregada,
                     'nota', i.nota,
                     'confirmado', (i.actualizado_at > i.creado_at),
                     'entregado_en_punto_venta', i.entregado_en_punto_venta,

@@ -59,6 +59,8 @@ export interface ItemEntrega {
   descripcion: string;
   cantidad_entregada: number;
   cantidad_pendiente: number;
+  // Unidades cerradas sin entregarse ("No se entrega" desde la app movil).
+  cantidad_no_entregada?: number;
 }
 
 export interface Entrega {

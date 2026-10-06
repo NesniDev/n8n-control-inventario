@@ -28,10 +28,12 @@ import {
   confirmarItems,
   fetchHistorialEntrega,
   registrarDevolucion,
+  registrarNoEntregado,
   subirEvidencia,
   subirFirma,
   type LogEntry,
   type MotivoDevolucion,
+  type MotivoNoEntregado,
   type ResolucionDevolucion,
 } from './api';
 import EvitarTeclado from './EvitarTeclado';
@@ -83,12 +85,33 @@ interface DevolucionDraft {
 
 const DEVOLUCION_DRAFT_VACIO: DevolucionDraft = { cantidad: '', motivo: null, resolucion: null };
 
+// Lista fija de motivos de "No se entrega" (mismos valores que el backend).
+const MOTIVOS_NO_ENTREGADO: { valor: MotivoNoEntregado; texto: string }[] = [
+  { valor: 'facturado_de_mas', texto: 'Facturado de más' },
+  { valor: 'producto_equivocado', texto: 'Producto equivocado' },
+  { valor: 'sin_existencia', texto: 'Sin existencia' },
+  { valor: 'otro', texto: 'Otro' },
+];
+
+const TEXTO_MOTIVO_NO_ENTREGADO: Record<string, string> = Object.fromEntries(
+  MOTIVOS_NO_ENTREGADO.map((m) => [m.valor, m.texto])
+);
+
+interface NoEntregadoDraft {
+  cantidad: string;
+  motivo: MotivoNoEntregado | null;
+}
+
+const NO_ENTREGADO_DRAFT_VACIO: NoEntregadoDraft = { cantidad: '', motivo: null };
+
 interface EventoHistorial {
   fecha: string;
   texto: string;
   // Distingue una devolucion de una entrega comun -- se usa para mostrar un
   // icono distinto en la fila, sin meter el icono adentro del texto.
   esDevolucion: boolean;
+  // Idem para un "No se entrega".
+  esNoEntregado: boolean;
 }
 
 // Arma el historial de fechas de UN producto puntual a partir del historial
@@ -108,6 +131,7 @@ function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial
           fecha: log.timestamp,
           texto: `Entregado ${encontrado.cantidad_entregada} · Pendiente ${encontrado.cantidad_pendiente}`,
           esDevolucion: false,
+          esNoEntregado: false,
         });
       }
     } else if (log.evento === 'devolucion_registrada' && log.detalle?.item_id === itemId) {
@@ -116,6 +140,15 @@ function historialDeItem(historial: LogEntry[], itemId: string): EventoHistorial
         fecha: log.timestamp,
         texto: `Devolución de ${log.detalle.cantidad} (${log.detalle.motivo}) -- ${resolucion}`,
         esDevolucion: true,
+        esNoEntregado: false,
+      });
+    } else if (log.evento === 'item_no_entregado' && log.detalle?.item_id === itemId) {
+      const motivo = TEXTO_MOTIVO_NO_ENTREGADO[log.detalle.motivo] ?? log.detalle.motivo;
+      eventos.push({
+        fecha: log.timestamp,
+        texto: `No se entrega ${log.detalle.cantidad} (${motivo})`,
+        esDevolucion: false,
+        esNoEntregado: true,
       });
     }
   }
@@ -274,6 +307,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
   // cerrar o al registrar con exito (ver alternarDevolucion).
   const [devolucionesAbiertas, setDevolucionesAbiertas] = useState<Set<string>>(new Set());
   const [devolucionDrafts, setDevolucionDrafts] = useState<Record<string, DevolucionDraft>>({});
+  // Idem para el formulario "No se entrega".
+  const [noEntregadosAbiertos, setNoEntregadosAbiertos] = useState<Set<string>>(new Set());
+  const [noEntregadoDrafts, setNoEntregadoDrafts] = useState<Record<string, NoEntregadoDraft>>({});
   // Historial de logs de la entrega actual -- se pide una sola vez (todos
   // los productos comparten el mismo fetch) al abrir el primer historial.
   const [historial, setHistorial] = useState<LogEntry[] | null>(null);
@@ -420,6 +456,18 @@ export default function PantallaConfirmando({ navigation }: Props) {
     });
   };
 
+  const alternarNoEntregado = (id: string) => {
+    setNoEntregadosAbiertos((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(id)) {
+        siguiente.delete(id);
+      } else {
+        siguiente.add(id);
+      }
+      return siguiente;
+    });
+  };
+
   // Se pide el historial una sola vez por entrega (todos los productos
   // comparten el mismo fetch a /logs); si ya esta cargado, solo alterna la
   // visibilidad de este item puntual.
@@ -521,6 +569,53 @@ export default function PantallaConfirmando({ navigation }: Props) {
       setMensaje('Devolución registrada.');
     } catch (err: any) {
       setMensaje(mensajeError(err, 'devolucion'));
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const actualizarDraftNoEntregado = (id: string, cambios: Partial<NoEntregadoDraft>) => {
+    setNoEntregadoDrafts((prev) => ({
+      ...prev,
+      [id]: { ...NO_ENTREGADO_DRAFT_VACIO, ...prev[id], ...cambios },
+    }));
+  };
+
+  // "No se entrega": unidades facturadas de mas o equivocadas que se cierran
+  // sin entregarse -- accion propia e inmediata, igual que la devolucion.
+  const registrarNoEntregadoItem = async (item: ItemFormulario) => {
+    if (!entregaId || !empleado) return;
+    const draft = noEntregadoDrafts[item.id];
+    const cantidad = Number((draft?.cantidad ?? '').trim());
+    if (!draft?.motivo || !/^\d+$/.test(draft.cantidad.trim())) return;
+    if (cantidad <= 0 || cantidad > item.cantidad_pendiente) return;
+
+    setCargando(true);
+    setMensaje('Registrando producto no entregado...');
+    try {
+      const { item: itemActualizado } = await registrarNoEntregado(entregaId, {
+        item_id: item.id,
+        cantidad,
+        motivo: draft.motivo,
+        operador_id: empleado.id,
+        sede_id: sede?.id ?? '',
+      });
+      // El valor tipeado (entregado hoy) puede haber quedado invalido contra
+      // el nuevo pendiente -- se limpia para que lo carguen de nuevo.
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === item.id ? { ...it, ...itemActualizado, valor: '', nota: itemActualizado.nota ?? '' } : it
+        )
+      );
+      setNoEntregadoDrafts((prev) => {
+        const { [item.id]: _descartado, ...resto } = prev;
+        return resto;
+      });
+      alternarNoEntregado(item.id);
+      setHistorial(null); // se acaba de sumar un evento nuevo -- refresca al reabrir
+      setMensaje('Producto marcado como no entregado.');
+    } catch (err: any) {
+      setMensaje(mensajeError(err, 'no_entregado'));
     } finally {
       setCargando(false);
     }
@@ -858,6 +953,21 @@ export default function PantallaConfirmando({ navigation }: Props) {
               Number(draft.cantidad.trim()) <= item.cantidad_entregada;
             const puedeRegistrarDevolucion =
               cantidadDevolucionValida && !!draft.motivo && !!draft.resolucion && !cargando;
+            // "No se entrega" cierra pendiente sin entregar: solo aplica sobre
+            // un documento que ya existia y todavia tiene pendiente.
+            const puedeNoEntregar = situacion === 'actualizable' && item.cantidad_pendiente > 0;
+            const noEntregadoAbierto = noEntregadosAbiertos.has(item.id);
+            const draftNoEntregado = noEntregadoDrafts[item.id] ?? NO_ENTREGADO_DRAFT_VACIO;
+            const cantidadNoEntregada = item.cantidad_no_entregada ?? 0;
+            const itemTachado =
+              item.cantidad_pendiente === 0 && item.cantidad_entregada === 0 && cantidadNoEntregada > 0;
+            const todoNoEntregado = draftNoEntregado.cantidad.trim() === String(item.cantidad_pendiente);
+            const cantidadNoEntregadoValida =
+              /^\d+$/.test(draftNoEntregado.cantidad.trim()) &&
+              Number(draftNoEntregado.cantidad.trim()) > 0 &&
+              Number(draftNoEntregado.cantidad.trim()) <= item.cantidad_pendiente;
+            const puedeRegistrarNoEntregado =
+              cantidadNoEntregadoValida && !!draftNoEntregado.motivo && !cargando;
             // El historial de fechas solo tiene sentido para algo que ya
             // existia antes -- un documento recien escaneado sin confirmar
             // todavia no tiene nada que mostrar.
@@ -885,7 +995,13 @@ export default function PantallaConfirmando({ navigation }: Props) {
                       style={[styles.itemDescripcion, styles.inputDescripcion, { flex: 1 }]}
                     />
                   ) : (
-                    <Text style={[styles.itemDescripcion, { flex: 1 }]}>
+                    <Text
+                      style={[
+                        styles.itemDescripcion,
+                        { flex: 1 },
+                        itemTachado && { textDecorationLine: 'line-through' },
+                      ]}
+                    >
                       {item.descripcion || 'Producto sin descripción'}
                     </Text>
                   )}
@@ -917,6 +1033,13 @@ export default function PantallaConfirmando({ navigation }: Props) {
                       onPress={() => alternarDevolucion(item.id)}
                     />
                   ) : null}
+                  {puedeNoEntregar ? (
+                    <BotonAccionItem
+                      icono="remove-circle-outline"
+                      activo={noEntregadoAbierto}
+                      onPress={() => alternarNoEntregado(item.id)}
+                    />
+                  ) : null}
                   <BotonAccionItem
                     icono={item.nota.trim() ? 'document-text' : 'document-text-outline'}
                     activo={!!item.nota.trim() || notaAbierta}
@@ -944,6 +1067,9 @@ export default function PantallaConfirmando({ navigation }: Props) {
                           {evento.esDevolucion ? (
                             <Ionicons name="arrow-undo-outline" size={12} color={NEUTRAL_500} />
                           ) : null}
+                          {evento.esNoEntregado ? (
+                            <Ionicons name="remove-circle-outline" size={12} color={NEUTRAL_500} />
+                          ) : null}
                           <Text style={styles.historialTexto}>{evento.texto}</Text>
                         </View>
                       ))
@@ -965,6 +1091,75 @@ export default function PantallaConfirmando({ navigation }: Props) {
                     <Ionicons name="document-text-outline" size={13} color={NEUTRAL_400} />
                     <Text style={styles.notaPreview}>{item.nota}</Text>
                   </Pressable>
+                ) : null}
+
+                {cantidadNoEntregada > 0 ? (
+                  <Text style={styles.previewSubtexto}>No se entrega: {cantidadNoEntregada}</Text>
+                ) : null}
+
+                {noEntregadoAbierto ? (
+                  <View style={styles.devolucionCaja}>
+                    <Text style={styles.etiquetaSeccion}>No se entrega -- cantidad</Text>
+                    <TextInput
+                      value={draftNoEntregado.cantidad}
+                      onChangeText={(texto) => actualizarDraftNoEntregado(item.id, { cantidad: texto })}
+                      keyboardType="number-pad"
+                      placeholder={`Máx. ${item.cantidad_pendiente}`}
+                      placeholderTextColor="#8193bb"
+                      style={styles.inputCantidad}
+                    />
+                    <View style={styles.chipsEnvoltorio}>
+                      <Pressable
+                        onPress={() =>
+                          actualizarDraftNoEntregado(item.id, { cantidad: String(item.cantidad_pendiente) })
+                        }
+                        style={[styles.chipSede, styles.chipSedeFila, todoNoEntregado && styles.chipSedeActiva]}
+                      >
+                        <Ionicons
+                          name="remove-circle-outline"
+                          size={14}
+                          color={todoNoEntregado ? '#fff' : NEUTRAL_400}
+                        />
+                        <Text style={[styles.chipSedeTexto, todoNoEntregado && styles.chipSedeTextoActivo]}>
+                          Todo (tachar)
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <Text style={styles.etiquetaSeccion}>Motivo</Text>
+                    <View style={styles.chipsEnvoltorio}>
+                      {MOTIVOS_NO_ENTREGADO.map((m) => {
+                        const activo = draftNoEntregado.motivo === m.valor;
+                        return (
+                          <Pressable
+                            key={m.valor}
+                            onPress={() => actualizarDraftNoEntregado(item.id, { motivo: m.valor })}
+                            style={[styles.chipSede, activo && styles.chipSedeActiva]}
+                          >
+                            <Text style={[styles.chipSedeTexto, activo && styles.chipSedeTextoActivo]}>
+                              {m.texto}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.previewSubtexto}>
+                      Esa cantidad queda cerrada sin entregarse -- deja de estar pendiente.
+                    </Text>
+
+                    <Pressable
+                      disabled={!puedeRegistrarNoEntregado}
+                      style={({ pressed }) => [
+                        styles.boton,
+                        styles.botonPrimario,
+                        !puedeRegistrarNoEntregado && styles.botonDeshabilitado,
+                        pressed && puedeRegistrarNoEntregado && styles.botonPresionado,
+                      ]}
+                      onPress={() => registrarNoEntregadoItem(item)}
+                    >
+                      <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="remove-circle-outline" texto="Registrar" />
+                    </Pressable>
+                  </View>
                 ) : null}
 
                 {devolucionAbierta ? (

@@ -37,6 +37,13 @@ _RESOLUCIONES_LEGIBLES = {
     "reposicion": "Reposición",
     "reembolso": "Reembolso",
 }
+# Mismos valores que MotivoNoEntregado en app/models/no_entregado.py.
+_MOTIVOS_NO_ENTREGADO_LEGIBLES = {
+    "facturado_de_mas": "Facturado de más",
+    "producto_equivocado": "Producto equivocado",
+    "sin_existencia": "Sin existencia",
+    "otro": "Otro",
+}
 
 
 def _orden_tipo(tipo: str) -> tuple[int, str]:
@@ -97,6 +104,18 @@ def _devoluciones_por_entrega(devoluciones_rows: list) -> dict[str, list[str]]:
     return resumen
 
 
+def _no_entregados_por_entrega(no_entregados_rows: list) -> dict[str, list[str]]:
+    """Un resumen legible por registro de 'no se entrega' (ver
+    app/services/no_entregados.py), ya ordenados por fecha."""
+    resumen: dict[str, list[str]] = defaultdict(list)
+    for n in no_entregados_rows:
+        entrega_id = str(n["entrega_id"])
+        fecha = n["creado_at"].strftime("%d/%m/%Y")
+        motivo = _MOTIVOS_NO_ENTREGADO_LEGIBLES.get(n["motivo"], n["motivo"])
+        resumen[entrega_id].append(f"{fecha}: {n['cantidad']} und ({motivo})")
+    return resumen
+
+
 async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
     """Una hoja por mes (todo el historico, orden cronologico) -- dentro de
     cada hoja, un bloque de columnas por tipo de documento (Fecha, Número,
@@ -141,9 +160,17 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
         [r for r in devoluciones_rows if str(r["entrega_id"]) in ids_relevantes]
     )
 
-    # (año, mes) -> tipo -> [(fecha, numero, cantidad_total, ocasiones, devoluciones), ...]
+    no_entregados_rows = await pool.fetch(
+        "select entrega_id, cantidad, motivo, creado_at from items_no_entregados order by entrega_id, creado_at"
+    )
+    no_entregados_por_entrega = _no_entregados_por_entrega(
+        [r for r in no_entregados_rows if str(r["entrega_id"]) in ids_relevantes]
+    )
+
+    # (año, mes) -> tipo -> [(fecha, numero, cantidad_total, ocasiones, devoluciones, no_entregados), ...]
     por_mes: dict[
-        tuple[int, int], dict[str, list[tuple[datetime, str, int, list[tuple[datetime, int]], list[str]]]]
+        tuple[int, int],
+        dict[str, list[tuple[datetime, str, int, list[tuple[datetime, int]], list[str], list[str]]]],
     ] = defaultdict(lambda: defaultdict(list))
     for r in entregas_rows:
         entrega_id = str(r["id"])
@@ -152,8 +179,9 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
         cantidad_total = cantidad_total_por_entrega.get(entrega_id, 0)
         ocasiones = sorted(ocasiones_por_entrega.get(entrega_id, []), key=lambda o: o[0])
         devoluciones = devoluciones_por_entrega.get(entrega_id, [])
+        no_entregados = no_entregados_por_entrega.get(entrega_id, [])
         por_mes[(fecha.year, fecha.month)][tipo].append(
-            (fecha, r["indicativo_numero"] or "", cantidad_total, ocasiones, devoluciones)
+            (fecha, r["indicativo_numero"] or "", cantidad_total, ocasiones, devoluciones, no_entregados)
         )
 
     wb = Workbook()
@@ -167,13 +195,13 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
         columna = 1
         for tipo in sorted(tipos_del_mes.keys(), key=_orden_tipo):
             entradas = sorted(tipos_del_mes[tipo], key=lambda e: e[0])
-            columnas_bloque = [get_column_letter(columna + i) for i in range(7)]
+            columnas_bloque = [get_column_letter(columna + i) for i in range(8)]
             (
                 col_fecha, col_numero, col_cantidad, col_n_entregas,
-                col_fechas_ent, col_cantidades_ent, col_devoluciones,
+                col_fechas_ent, col_cantidades_ent, col_devoluciones, col_no_entregados,
             ) = columnas_bloque
 
-            ws.merge_cells(f"{col_fecha}1:{col_devoluciones}1")
+            ws.merge_cells(f"{col_fecha}1:{col_no_entregados}1")
             encabezado = ws[f"{col_fecha}1"]
             encabezado.value = tipo
             encabezado.font = Font(bold=True)
@@ -181,14 +209,14 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
 
             titulos = [
                 "Fecha", "Número", "Cantidad entregada", "N° entregas",
-                "Fechas entregas", "Cantidades entregas", "Devoluciones",
+                "Fechas entregas", "Cantidades entregas", "Devoluciones", "No entregados",
             ]
             for col, titulo in zip(columnas_bloque, titulos):
                 celda = ws[f"{col}2"]
                 celda.value = titulo
                 celda.font = Font(bold=True)
 
-            for i, (fecha, numero, cantidad_total, ocasiones, devoluciones) in enumerate(entradas, start=3):
+            for i, (fecha, numero, cantidad_total, ocasiones, devoluciones, no_entregados) in enumerate(entradas, start=3):
                 ws[f"{col_fecha}{i}"] = fecha.strftime("%d/%m/%Y")
                 ws[f"{col_numero}{i}"] = numero
                 ws[f"{col_cantidad}{i}"] = cantidad_total
@@ -196,6 +224,7 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
                 ws[f"{col_fechas_ent}{i}"] = ", ".join(f.strftime("%d/%m/%Y") for f, _ in ocasiones)
                 ws[f"{col_cantidades_ent}{i}"] = ", ".join(str(c) for _, c in ocasiones)
                 ws[f"{col_devoluciones}{i}"] = "; ".join(devoluciones)
+                ws[f"{col_no_entregados}{i}"] = "; ".join(no_entregados)
 
             ws.column_dimensions[col_fecha].width = 12
             ws.column_dimensions[col_numero].width = 16
@@ -204,7 +233,8 @@ async def generar_reporte_mensual_xlsx(*, sede_id: str | None = None) -> bytes:
             ws.column_dimensions[col_fechas_ent].width = 28
             ws.column_dimensions[col_cantidades_ent].width = 22
             ws.column_dimensions[col_devoluciones].width = 40
-            columna += 8  # 7 columnas del bloque + 1 en blanco como separador
+            ws.column_dimensions[col_no_entregados].width = 40
+            columna += 9  # 8 columnas del bloque + 1 en blanco como separador
 
     buffer = io.BytesIO()
     wb.save(buffer)
