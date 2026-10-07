@@ -16,4 +16,6 @@ class Producto(ProductoCreate):
 
 
 class ProductoActualizar(ApiModel):
-    nombre: str
+    # Se puede corregir solo el codigo, solo el nombre, o ambos a la vez.
+    codigo: str | None = None
+    nombre: str | None = None

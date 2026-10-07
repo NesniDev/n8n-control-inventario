@@ -49,12 +49,28 @@ async def crear_producto(producto: ProductoCreate) -> dict:
 
 @router.patch("/{producto_id}", dependencies=[Depends(requiere_supervisor)])
 async def actualizar_producto(producto_id: str, cambios: ProductoActualizar) -> dict:
+    codigo = cambios.codigo.strip() if cambios.codigo is not None else None
+    nombre = cambios.nombre.strip() if cambios.nombre is not None else None
+    if codigo == "" or nombre == "":
+        raise HTTPException(status_code=422, detail="El código y el nombre no pueden quedar vacíos.")
+    if codigo is None and nombre is None:
+        raise HTTPException(status_code=422, detail="No hay cambios para guardar.")
+
     pool = await get_pool()
-    row = await pool.fetchrow(
-        "update productos set nombre = $2 where id = $1::uuid returning *",
-        producto_id,
-        cambios.nombre,
-    )
+    try:
+        row = await pool.fetchrow(
+            """
+            update productos
+            set codigo = coalesce($2, codigo), nombre = coalesce($3, nombre)
+            where id = $1::uuid
+            returning *
+            """,
+            producto_id,
+            codigo,
+            nombre,
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise HTTPException(status_code=409, detail="Ya existe un producto con ese código.") from exc
     if row is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
     return _con_id(row)

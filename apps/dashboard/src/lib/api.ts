@@ -417,11 +417,14 @@ export async function crearProducto(datos: { codigo: string; nombre: string }): 
   return res.json();
 }
 
-export async function actualizarProducto(id: string, nombre: string): Promise<Producto> {
+export async function actualizarProducto(
+  id: string,
+  cambios: { codigo?: string; nombre?: string },
+): Promise<Producto> {
   const res = await apiFetch(`/productos/${id}`, {
     method: "PATCH",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ nombre }),
+    body: JSON.stringify(cambios),
   });
   if (!res.ok) {
     throw new Error(await mensajeDeError(res, "No se pudo actualizar el producto"));

@@ -28,6 +28,7 @@ export default function ProductosPage() {
   const [agregando, setAgregando] = useState(false);
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [codigoEditado, setCodigoEditado] = useState("");
   const [nombreEditado, setNombreEditado] = useState("");
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
@@ -50,18 +51,29 @@ export default function ProductosPage() {
   const empezarEdicion = (producto: Producto) => {
     if (!puedeEditar) return;
     setEditandoId(producto.id);
+    setCodigoEditado(producto.codigo);
     setNombreEditado(producto.nombre);
   };
 
-  const guardarEdicion = async (id: string) => {
-    if (!nombreEditado.trim()) return;
+  const guardarEdicion = async (producto: Producto) => {
+    const codigo = codigoEditado.trim();
+    const nombre = nombreEditado.trim();
+    if (!codigo || !nombre) return;
+    if (codigo === producto.codigo && nombre === producto.nombre) {
+      setEditandoId(null);
+      return;
+    }
     setGuardandoEdicion(true);
     try {
-      await actualizarProducto(id, nombreEditado.trim());
+      await actualizarProducto(producto.id, {
+        ...(codigo !== producto.codigo ? { codigo } : {}),
+        ...(nombre !== producto.nombre ? { nombre } : {}),
+      });
+      toast.success("Producto actualizado");
       setEditandoId(null);
       recargar();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo corregir el nombre");
+      toast.error(err instanceof Error ? err.message : "No se pudo actualizar el producto");
     } finally {
       setGuardandoEdicion(false);
     }
@@ -72,7 +84,7 @@ export default function ProductosPage() {
       <EncabezadoPagina
         sobretitulo="Control logístico · catálogo"
         titulo="Catálogo de productos"
-        descripcion="Se completa solo a partir de las facturas procesadas — aquí puedes buscarlo y, si tu rol lo permite, corregir un nombre a mano."
+        descripcion="Se completa solo a partir de las facturas procesadas — aquí puedes buscarlo y, si tu rol lo permite, corregir el código o el nombre a mano."
       />
 
       {/* Agregar a mano + buscador, en una sola tarjeta de filtros, mismo
@@ -163,46 +175,64 @@ export default function ProductosPage() {
                 key={producto.id}
                 className="flex items-center justify-between gap-3 px-2 py-2.5 text-sm transition hover:bg-surface-2/60"
               >
-                <span className="w-24 shrink-0 font-mono text-xs text-muted">{producto.codigo}</span>
-                <div className="min-w-0 flex-1">
-                  {editandoId === producto.id ? (
+                {editandoId === producto.id ? (
+                  <>
+                    <input
+                      value={codigoEditado}
+                      onChange={(e) => setCodigoEditado(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") guardarEdicion(producto);
+                        if (e.key === "Escape") setEditandoId(null);
+                      }}
+                      aria-label="Código"
+                      className="w-24 shrink-0 rounded-md border border-line-strong bg-page px-2 py-1 font-mono text-xs text-ink"
+                    />
                     <input
                       autoFocus
                       value={nombreEditado}
                       onChange={(e) => setNombreEditado(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && guardarEdicion(producto.id)}
-                      className="w-full rounded-md border border-line-strong bg-page px-2 py-1 text-sm text-ink"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") guardarEdicion(producto);
+                        if (e.key === "Escape") setEditandoId(null);
+                      }}
+                      aria-label="Nombre"
+                      className="min-w-0 flex-1 rounded-md border border-line-strong bg-page px-2 py-1 text-sm text-ink"
                     />
-                  ) : (
-                    <button
-                      onClick={() => empezarEdicion(producto)}
-                      disabled={!puedeEditar}
-                      className="truncate text-left text-ink hover:text-ink disabled:cursor-default disabled:hover:text-ink"
-                      title={puedeEditar ? "Click para corregir el nombre" : undefined}
-                    >
-                      {producto.nombre}
-                    </button>
-                  )}
-                </div>
-                <div className="shrink-0">
-                  {editandoId === producto.id ? (
-                    <div className="flex justify-end gap-2">
+                  </>
+                ) : (
+                  <>
+                    <span className="w-24 shrink-0 font-mono text-xs text-muted">{producto.codigo}</span>
+                    <span className="min-w-0 flex-1 truncate text-ink">{producto.nombre}</span>
+                  </>
+                )}
+                {puedeEditar ? (
+                  <div className="shrink-0">
+                    {editandoId === producto.id ? (
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => guardarEdicion(producto)}
+                          disabled={guardandoEdicion || !codigoEditado.trim() || !nombreEditado.trim()}
+                          className="cursor-pointer text-xs font-medium text-ink hover:text-ink disabled:opacity-50"
+                        >
+                          {guardandoEdicion ? "Guardando…" : "Guardar"}
+                        </button>
+                        <button
+                          onClick={() => setEditandoId(null)}
+                          className="cursor-pointer text-xs font-medium text-muted hover:text-ink"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => guardarEdicion(producto.id)}
-                        disabled={guardandoEdicion}
-                        className="text-xs font-medium text-ink hover:text-ink disabled:opacity-50"
+                        onClick={() => empezarEdicion(producto)}
+                        className="cursor-pointer rounded-md border border-line px-2 py-1 text-xs font-medium text-muted transition hover:border-line-strong hover:text-ink"
                       >
-                        Guardar
+                        Editar
                       </button>
-                      <button
-                        onClick={() => setEditandoId(null)}
-                        className="text-xs font-medium text-muted hover:text-ink"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
+                    )}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

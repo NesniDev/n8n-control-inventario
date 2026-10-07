@@ -35,7 +35,10 @@ async def ranking_productos(
         parametros.append(sede_id)
 
     filas = await pool.fetch(consulta, *parametros)
-    mas_vendidos, menos_vendidos = calcular_ranking_productos(filas, limit)
+    # El catalogo completa el codigo de las descripciones que llegaron sin el
+    # y pone el nombre corregido a mano (ver app/services/ranking.py).
+    catalogo = await pool.fetch("select codigo, nombre from productos")
+    mas_vendidos, menos_vendidos = calcular_ranking_productos(filas, limit, catalogo)
 
     return RankingProductosResponse(
         desde=desde,
