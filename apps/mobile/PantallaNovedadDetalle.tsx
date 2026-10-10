@@ -226,7 +226,7 @@ export default function PantallaNovedadDetalle({ route }: Props) {
 
           {conDiferencia.length > 0 ? (
             <View style={styles.tarjeta}>
-              <Text style={styles.etiquetaSeccion}>Productos con diferencia</Text>
+              <Text style={styles.etiquetaSeccion}>Productos con observación</Text>
               {conDiferencia.map((item) => {
                 const llegaron = item.cantidad_recibida ?? 0;
                 const faltan = item.cantidad - llegaron;

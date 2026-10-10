@@ -14,14 +14,15 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 
-import { extraerTalonario, subirEvidencia } from './api';
+import { extraerTalonario, subirEvidencia, type Punto } from './api';
+import { quitarCodigo } from './PantallaEntrada';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import CampoFirma from './CampoFirma';
 import { comprimirParaEnvio } from './EntregaContext';
 import HojaModal from './HojaModal';
 import ModalProducto, { productoValido } from './ModalProducto';
-import { formatearFechaLarga, textoVencimiento } from './SelectorFecha';
+import { formatearFechaCorta, formatearFechaLarga } from './SelectorFecha';
 import { AvisoRol } from './ResumenTraslado';
 import { HeaderTraslado, nuevoItemDraft, useTraslado, type ItemTrasladoDraft } from './TrasladoContext';
 import {
@@ -31,13 +32,17 @@ import {
   FUENTE_DISPLAY,
   NEUTRAL_400,
   NEUTRAL_500,
+  NEUTRAL_700,
+  NEUTRAL_800,
   styles,
   TEXTO_PRIMARIO,
   TEXTO_SOBRE_ACENTO,
 } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
 
-type NavegacionNuevo = NativeStackNavigationProp<TrasladosStackParamList, 'NuevoTraslado'>;
+type IconoNombre = keyof typeof Ionicons.glyphMap;
+
+type NavegacionNuevo =NativeStackNavigationProp<TrasladosStackParamList, 'NuevoTraslado'>;
 
 const FECHA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -47,12 +52,52 @@ function fechaValida(valor: string): boolean {
   return !Number.isNaN(fecha.getTime());
 }
 
-// Dato del encabezado leido de la foto, solo lectura.
-function CampoLectura({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+// Punto del recorrido (origen o destino) en la tarjeta de datos leidos: nombre
+// sin el codigo y el codigo aparte, en un chip.
+function PuntoRuta({ etiqueta, punto, icono }: { etiqueta: string; punto: Punto | null; icono: IconoNombre }) {
   return (
-    <View style={estilos.campoLectura}>
-      <Text style={styles.etiquetaSeccion}>{etiqueta}</Text>
-      <Text style={estilos.valorLectura}>{valor || '—'}</Text>
+    <View style={estilos.puntoRuta}>
+      <View style={estilos.puntoRutaIcono}>
+        <Ionicons name={icono} size={18} color={ACENTO} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.etiquetaSeccion}>{etiqueta}</Text>
+        <Text style={estilos.valorLectura} numberOfLines={1}>
+          {punto ? quitarCodigo(punto) : '—'}
+        </Text>
+      </View>
+      {punto?.codigo ? (
+        <View style={estilos.chipCodigo}>
+          <Text style={estilos.chipCodigoTexto}>{punto.codigo}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// Dato chico del encabezado (transportador, fecha) con su icono.
+function DatoLectura({ etiqueta, valor, icono }: { etiqueta: string; valor: string; icono: IconoNombre }) {
+  return (
+    <View style={estilos.datoLectura}>
+      <View style={estilos.datoLecturaEtiqueta}>
+        <Ionicons name={icono} size={14} color={NEUTRAL_500} />
+        <Text style={styles.etiquetaSeccion}>{etiqueta}</Text>
+      </View>
+      <Text style={estilos.valorLectura} numberOfLines={2}>
+        {valor || '—'}
+      </Text>
+    </View>
+  );
+}
+
+// Chip de detalle de un producto (marca, presentacion, vencimiento).
+function ChipDetalle({ icono, texto, destacado }: { icono: IconoNombre; texto: string; destacado?: boolean }) {
+  return (
+    <View style={[estilos.chipDetalle, destacado && estilos.chipDetalleDestacado]}>
+      <Ionicons name={icono} size={12} color={destacado ? ACENTO : NEUTRAL_400} />
+      <Text style={[estilos.chipDetalleTexto, destacado && { color: ACENTO }]} numberOfLines={1}>
+        {texto}
+      </Text>
     </View>
   );
 }
@@ -241,47 +286,107 @@ export default function PantallaTrasladoNuevo() {
 
           {lecturaCompleta ? (
             <>
+              {/* Datos leidos de la foto, solo lectura: n.º de talonario
+                  destacado (como el recuadro impreso), recorrido origen ->
+                  destino y abajo transportador y fecha. */}
               <View style={styles.tarjeta}>
-                <CampoLectura etiqueta="Número de talonario" valor={draft.numeroTalonario} />
-                <CampoLectura etiqueta="Origen" valor={punto?.nombre ?? '—'} />
-                <CampoLectura etiqueta="Destino" valor={draft.destino?.nombre ?? ''} />
-                <CampoLectura etiqueta="Transportador" valor={draft.transportadorNombre} />
-                <CampoLectura
-                  etiqueta="Fecha"
-                  valor={fechaValida(draft.fecha) ? formatearFechaLarga(draft.fecha) : ''}
-                />
+                <View style={estilos.encabezadoLectura}>
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Text style={styles.etiquetaSeccion}>N.º de talonario</Text>
+                    <View style={estilos.cajaTalonario}>
+                      <Text style={estilos.numeroTalonario} numberOfLines={1}>
+                        {draft.numeroTalonario}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={estilos.badgeLeido} accessibilityLabel="Datos leídos de la foto, no editables">
+                    <Ionicons name="lock-closed" size={11} color={NEUTRAL_400} />
+                    <Text style={estilos.badgeLeidoTexto}>Leído de la foto</Text>
+                  </View>
+                </View>
+
+                <View style={estilos.separador} />
+
+                <View>
+                  <PuntoRuta etiqueta="Origen" punto={punto ?? null} icono="storefront-outline" />
+                  <View style={estilos.conectorRuta}>
+                    <View style={estilos.lineaRuta} />
+                    <Ionicons name="arrow-down" size={14} color={NEUTRAL_500} />
+                    <View style={estilos.lineaRuta} />
+                  </View>
+                  <PuntoRuta etiqueta="Destino" punto={draft.destino} icono="flag-outline" />
+                </View>
+
+                <View style={estilos.separador} />
+
+                <View style={estilos.filaDatos}>
+                  <DatoLectura etiqueta="Transportador" valor={draft.transportadorNombre} icono="person-outline" />
+                  <DatoLectura
+                    etiqueta="Fecha"
+                    valor={fechaValida(draft.fecha) ? formatearFechaLarga(draft.fecha) : ''}
+                    icono="calendar-outline"
+                  />
+                </View>
               </View>
 
-              <Text style={styles.etiquetaSeccion}>Productos</Text>
+              <View style={estilos.encabezadoProductos}>
+                <View style={estilos.tituloProductos}>
+                  <Text style={styles.etiquetaSeccion}>Productos</Text>
+                  <View style={estilos.contador}>
+                    <Text style={estilos.contadorTexto}>{draft.items.length}</Text>
+                  </View>
+                </View>
+                {draft.items.length > 0 ? (
+                  <View style={estilos.pista}>
+                    <Ionicons name="create-outline" size={13} color={NEUTRAL_500} />
+                    <Text style={styles.previewSubtexto}>Toca uno para corregirlo</Text>
+                  </View>
+                ) : null}
+              </View>
               {draft.items.length === 0 ? (
                 <Text style={styles.previewSubtexto}>No quedan productos. Repite la foto para leerlos de nuevo.</Text>
               ) : null}
-              {draft.items.map((item) => {
-                const detalle = [item.marca, item.presentacion, textoVencimiento(item.fechaVencimiento)]
-                  .filter(Boolean)
-                  .join(' · ');
-                return (
-                  // Tocar la tarjeta la edita en el modal; la papelera la quita.
+              {draft.items.map((item) => (
+                // Tocar la tarjeta la edita en el modal; la papelera la quita.
+                <Pressable
+                  key={item.localId}
+                  onPress={() => setProductoEditado(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Corregir ${item.producto}`}
+                  style={({ pressed }) => [styles.tarjeta, estilos.tarjetaProducto, pressed && { opacity: 0.8 }]}
+                >
+                  <View style={estilos.cantidadCaja}>
+                    <Text style={estilos.cantidadTexto}>{item.cantidad}</Text>
+                    <Text style={estilos.cantidadEtiqueta}>und</Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <Text style={styles.itemDescripcion} numberOfLines={2}>
+                      {item.producto}
+                    </Text>
+                    {item.marca || item.presentacion || item.fechaVencimiento ? (
+                      <View style={estilos.chips}>
+                        {item.marca ? <ChipDetalle icono="pricetag-outline" texto={item.marca} /> : null}
+                        {item.presentacion ? <ChipDetalle icono="cube-outline" texto={item.presentacion} /> : null}
+                        {item.fechaVencimiento ? (
+                          <ChipDetalle
+                            icono="calendar-outline"
+                            texto={`Vence ${formatearFechaCorta(item.fechaVencimiento)}`}
+                            destacado
+                          />
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
                   <Pressable
-                    key={item.localId}
-                    onPress={() => setProductoEditado(item)}
-                    style={({ pressed }) => [styles.tarjeta, estilos.tarjetaProducto, pressed && { opacity: 0.8 }]}
+                    onPress={() => quitarItem(item.localId)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Quitar ${item.producto}`}
+                    style={({ pressed }) => [estilos.botonQuitar, pressed && { opacity: 0.6 }]}
                   >
-                    <View style={estilos.cantidadCaja}>
-                      <Text style={estilos.cantidadTexto}>{item.cantidad}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemDescripcion} numberOfLines={2}>
-                        {item.producto}
-                      </Text>
-                      {detalle ? <Text style={styles.previewSubtexto}>{detalle}</Text> : null}
-                    </View>
-                    <Pressable onPress={() => quitarItem(item.localId)} hitSlop={10}>
-                      <Ionicons name="trash-outline" size={20} color={NEUTRAL_400} />
-                    </Pressable>
+                    <Ionicons name="trash-outline" size={18} color={NEUTRAL_400} />
                   </Pressable>
-                );
-              })}
+                </Pressable>
+              ))}
 
               {/* Observaciones y firma de quien despacha van juntas: es lo ultimo
                   que se completa antes de pasarle el celular al conductor. */}
@@ -369,15 +474,102 @@ export default function PantallaTrasladoNuevo() {
 }
 
 const estilos = StyleSheet.create({
-  campoLectura: { gap: 2 },
   valorLectura: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
+  encabezadoLectura: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  cajaTalonario: {
+    alignSelf: 'flex-start',
+    borderWidth: 1.5,
+    borderColor: ACENTO,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(245,197,66,0.08)',
+  },
+  numeroTalonario: { color: ACENTO, fontSize: 22, fontFamily: FUENTE_DISPLAY, letterSpacing: 1 },
+  badgeLeido: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: NEUTRAL_800,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+  },
+  badgeLeidoTexto: { color: NEUTRAL_400, fontSize: 11, fontFamily: FUENTE_BODY_SEMI },
+  separador: { height: 1, backgroundColor: NEUTRAL_700, opacity: 0.6 },
+  puntoRuta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  puntoRutaIcono: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(245,197,66,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipCodigo: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: NEUTRAL_800,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+  },
+  chipCodigoTexto: { color: NEUTRAL_400, fontSize: 11, fontFamily: FUENTE_DISPLAY, letterSpacing: 0.5 },
+  // Linea vertical entre origen y destino, centrada bajo el icono (40 px).
+  conectorRuta: { width: 40, alignItems: 'center', paddingVertical: 2, gap: 2 },
+  lineaRuta: { width: 1.5, height: 6, backgroundColor: NEUTRAL_700 },
+  filaDatos: { flexDirection: 'row', gap: 12 },
+  datoLectura: {
+    flex: 1,
+    gap: 4,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: NEUTRAL_800,
+  },
+  datoLecturaEtiqueta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  encabezadoProductos: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 4,
+  },
+  tituloProductos: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  contador: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: 'rgba(245,197,66,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contadorTexto: { color: ACENTO, fontSize: 12, fontFamily: FUENTE_DISPLAY },
+  pista: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chipDetalle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: NEUTRAL_800,
+  },
+  chipDetalleDestacado: { backgroundColor: 'rgba(245,197,66,0.10)' },
+  chipDetalleTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
+  botonQuitar: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  cantidadEtiqueta: { color: NEUTRAL_500, fontSize: 10, fontFamily: FUENTE_BODY_SEMI, marginTop: -2 },
   miniatura: { width: '100%', height: 180, borderRadius: 12 },
   leyendo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   filaBotones: { flexDirection: 'row', gap: 10 },
-  tarjetaProducto: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  tarjetaProducto: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cantidadCaja: {
-    minWidth: 44,
-    height: 44,
+    minWidth: 52,
+    height: 52,
     paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: 'rgba(245,197,66,0.14)',

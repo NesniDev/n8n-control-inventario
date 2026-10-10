@@ -116,7 +116,7 @@ const CONSEJOS: { area: AreaConsejo; icono: keyof typeof Ionicons.glyphMap; text
   { area: 'traslados', icono: 'car-outline', texto: 'El conductor debe revisar la carga antes de firmar: su firma confirma lo que se lleva.' },
   { area: 'general', icono: 'log-out-outline', texto: 'Cierra sesión al terminar tu turno para que nadie trabaje con tu usuario.' },
   { area: 'despachos', icono: 'create-outline', texto: 'Si la lectura automática se equivocó en un producto, corrige el nombre antes de confirmar.' },
-  { area: 'traslados', icono: 'alert-circle-outline', texto: 'Al recibir, si algo llegó incompleto o dañado, toca «Con diferencia» y anota la novedad.' },
+  { area: 'traslados', icono: 'alert-circle-outline', texto: 'Al recibir, si algo llegó incompleto o dañado, toca «Con observación» y anota la novedad.' },
   { area: 'general', icono: 'rainy-outline', texto: 'Si va a llover, cubre la carga antes de que el vehículo salga de la bodega.' },
   { area: 'despachos', icono: 'layers-outline', texto: 'Si la entrega es parcial, registra solo lo que sale hoy: lo pendiente queda abierto para la próxima.' },
   { area: 'traslados', icono: 'list-outline', texto: 'Escribe los productos igual que en el papel: cantidad, nombre, marca y presentación.' },

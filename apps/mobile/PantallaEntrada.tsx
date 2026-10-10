@@ -66,7 +66,7 @@ const areaDe = (tipo: TipoSesion): Area => (tipo === 'bodega' ? 'bodega' : 'tras
 // restituye al entrar.
 type PuntoLogin = Punto & { nombreCompleto: string };
 
-const quitarCodigo = (punto: Punto) =>
+export const quitarCodigo = (punto: Punto) =>
   punto.codigo ? punto.nombre.replace(new RegExp(`^${punto.codigo}\\s*[—–-]\\s*`), '') : punto.nombre;
 
 // Ordenados alfabeticamente por el nombre que se ve (sin el codigo).

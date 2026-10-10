@@ -47,36 +47,87 @@ interface LineaRecepcion {
 const VERDE = '#34d399';
 const ROJO = '#f87171';
 
-// Novedades mas comunes -- un toque las agrega al texto de la linea, sin
-// tener que escribirlas en el celular.
-const NOVEDADES_RAPIDAS = ['Faltante', 'Llegó dañado', 'Producto equivocado', 'Empaque abierto'];
+const cantidadEsValida = (linea: LineaRecepcion, item: ItemTraslado) =>
+  /^\d+$/.test(linea.cantidadRecibida.trim()) && Number(linea.cantidadRecibida.trim()) <= item.cantidad;
 
-function TarjetaProductoRecepcion({
+// Cantidad que llego + novedad de un producto "con observacion". Va dentro de
+// un modal (ver PantallaTrasladoRecepcion) para que la tarjeta quede chica.
+function EditorObservacion({
   item,
   linea,
-  onElegirCompleto,
   onCambiar,
 }: {
   item: ItemTraslado;
   linea: LineaRecepcion;
-  onElegirCompleto: (completo: boolean) => void;
   onCambiar: (cambios: Partial<LineaRecepcion>) => void;
 }) {
   const recibida = Number(linea.cantidadRecibida.trim());
-  const cantidadValida = /^\d+$/.test(linea.cantidadRecibida.trim()) && recibida <= item.cantidad;
+  const cantidadValida = cantidadEsValida(linea, item);
   const faltan = cantidadValida ? item.cantidad - recibida : null;
-  const detalle = [item.marca, item.presentacion, textoVencimiento(item.fecha_vencimiento)].filter(Boolean).join(' · ');
 
   const ajustar = (delta: number) => {
     const actual = /^\d+$/.test(linea.cantidadRecibida.trim()) ? recibida : item.cantidad;
     onCambiar({ cantidadRecibida: String(Math.min(item.cantidad, Math.max(0, actual + delta))) });
   };
 
-  const agregarNovedad = (texto: string) => {
-    const actual = linea.novedad.trim();
-    if (actual.toLowerCase().includes(texto.toLowerCase())) return;
-    onCambiar({ novedad: actual ? `${actual}, ${texto.toLowerCase()}` : texto });
-  };
+  return (
+    <View style={{ gap: 14 }}>
+      <View style={{ gap: 6 }}>
+        <Text style={estilos.etiqueta}>Cantidad que llegó</Text>
+        <View style={estilos.stepper}>
+          <Pressable onPress={() => ajustar(-1)} style={estilos.stepperBoton} hitSlop={6}>
+            <Ionicons name="remove" size={20} color={TEXTO_PRIMARIO} />
+          </Pressable>
+          <TextInput
+            value={linea.cantidadRecibida}
+            onChangeText={(v) => onCambiar({ cantidadRecibida: v.replace(/[^0-9]/g, '') })}
+            keyboardType="number-pad"
+            style={[estilos.stepperInput, !cantidadValida && { borderColor: ROJO }]}
+            selectTextOnFocus
+          />
+          <Pressable onPress={() => ajustar(1)} style={estilos.stepperBoton} hitSlop={6}>
+            <Ionicons name="add" size={20} color={TEXTO_PRIMARIO} />
+          </Pressable>
+          <Text style={estilos.deEnviados}>de {item.cantidad}</Text>
+        </View>
+        {!cantidadValida ? (
+          <Text style={styles.textoErrorInline}>Debe ser un número entre 0 y {item.cantidad}.</Text>
+        ) : faltan && faltan > 0 ? (
+          <Text style={estilos.faltan}>
+            Faltan {faltan} {faltan === 1 ? 'unidad' : 'unidades'}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={{ gap: 6 }}>
+        <Text style={estilos.etiqueta}>Novedad</Text>
+        {/* Texto libre, sin sugerencias: quien recibe escribe lo que pasó. */}
+        <TextInput
+          value={linea.novedad}
+          onChangeText={(v) => onCambiar({ novedad: v })}
+          placeholder="Escribe la novedad (opcional)"
+          placeholderTextColor={NEUTRAL_500}
+          style={[styles.inputNota, { minHeight: 90, textAlignVertical: 'top' }]}
+          multiline
+        />
+      </View>
+    </View>
+  );
+}
+
+function TarjetaProductoRecepcion({
+  item,
+  linea,
+  onElegirCompleto,
+  onEditarObservacion,
+}: {
+  item: ItemTraslado;
+  linea: LineaRecepcion;
+  onElegirCompleto: (completo: boolean) => void;
+  onEditarObservacion: () => void;
+}) {
+  const detalle = [item.marca, item.presentacion, textoVencimiento(item.fecha_vencimiento)].filter(Boolean).join(' · ');
+  const cantidadValida = cantidadEsValida(linea, item);
 
   return (
     <View style={[styles.tarjeta, estilos.tarjeta, { borderColor: linea.completo ? 'rgba(52,211,153,0.4)' : 'rgba(248,113,113,0.5)' }]}>
@@ -91,72 +142,45 @@ function TarjetaProductoRecepcion({
       </View>
 
       {/* Dos opciones grandes en vez de un checkbox chico -- se toca con el
-          pulgar y se lee de lejos cual quedo elegida. */}
+          pulgar y se lee de lejos cual quedo elegida. "Con observacion" abre
+          el modal con la cantidad y la novedad. */}
       <View style={estilos.segmentado}>
         <Pressable
           onPress={() => onElegirCompleto(true)}
           style={[estilos.opcion, linea.completo && { backgroundColor: 'rgba(52,211,153,0.16)', borderColor: VERDE }]}
         >
-          <Ionicons name="checkmark-circle" size={18} color={linea.completo ? VERDE : NEUTRAL_500} />
+          <Ionicons name="checkmark-circle" size={16} color={linea.completo ? VERDE : NEUTRAL_500} />
           <Text style={[estilos.opcionTexto, linea.completo && { color: VERDE }]}>Llegó completo</Text>
         </Pressable>
         <Pressable
           onPress={() => onElegirCompleto(false)}
           style={[estilos.opcion, !linea.completo && { backgroundColor: 'rgba(248,113,113,0.14)', borderColor: ROJO }]}
         >
-          <Ionicons name="alert-circle" size={18} color={!linea.completo ? ROJO : NEUTRAL_500} />
-          <Text style={[estilos.opcionTexto, !linea.completo && { color: ROJO }]}>Con diferencia</Text>
+          <Ionicons name="alert-circle" size={16} color={!linea.completo ? ROJO : NEUTRAL_500} />
+          <Text style={[estilos.opcionTexto, !linea.completo && { color: ROJO }]}>Con observación</Text>
         </Pressable>
       </View>
 
+      {/* Resumen de la observacion ya cargada; tocarlo reabre el modal. */}
       {!linea.completo ? (
-        <View style={{ gap: 12 }}>
-          <View style={{ gap: 6 }}>
-            <Text style={estilos.etiqueta}>Cantidad que llegó</Text>
-            <View style={estilos.stepper}>
-              <Pressable onPress={() => ajustar(-1)} style={estilos.stepperBoton} hitSlop={6}>
-                <Ionicons name="remove" size={22} color={TEXTO_PRIMARIO} />
-              </Pressable>
-              <TextInput
-                value={linea.cantidadRecibida}
-                onChangeText={(v) => onCambiar({ cantidadRecibida: v.replace(/[^0-9]/g, '') })}
-                keyboardType="number-pad"
-                style={[estilos.stepperInput, !cantidadValida && { borderColor: ROJO }]}
-                selectTextOnFocus
-              />
-              <Pressable onPress={() => ajustar(1)} style={estilos.stepperBoton} hitSlop={6}>
-                <Ionicons name="add" size={22} color={TEXTO_PRIMARIO} />
-              </Pressable>
-              <Text style={estilos.deEnviados}>de {item.cantidad}</Text>
-            </View>
-            {!cantidadValida ? (
-              <Text style={styles.textoErrorInline}>Debe ser un número entre 0 y {item.cantidad}.</Text>
-            ) : faltan && faltan > 0 ? (
-              <Text style={estilos.faltan}>
-                Faltan {faltan} {faltan === 1 ? 'unidad' : 'unidades'}
-              </Text>
-            ) : null}
+        <Pressable
+          onPress={onEditarObservacion}
+          accessibilityRole="button"
+          accessibilityLabel={`Editar observación de ${item.producto}`}
+          style={({ pressed }) => [estilos.resumenObservacion, pressed && { opacity: 0.7 }]}
+        >
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[estilos.resumenCantidad, !cantidadValida && { color: ROJO }]}>
+              {cantidadValida
+                ? `Llegaron ${linea.cantidadRecibida.trim()} de ${item.cantidad}`
+                : 'Revisa la cantidad que llegó'}
+            </Text>
+            <Text style={estilos.detalle} numberOfLines={2}>
+              {linea.novedad.trim() || 'Sin novedad escrita'}
+            </Text>
           </View>
-
-          <View style={{ gap: 6 }}>
-            <Text style={estilos.etiqueta}>Novedad</Text>
-            <View style={estilos.chips}>
-              {NOVEDADES_RAPIDAS.map((texto) => (
-                <Pressable key={texto} onPress={() => agregarNovedad(texto)} style={estilos.chip}>
-                  <Text style={estilos.chipTexto}>+ {texto}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <TextInput
-              value={linea.novedad}
-              onChangeText={(v) => onCambiar({ novedad: v })}
-              placeholder="Describe qué pasó con este producto (opcional)"
-              placeholderTextColor={NEUTRAL_500}
-              style={[styles.inputNota, { minHeight: 60, textAlignVertical: 'top' }]}
-              multiline
-            />
-          </View>
-        </View>
+          <Ionicons name="create-outline" size={18} color={NEUTRAL_400} />
+        </Pressable>
       ) : null}
     </View>
   );
@@ -174,6 +198,8 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
   const [novedadGeneral, setNovedadGeneral] = useState('');
   const [firmaRecibeBase64, setFirmaRecibeBase64] = useState<string | null>(null);
   const [novedadAbierta, setNovedadAbierta] = useState(false);
+  // Producto cuya observacion (cantidad + novedad) se edita en el modal.
+  const [itemObservado, setItemObservado] = useState<ItemTraslado | null>(null);
   const [mensaje, setMensaje] = useState('');
 
   useEffect(() => {
@@ -216,7 +242,7 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
       const linea = lineas[item.id];
       if (!linea) return false;
       if (linea.completo) return true;
-      return /^\d+$/.test(linea.cantidadRecibida.trim()) && Number(linea.cantidadRecibida.trim()) <= item.cantidad;
+      return cantidadEsValida(linea, item);
     });
 
   const items = traslado?.items ?? [];
@@ -285,7 +311,7 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
           <AvisoRol
             icono="download-outline"
             rol="Bodega destino · Recepción"
-            texto="Revisa lo que llegó. Si algo no llegó completo, toca «Con diferencia» en ese producto y anota la cantidad y la novedad. Al final firma como quien recibe."
+            texto="Revisa lo que llegó. Si algo no llegó completo, toca «Con observación» en ese producto y anota la cantidad y la novedad. Al final firma como quien recibe."
           />
 
           <ResumenTraslado
@@ -318,7 +344,7 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
               />
               <Text style={[estilos.contadorTexto, { color: conDiferencia > 0 ? ROJO : VERDE }]}>
                 {conDiferencia > 0
-                  ? `${conDiferencia} con diferencia`
+                  ? `${conDiferencia} con observación`
                   : `${items.length} de ${items.length} completos`}
               </Text>
             </View>
@@ -332,8 +358,11 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
                 key={item.id}
                 item={item}
                 linea={linea}
-                onElegirCompleto={(completo) => elegirCompleto(item, completo)}
-                onCambiar={(cambios) => actualizarLinea(item.id, cambios)}
+                onElegirCompleto={(completo) => {
+                  elegirCompleto(item, completo);
+                  if (!completo) setItemObservado(item);
+                }}
+                onEditarObservacion={() => setItemObservado(item)}
               />
             );
           })}
@@ -398,11 +427,39 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
         </ScrollView>
       </EvitarTeclado>
 
+      <HojaModal
+        visible={itemObservado !== null}
+        titulo={itemObservado ? itemObservado.producto : 'Con observación'}
+        onCerrar={() => setItemObservado(null)}
+      >
+        {itemObservado && lineas[itemObservado.id] ? (
+          <>
+            <EditorObservacion
+              item={itemObservado}
+              linea={lineas[itemObservado.id]}
+              onCambiar={(cambios) => actualizarLinea(itemObservado.id, cambios)}
+            />
+            <Pressable
+              disabled={!cantidadEsValida(lineas[itemObservado.id], itemObservado)}
+              style={({ pressed }) => [
+                styles.boton,
+                styles.botonPrimario,
+                !cantidadEsValida(lineas[itemObservado.id], itemObservado) && styles.botonDeshabilitado,
+                pressed && styles.botonPresionado,
+              ]}
+              onPress={() => setItemObservado(null)}
+            >
+              <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-outline" texto="Listo" />
+            </Pressable>
+          </>
+        ) : null}
+      </HojaModal>
+
       <HojaModal visible={novedadAbierta} titulo="Novedad general" onCerrar={() => setNovedadAbierta(false)}>
         <TextInput
           value={novedadGeneral}
           onChangeText={setNovedadGeneral}
-          placeholder="Algo que no sea de un producto puntual (ej. llegó tarde, vehículo distinto)"
+          placeholder="Escribe la novedad (opcional)"
           placeholderTextColor={NEUTRAL_500}
           style={[styles.inputNota, { minHeight: 120, textAlignVertical: 'top' }]}
           multiline
@@ -431,40 +488,42 @@ const estilos = StyleSheet.create({
     backgroundColor: 'rgba(52,211,153,0.14)',
   },
   contadorTexto: { fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
-  tarjeta: { gap: 14, borderWidth: 1.5 },
-  filaProducto: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  // Mas compacta que la tarjeta base: cada producto ocupa menos alto.
+  tarjeta: { gap: 10, borderWidth: 1.5, padding: 12, borderRadius: 16 },
+  filaProducto: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   cantidadCaja: {
-    minWidth: 44,
-    height: 44,
+    minWidth: 36,
+    height: 36,
     paddingHorizontal: 6,
-    borderRadius: 12,
+    borderRadius: 10,
     backgroundColor: 'rgba(245,197,66,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cantidadTexto: { color: ACENTO, fontSize: 18, fontFamily: FUENTE_DISPLAY },
-  producto: { color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_BODY_SEMI },
-  detalle: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY },
-  segmentado: { flexDirection: 'row', gap: 8 },
+  cantidadTexto: { color: ACENTO, fontSize: 15, fontFamily: FUENTE_DISPLAY },
+  producto: { color: TEXTO_PRIMARIO, fontSize: 14.5, fontFamily: FUENTE_BODY_SEMI },
+  detalle: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY },
+  segmentado: { flexDirection: 'row', gap: 6 },
   opcion: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 11,
-    borderRadius: 12,
+    gap: 5,
+    minHeight: 40,
+    paddingVertical: 6,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
   },
-  opcionTexto: { color: NEUTRAL_400, fontSize: 13.5, fontFamily: FUENTE_BODY_SEMI },
-  etiqueta: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  opcionTexto: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
+  etiqueta: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepperBoton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     backgroundColor: NEUTRAL_800,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
@@ -472,27 +531,27 @@ const estilos = StyleSheet.create({
     justifyContent: 'center',
   },
   stepperInput: {
-    minWidth: 70,
-    height: 44,
-    borderRadius: 12,
+    minWidth: 60,
+    height: 40,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
     color: TEXTO_PRIMARIO,
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FUENTE_DISPLAY,
     textAlign: 'center',
   },
-  deEnviados: { color: NEUTRAL_400, fontSize: 14, fontFamily: FUENTE_BODY },
+  deEnviados: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY },
   faltan: { color: ROJO, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: NEUTRAL_700,
-    backgroundColor: NEUTRAL_800,
+  resumenObservacion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(248,113,113,0.08)',
   },
-  chipTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
+  resumenCantidad: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
 });

@@ -252,7 +252,7 @@ export default function PantallaNovedadesSupervision() {
           <AvisoRol
             icono="shield-checkmark-outline"
             rol="Supervisión · Novedades"
-            texto="Revisa los traslados que llegaron con diferencia y registra qué se hizo con cada uno."
+            texto="Revisa los traslados que llegaron con observación y registra qué se hizo con cada uno."
           />
 
           {/* Buscador de consecutivo -- mientras hay texto, reemplaza las
@@ -340,7 +340,7 @@ export default function PantallaNovedadesSupervision() {
                   </Text>
                   <Text style={estilos.vacioTexto}>
                     {pestana === 'pendiente'
-                      ? 'Cuando un punto reciba un traslado con diferencia, va a aparecer aquí.'
+                      ? 'Cuando un punto reciba un traslado con observación, va a aparecer aquí.'
                       : 'Las novedades que resuelvas van a aparecer aquí con la solución cargada.'}
                   </Text>
                 </View>
