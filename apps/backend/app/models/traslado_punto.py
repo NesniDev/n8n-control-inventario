@@ -25,6 +25,16 @@ class ItemTrasladoCrear(BaseModel):
     marca: str = ""
     presentacion: str = ""
     cantidad: int = Field(gt=0)
+    # Opcional: no todos los productos del talonario traen vencimiento.
+    fecha_vencimiento: date | None = None
+
+
+class ExtraerTalonario(BaseModel):
+    """Payload de POST /traslados-puntos/extraer -- foto del talonario ya
+    subida a Storage y punto de origen (el logueado, se excluye como destino)."""
+
+    foto_url: str
+    punto_origen_id: str
 
 
 class TrasladoPuntoCrear(BaseModel):
@@ -53,6 +63,8 @@ class TrasladoPuntoCrear(BaseModel):
     # solo al crear -- los traslados existentes antes de este campo quedan
     # con numero_talonario null (ver app/db.py) y siguen funcionando igual.
     numero_talonario: str
+    # Foto del talonario de la que se leyeron los datos (ver extraer_talonario).
+    foto_talonario_url: str
 
     @field_validator("numero_talonario")
     @classmethod

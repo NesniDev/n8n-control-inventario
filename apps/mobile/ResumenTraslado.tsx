@@ -7,7 +7,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { formatearFechaLarga } from './SelectorFecha';
+import { formatearFechaLarga, textoVencimiento } from './SelectorFecha';
 import {
   ACENTO,
   FUENTE_BODY,
@@ -27,6 +27,8 @@ export interface ItemResumen {
   producto: string;
   marca: string;
   presentacion: string;
+  // ISO YYYY-MM-DD; ausente/vacio si el producto no tiene vencimiento.
+  fechaVencimiento?: string | null;
 }
 
 export function AvisoRol({
@@ -133,7 +135,7 @@ export default function ResumenTraslado({
         </Text>
       </View>
       {mostrarProductos ? items.map((item) => {
-        const detalle = [item.marca.trim(), item.presentacion.trim()].filter(Boolean).join(' · ');
+        const detalle = [item.marca.trim(), item.presentacion.trim(), textoVencimiento(item.fechaVencimiento)].filter(Boolean).join(' · ');
         return (
           <View key={item.key} style={estilos.filaProducto}>
             <View style={estilos.cantidadCaja}>

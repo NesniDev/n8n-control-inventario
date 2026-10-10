@@ -14,7 +14,7 @@ from app.db import get_pool
 from app.models.empleado import PinNuevo
 from app.models.punto import PinLoginPunto, PuntoActualizar, PuntoCrear, UsuarioPuntoActualizar, UsuarioPuntoCrear
 from app.models.supervisor import PinLoginSupervisor, SupervisorActualizar, SupervisorCrear
-from app.models.traslado_punto import RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
+from app.models.traslado_punto import ExtraerTalonario, RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
 from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.auth_pin import generar_sal, hashear_pin, verificar_pin
 from app.services.traslados_puntos import (
@@ -26,9 +26,11 @@ from app.services.traslados_puntos import (
     TrasladoNoEncontrado,
     TrasladoYaRecibido,
     crear_traslado,
+    extraer_talonario,
     registrar_recepcion,
     resolver_novedad,
 )
+from app.services.vision import ExtraccionFallida
 from app.services.usuarios import (
     DatoInvalido,
     RegistroNoEncontrado,
@@ -290,6 +292,18 @@ async def crear_traslado_endpoint(payload: TrasladoPuntoCrear) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     items = resultado.pop("items")
     return _serializar_traslado(resultado, items)
+
+
+@router.post("/traslados-puntos/extraer")
+async def extraer_talonario_endpoint(payload: ExtraerTalonario) -> dict:
+    """Lee la foto del talonario (IA de vision) y devuelve encabezado, items,
+    destino resuelto y `faltantes`. Es POST, asi que no colisiona con las
+    rutas GET /traslados-puntos/{traslado_id}; igual se declara antes de las
+    rutas con path param por consistencia con /novedades."""
+    try:
+        return await extraer_talonario(payload.foto_url, payload.punto_origen_id)
+    except ExtraccionFallida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/traslados-puntos")

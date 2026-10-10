@@ -17,6 +17,7 @@ import { esErrorTrasladoYaRecibido, mensajeError, MENSAJE_TRASLADO_YA_RECIBIDO }
 import CampoFirma from './CampoFirma';
 import HojaModal from './HojaModal';
 import ResumenTraslado, { AvisoRol } from './ResumenTraslado';
+import { textoVencimiento } from './SelectorFecha';
 import { HeaderTraslado, useTraslado } from './TrasladoContext';
 import {
   ACENTO,
@@ -64,7 +65,7 @@ function TarjetaProductoRecepcion({
   const recibida = Number(linea.cantidadRecibida.trim());
   const cantidadValida = /^\d+$/.test(linea.cantidadRecibida.trim()) && recibida <= item.cantidad;
   const faltan = cantidadValida ? item.cantidad - recibida : null;
-  const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
+  const detalle = [item.marca, item.presentacion, textoVencimiento(item.fecha_vencimiento)].filter(Boolean).join(' · ');
 
   const ajustar = (delta: number) => {
     const actual = /^\d+$/.test(linea.cantidadRecibida.trim()) ? recibida : item.cantidad;
@@ -300,6 +301,7 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
               producto: item.producto,
               marca: item.marca ?? '',
               presentacion: item.presentacion ?? '',
+              fechaVencimiento: item.fecha_vencimiento,
             }))}
             observaciones={traslado.observaciones ?? ''}
             mostrarProductos={false}

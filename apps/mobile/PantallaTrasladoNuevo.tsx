@@ -1,25 +1,29 @@
-// Paso 1 de crear un traslado (bodega origen): elegir destino, transportador,
-// fecha, cargar los productos (uno o mas), observaciones y firmar como quien
-// despacha. El origen es fijo -- el punto del usuario logueado. El envio
+// Paso 1 de crear un traslado (bodega origen): se fotografia el talonario de
+// papel y la IA lee el encabezado (n.º de talonario, destino, transportador,
+// fecha) y los productos. El encabezado es de solo lectura -- si algo no se
+// lee bien se repite la foto, no se edita a mano --; los productos se pueden
+// editar y quitar, pero no agregar. Despues van observaciones y la firma de
+// quien despacha. El origen es fijo -- el punto del usuario logueado. El envio
 // real (crear el traslado en el backend) pasa en FirmaTransportador, no aca
 // -- esta pantalla solo arma el borrador (ver TrasladoContext.tsx).
-import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 
-import { fetchPuntos, type Punto } from './api';
+import { extraerTalonario, subirEvidencia } from './api';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import CampoFirma from './CampoFirma';
+import { comprimirParaEnvio } from './EntregaContext';
 import HojaModal from './HojaModal';
 import ModalProducto, { productoValido } from './ModalProducto';
-import ModalSelectorPunto from './ModalSelectorPunto';
-import SelectorFecha, { formatearFechaLarga } from './SelectorFecha';
+import { formatearFechaLarga, textoVencimiento } from './SelectorFecha';
 import { AvisoRol } from './ResumenTraslado';
-import { HeaderTraslado, useTraslado, type ItemTrasladoDraft } from './TrasladoContext';
+import { HeaderTraslado, nuevoItemDraft, useTraslado, type ItemTrasladoDraft } from './TrasladoContext';
 import {
   ACENTO,
   ContenidoBoton,
@@ -36,9 +40,6 @@ import type { TrasladosStackParamList } from './Navegacion';
 type NavegacionNuevo = NativeStackNavigationProp<TrasladosStackParamList, 'NuevoTraslado'>;
 
 const FECHA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-// Mismos caracteres permitidos que valida numero_talonario en el backend
-// (app/models/traslado_punto.py) -- letras, digitos, espacio, guion, barra.
-const TALONARIO_CARACTERES_INVALIDOS = /[^A-Za-z0-9 /-]/g;
 
 function fechaValida(valor: string): boolean {
   if (!FECHA_REGEX.test(valor)) return false;
@@ -46,63 +47,111 @@ function fechaValida(valor: string): boolean {
   return !Number.isNaN(fecha.getTime());
 }
 
-// Campo que se ve como un input pero abre un selector (destino, fecha).
-function CampoSelector({
-  icono,
-  texto,
-  placeholder,
-  onPress,
-}: {
-  icono: keyof typeof Ionicons.glyphMap;
-  texto: string | null;
-  placeholder: string;
-  onPress: () => void;
-}) {
+// Dato del encabezado leido de la foto, solo lectura.
+function CampoLectura({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.inputCantidad, estilos.campoSelector, pressed && { borderColor: ACENTO }]}
-    >
-      <Ionicons name={icono} size={18} color={ACENTO} />
-      <Text style={[estilos.campoSelectorTexto, !texto && { color: NEUTRAL_500 }]} numberOfLines={1}>
-        {texto ?? placeholder}
-      </Text>
-      <Ionicons name="chevron-down" size={18} color={NEUTRAL_500} />
-    </Pressable>
+    <View style={estilos.campoLectura}>
+      <Text style={styles.etiquetaSeccion}>{etiqueta}</Text>
+      <Text style={estilos.valorLectura}>{valor || '—'}</Text>
+    </View>
   );
 }
 
 export default function PantallaTrasladoNuevo() {
   const navigation = useNavigation<NavegacionNuevo>();
-  const { punto, draft, actualizarDraft } = useTraslado();
+  const { punto, draft, actualizarDraft, cargando, setCargando } = useTraslado();
 
-  const [puntos, setPuntos] = useState<Punto[]>([]);
-  const [cargandoPuntos, setCargandoPuntos] = useState(true);
-  const [errorPuntos, setErrorPuntos] = useState<string | null>(null);
-  const [selectorDestinoAbierto, setSelectorDestinoAbierto] = useState(false);
-  const [selectorFechaAbierto, setSelectorFechaAbierto] = useState(false);
   const [observacionesAbiertas, setObservacionesAbiertas] = useState(false);
-  // undefined = modal cerrado; null = agregando uno nuevo; item = editando ese.
-  const [productoEditado, setProductoEditado] = useState<ItemTrasladoDraft | null | undefined>(undefined);
+  // undefined = modal cerrado; item = editando ese (no se agregan productos a mano).
+  const [productoEditado, setProductoEditado] = useState<ItemTrasladoDraft | undefined>(undefined);
+  // Foto local para la miniatura mientras se sube y lee; despues se usa la URL
+  // de Storage guardada en el borrador.
+  const [fotoUri, setFotoUri] = useState<string | null>(null);
+  const [leyendo, setLeyendo] = useState(false);
+  // Error de la lectura (red, IA) y lista de campos que no se pudieron leer:
+  // en cualquiera de los dos casos solo se puede repetir la foto.
+  const [errorLectura, setErrorLectura] = useState<string | null>(null);
+  const [faltantes, setFaltantes] = useState<string[]>([]);
 
-  useEffect(() => {
-    fetchPuntos()
-      .then(setPuntos)
-      .catch((err) => setErrorPuntos(mensajeError(err, 'traslado')))
-      .finally(() => setCargandoPuntos(false));
-  }, []);
-
-  // El propio punto no es una opcion de destino -- ya lo rechaza el backend
-  // (origen != destino), pero ni se ofrece aca.
-  const puntosDestino = puntos.filter((p) => p.id !== punto?.id);
-
-  // Alta o edicion segun si el localId ya esta en la lista.
-  const guardarItem = (guardado: ItemTrasladoDraft) => {
-    const existe = draft.items.some((item) => item.localId === guardado.localId);
+  const limpiarLectura = () => {
     actualizarDraft({
-      items: existe
-        ? draft.items.map((item) => (item.localId === guardado.localId ? guardado : item))
-        : [...draft.items, guardado],
+      numeroTalonario: '',
+      fotoTalonarioUrl: '',
+      destino: null,
+      transportadorNombre: '',
+      items: [],
+    });
+  };
+
+  // Sube la foto, la manda a leer y, si salio completa, llena el borrador
+  // (encabezado + productos). Repetir la foto reemplaza todo lo anterior.
+  const procesarFoto = async (uriOriginal: string) => {
+    if (!punto) return;
+    setLeyendo(true);
+    setCargando(true);
+    setErrorLectura(null);
+    setFaltantes([]);
+    limpiarLectura();
+    try {
+      const uri = await comprimirParaEnvio(uriOriginal);
+      setFotoUri(uri);
+      const { url } = await subirEvidencia(uri);
+      const lectura = await extraerTalonario(url, punto.id);
+      if (lectura.faltantes.length > 0 || !lectura.punto_destino) {
+        setFaltantes(lectura.faltantes.length > 0 ? lectura.faltantes : ['Destino']);
+        return;
+      }
+      actualizarDraft({
+        numeroTalonario: lectura.numero_talonario,
+        fotoTalonarioUrl: url,
+        destino: lectura.punto_destino,
+        transportadorNombre: lectura.transportador,
+        fecha: lectura.fecha,
+        items: lectura.items.map((item) => ({
+          ...nuevoItemDraft(),
+          cantidad: String(item.cantidad),
+          producto: item.producto,
+          marca: item.marca,
+          presentacion: item.presentacion,
+          fechaVencimiento: item.fecha_vencimiento,
+        })),
+      });
+    } catch (err) {
+      setErrorLectura(mensajeError(err, 'traslado'));
+    } finally {
+      setLeyendo(false);
+      setCargando(false);
+    }
+  };
+
+  const usarResultado = async (resultado: ImagePicker.ImagePickerResult) => {
+    if (!resultado.canceled && resultado.assets[0]) {
+      await procesarFoto(resultado.assets[0].uri);
+    }
+  };
+
+  const tomarFoto = async () => {
+    const permiso = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara para fotografiar el talonario.');
+      return;
+    }
+    await usarResultado(await ImagePicker.launchCameraAsync({ quality: 1, allowsEditing: false, exif: false }));
+  };
+
+  const elegirDeGaleria = async () => {
+    const permiso = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permiso.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a las fotos para elegir el talonario.');
+      return;
+    }
+    await usarResultado(await ImagePicker.launchImageLibraryAsync({ quality: 1, allowsEditing: false, exif: false }));
+  };
+
+  // Solo edita un producto existente (el modal no agrega).
+  const guardarItem = (guardado: ItemTrasladoDraft) => {
+    actualizarDraft({
+      items: draft.items.map((item) => (item.localId === guardado.localId ? guardado : item)),
     });
   };
 
@@ -112,14 +161,20 @@ export default function PantallaTrasladoNuevo() {
 
   const hayObservaciones = draft.observaciones.trim() !== '';
 
+  const lecturaCompleta = draft.fotoTalonarioUrl !== '' && !errorLectura && faltantes.length === 0;
   const itemsValidos = draft.items.length > 0 && draft.items.every(productoValido);
   const puedeContinuar =
+    lecturaCompleta &&
+    !leyendo &&
     draft.numeroTalonario.trim() !== '' &&
     !!draft.destino &&
     draft.transportadorNombre.trim() !== '' &&
     fechaValida(draft.fecha) &&
     itemsValidos &&
     !!draft.firmaDespachaBase64;
+
+  const hayFoto = fotoUri !== null || draft.fotoTalonarioUrl !== '';
+  const hayProblema = errorLectura !== null || faltantes.length > 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -134,133 +189,140 @@ export default function PantallaTrasladoNuevo() {
           <AvisoRol
             icono="cube-outline"
             rol="Bodega origen · Despacho"
-            texto="Completa el destino, el transportador y los productos que salen. Al final firma como quien despacha."
+            texto="Fotografía el talonario: los datos y los productos se leen de la foto. Al final firma como quien despacha."
           />
 
+          {/* Foto del talonario: sin foto, las dos formas de cargarla; con foto,
+              miniatura + "Repetir foto" (que vuelve a leer y reemplaza todo). */}
           <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Origen</Text>
-            <Text style={styles.previewSubtexto}>{punto?.nombre ?? '—'}</Text>
-
-            <Text style={styles.etiquetaSeccion}>Número de talonario</Text>
-            <TextInput
-              value={draft.numeroTalonario}
-              onChangeText={(v) =>
-                actualizarDraft({ numeroTalonario: v.replace(TALONARIO_CARACTERES_INVALIDOS, '').slice(0, 30) })
-              }
-              placeholder="Ej. 00231"
-              placeholderTextColor={NEUTRAL_500}
-              autoCapitalize="characters"
-              style={styles.inputCantidad}
-            />
-
-            <Text style={styles.etiquetaSeccion}>Destino</Text>
-            {cargandoPuntos ? (
-              <Text style={styles.previewSubtexto}>Cargando puntos...</Text>
-            ) : errorPuntos ? (
-              <Text style={styles.textoErrorInline}>{errorPuntos}</Text>
-            ) : puntosDestino.length === 0 ? (
-              <Text style={styles.previewSubtexto}>No hay otros puntos activos todavía.</Text>
+            <Text style={styles.etiquetaSeccion}>Foto del talonario</Text>
+            {hayFoto ? (
+              <Image source={{ uri: fotoUri ?? draft.fotoTalonarioUrl }} style={estilos.miniatura} resizeMode="cover" />
+            ) : null}
+            {leyendo ? (
+              <View style={estilos.leyendo}>
+                <ActivityIndicator color={ACENTO} />
+                <Text style={styles.previewSubtexto}>Leyendo el talonario...</Text>
+              </View>
             ) : (
-              <CampoSelector
-                icono="location-outline"
-                texto={draft.destino?.nombre ?? null}
-                placeholder="Elegir punto destino"
-                onPress={() => setSelectorDestinoAbierto(true)}
-              />
-            )}
-
-            <Text style={styles.etiquetaSeccion}>Transportador</Text>
-            <TextInput
-              value={draft.transportadorNombre}
-              onChangeText={(v) => actualizarDraft({ transportadorNombre: v })}
-              placeholder="Nombre de quien transporta"
-              placeholderTextColor={NEUTRAL_500}
-              style={styles.inputCantidad}
-            />
-
-            <Text style={styles.etiquetaSeccion}>Fecha</Text>
-            <CampoSelector
-              icono="calendar-outline"
-              texto={fechaValida(draft.fecha) ? formatearFechaLarga(draft.fecha) : null}
-              placeholder="Elegir fecha"
-              onPress={() => setSelectorFechaAbierto(true)}
-            />
-          </View>
-
-          <Text style={styles.etiquetaSeccion}>Productos</Text>
-          {draft.items.length === 0 ? (
-            <Text style={styles.previewSubtexto}>Todavía no agregaste productos.</Text>
-          ) : (
-            draft.items.map((item) => {
-              const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
-              return (
-                // Tocar la tarjeta la edita en el mismo modal; la papelera la quita.
+              <View style={estilos.filaBotones}>
                 <Pressable
-                  key={item.localId}
-                  onPress={() => setProductoEditado(item)}
-                  style={({ pressed }) => [styles.tarjeta, estilos.tarjetaProducto, pressed && { opacity: 0.8 }]}
-                >
-                  <View style={estilos.cantidadCaja}>
-                    <Text style={estilos.cantidadTexto}>{item.cantidad}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.itemDescripcion} numberOfLines={2}>
-                      {item.producto}
-                    </Text>
-                    {detalle ? <Text style={styles.previewSubtexto}>{detalle}</Text> : null}
-                  </View>
-                  <Pressable onPress={() => quitarItem(item.localId)} hitSlop={10}>
-                    <Ionicons name="trash-outline" size={20} color={NEUTRAL_400} />
-                  </Pressable>
-                </Pressable>
-              );
-            })
-          )}
-          <Pressable
-            style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-            onPress={() => setProductoEditado(null)}
-          >
-            <ContenidoBoton icono="add-outline" texto="Agregar producto" color={NEUTRAL_400} />
-          </Pressable>
-
-          {/* Observaciones y firma de quien despacha van juntas: es lo ultimo
-              que se completa antes de pasarle el celular al conductor. */}
-          <View style={styles.tarjeta}>
-            <CampoFirma
-              titulo="Firma de quien despacha"
-              valor={draft.firmaDespachaBase64}
-              onCambio={(firma) => actualizarDraft({ firmaDespachaBase64: firma })}
-              accesorio={
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.boton,
-                    { flex: 1 },
-                    hayObservaciones && { borderColor: ACENTO },
-                    pressed && styles.botonPresionado,
-                  ]}
-                  onPress={() => setObservacionesAbiertas(true)}
+                  style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                  onPress={tomarFoto}
                 >
                   <ContenidoBoton
-                    icono={hayObservaciones ? 'chatbox-ellipses' : 'chatbox-ellipses-outline'}
-                    texto="Observaciones"
-                    color={hayObservaciones ? TEXTO_PRIMARIO : NEUTRAL_400}
+                    icono="camera-outline"
+                    texto={hayFoto ? 'Repetir foto' : 'Tomar foto'}
+                    color={TEXTO_PRIMARIO}
                   />
                 </Pressable>
-              }
-            />
-            {hayObservaciones ? (
-              <Pressable onPress={() => setObservacionesAbiertas(true)} style={styles.notaPreviewFila}>
-                <Ionicons name="chatbox-ellipses-outline" size={14} color={NEUTRAL_500} />
-                <Text style={styles.notaPreview} numberOfLines={2}>
-                  {draft.observaciones.trim()}
+                <Pressable
+                  style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                  onPress={elegirDeGaleria}
+                >
+                  <ContenidoBoton icono="images-outline" texto="Galería" color={NEUTRAL_400} />
+                </Pressable>
+              </View>
+            )}
+            {hayProblema && !leyendo ? (
+              <View style={{ gap: 4 }}>
+                <Text style={styles.textoErrorInline}>
+                  {errorLectura ?? 'No se pudo leer el talonario con claridad.'}
                 </Text>
-              </Pressable>
+                {faltantes.length > 0 ? (
+                  <Text style={styles.textoErrorInline}>No se leyó: {faltantes.join(', ')}.</Text>
+                ) : null}
+                <Text style={styles.previewSubtexto}>
+                  Toma la foto otra vez con buena luz y el talonario completo dentro del encuadre.
+                </Text>
+              </View>
             ) : null}
           </View>
 
+          {lecturaCompleta ? (
+            <>
+              <View style={styles.tarjeta}>
+                <CampoLectura etiqueta="Número de talonario" valor={draft.numeroTalonario} />
+                <CampoLectura etiqueta="Origen" valor={punto?.nombre ?? '—'} />
+                <CampoLectura etiqueta="Destino" valor={draft.destino?.nombre ?? ''} />
+                <CampoLectura etiqueta="Transportador" valor={draft.transportadorNombre} />
+                <CampoLectura
+                  etiqueta="Fecha"
+                  valor={fechaValida(draft.fecha) ? formatearFechaLarga(draft.fecha) : ''}
+                />
+              </View>
+
+              <Text style={styles.etiquetaSeccion}>Productos</Text>
+              {draft.items.length === 0 ? (
+                <Text style={styles.previewSubtexto}>No quedan productos. Repite la foto para leerlos de nuevo.</Text>
+              ) : null}
+              {draft.items.map((item) => {
+                const detalle = [item.marca, item.presentacion, textoVencimiento(item.fechaVencimiento)]
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  // Tocar la tarjeta la edita en el modal; la papelera la quita.
+                  <Pressable
+                    key={item.localId}
+                    onPress={() => setProductoEditado(item)}
+                    style={({ pressed }) => [styles.tarjeta, estilos.tarjetaProducto, pressed && { opacity: 0.8 }]}
+                  >
+                    <View style={estilos.cantidadCaja}>
+                      <Text style={estilos.cantidadTexto}>{item.cantidad}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.itemDescripcion} numberOfLines={2}>
+                        {item.producto}
+                      </Text>
+                      {detalle ? <Text style={styles.previewSubtexto}>{detalle}</Text> : null}
+                    </View>
+                    <Pressable onPress={() => quitarItem(item.localId)} hitSlop={10}>
+                      <Ionicons name="trash-outline" size={20} color={NEUTRAL_400} />
+                    </Pressable>
+                  </Pressable>
+                );
+              })}
+
+              {/* Observaciones y firma de quien despacha van juntas: es lo ultimo
+                  que se completa antes de pasarle el celular al conductor. */}
+              <View style={styles.tarjeta}>
+                <CampoFirma
+                  titulo="Firma de quien despacha"
+                  valor={draft.firmaDespachaBase64}
+                  onCambio={(firma) => actualizarDraft({ firmaDespachaBase64: firma })}
+                  accesorio={
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.boton,
+                        { flex: 1 },
+                        hayObservaciones && { borderColor: ACENTO },
+                        pressed && styles.botonPresionado,
+                      ]}
+                      onPress={() => setObservacionesAbiertas(true)}
+                    >
+                      <ContenidoBoton
+                        icono={hayObservaciones ? 'chatbox-ellipses' : 'chatbox-ellipses-outline'}
+                        texto="Observaciones"
+                        color={hayObservaciones ? TEXTO_PRIMARIO : NEUTRAL_400}
+                      />
+                    </Pressable>
+                  }
+                />
+                {hayObservaciones ? (
+                  <Pressable onPress={() => setObservacionesAbiertas(true)} style={styles.notaPreviewFila}>
+                    <Ionicons name="chatbox-ellipses-outline" size={14} color={NEUTRAL_500} />
+                    <Text style={styles.notaPreview} numberOfLines={2}>
+                      {draft.observaciones.trim()}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
           <View style={styles.acciones}>
             <Pressable
-              disabled={!puedeContinuar}
+              disabled={!puedeContinuar || cargando}
               style={({ pressed }) => [
                 styles.boton,
                 styles.botonPrimario,
@@ -275,19 +337,6 @@ export default function PantallaTrasladoNuevo() {
         </ScrollView>
       </EvitarTeclado>
 
-      <ModalSelectorPunto
-        visible={selectorDestinoAbierto}
-        puntos={puntosDestino}
-        seleccionadoId={draft.destino?.id ?? null}
-        onElegir={(p) => actualizarDraft({ destino: p })}
-        onCerrar={() => setSelectorDestinoAbierto(false)}
-      />
-      <SelectorFecha
-        visible={selectorFechaAbierto}
-        valor={draft.fecha}
-        onElegir={(fecha) => actualizarDraft({ fecha })}
-        onCerrar={() => setSelectorFechaAbierto(false)}
-      />
       <HojaModal
         visible={observacionesAbiertas}
         titulo="Observaciones"
@@ -320,8 +369,11 @@ export default function PantallaTrasladoNuevo() {
 }
 
 const estilos = StyleSheet.create({
-  campoSelector: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  campoSelectorTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
+  campoLectura: { gap: 2 },
+  valorLectura: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
+  miniatura: { width: '100%', height: 180, borderRadius: 12 },
+  leyendo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  filaBotones: { flexDirection: 'row', gap: 10 },
   tarjetaProducto: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   cantidadCaja: {
     minWidth: 44,

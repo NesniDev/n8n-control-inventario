@@ -22,7 +22,7 @@ import EvitarTeclado from './EvitarTeclado';
 import FirmasTraslado from './FirmasTraslado';
 import ModalSelectorPunto from './ModalSelectorPunto';
 import ResumenTraslado from './ResumenTraslado';
-import { haceCuanto } from './SelectorFecha';
+import { haceCuanto, textoVencimiento } from './SelectorFecha';
 import { HeaderTraslado, useTraslado } from './TrasladoContext';
 import {
   ACENTO,
@@ -218,6 +218,7 @@ export default function PantallaNovedadDetalle({ route }: Props) {
               producto: item.producto,
               marca: item.marca ?? '',
               presentacion: item.presentacion ?? '',
+              fechaVencimiento: item.fecha_vencimiento,
             }))}
             observaciones={traslado.observaciones ?? ''}
             mostrarProductos={false}
@@ -229,7 +230,7 @@ export default function PantallaNovedadDetalle({ route }: Props) {
               {conDiferencia.map((item) => {
                 const llegaron = item.cantidad_recibida ?? 0;
                 const faltan = item.cantidad - llegaron;
-                const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
+                const detalle = [item.marca, item.presentacion, textoVencimiento(item.fecha_vencimiento)].filter(Boolean).join(' · ');
                 return (
                   <View key={item.id} style={estilos.filaItem}>
                     <Ionicons name="alert-circle" size={20} color={ROJO} />

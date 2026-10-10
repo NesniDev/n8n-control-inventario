@@ -43,6 +43,7 @@ export default function PantallaTrasladoFirmaTransportador() {
       const traslado = await crearTrasladoPunto({
         id: draft.id,
         numero_talonario: draft.numeroTalonario.trim(),
+        foto_talonario_url: draft.fotoTalonarioUrl,
         punto_origen_id: usuario.punto_id,
         punto_destino_id: draft.destino.id,
         transportador_nombre: draft.transportadorNombre.trim(),
@@ -53,6 +54,7 @@ export default function PantallaTrasladoFirmaTransportador() {
           marca: item.marca.trim(),
           presentacion: item.presentacion.trim(),
           cantidad: Number(item.cantidad.trim()),
+          fecha_vencimiento: item.fechaVencimiento || null,
         })),
         firma_despacha_url: despacha.url,
         firma_transporta_url: transporta.url,
@@ -87,7 +89,7 @@ export default function PantallaTrasladoFirmaTransportador() {
           transportador={draft.transportadorNombre.trim()}
           talonario={draft.numeroTalonario.trim()}
           fecha={draft.fecha}
-          items={draft.items.map((item) => ({ ...item, key: item.localId }))}
+          items={draft.items.map((item) => ({ ...item, key: item.localId, fechaVencimiento: item.fechaVencimiento }))}
           observaciones={draft.observaciones}
         />
 

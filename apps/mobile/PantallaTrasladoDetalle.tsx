@@ -13,7 +13,7 @@ import { fetchTrasladoPunto, type EstadoTraslado, type Traslado } from './api';
 import { mensajeError } from './errorMessages';
 import FirmasTraslado from './FirmasTraslado';
 import ResumenTraslado from './ResumenTraslado';
-import { haceCuanto } from './SelectorFecha';
+import { haceCuanto, textoVencimiento } from './SelectorFecha';
 import { HeaderTraslado } from './TrasladoContext';
 import { ACENTO, FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, styles, TEXTO_PRIMARIO } from './tema';
 import type { TrasladosStackParamList } from './Navegacion';
@@ -146,6 +146,7 @@ export default function PantallaTrasladoDetalle({ route }: Props) {
             producto: item.producto,
             marca: item.marca ?? '',
             presentacion: item.presentacion ?? '',
+            fechaVencimiento: item.fecha_vencimiento,
           }))}
           observaciones={traslado.observaciones ?? ''}
           mostrarProductos={!recibido}
@@ -159,7 +160,7 @@ export default function PantallaTrasladoDetalle({ route }: Props) {
             {items.map((item) => {
               const llegaron = item.cantidad_recibida ?? item.cantidad;
               const completo = llegaron >= item.cantidad && !item.novedad;
-              const detalle = [item.marca, item.presentacion].filter(Boolean).join(' · ');
+              const detalle = [item.marca, item.presentacion, textoVencimiento(item.fecha_vencimiento)].filter(Boolean).join(' · ');
               return (
                 <View key={item.id} style={estilos.filaRecibido}>
                   <Ionicons

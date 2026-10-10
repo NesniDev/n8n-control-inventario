@@ -49,6 +49,19 @@ export function formatearFechaLarga(valor: string): string {
   return `${DIAS_CORTOS[fecha.getDay()]} ${fecha.getDate()} ${MESES[fecha.getMonth()].slice(0, 3)} ${fecha.getFullYear()}`;
 }
 
+// "05/03/2026" -- fecha corta dd/mm/aaaa (ej. vencimiento de un producto).
+export function formatearFechaCorta(valor: string): string {
+  const fecha = desdeTextoFecha(valor);
+  if (!fecha) return valor;
+  return `${dosDigitos(fecha.getDate())}/${dosDigitos(fecha.getMonth() + 1)}/${fecha.getFullYear()}`;
+}
+
+// Texto "vence dd/mm/aaaa" para la linea de detalle de un producto; vacio
+// si el producto no tiene vencimiento.
+export function textoVencimiento(valor?: string | null): string {
+  return valor ? `vence ${formatearFechaCorta(valor)}` : '';
+}
+
 // "hace 5 min" / "hace 3 h" / "ayer" -- para mostrar cuanto hace que se
 // envio o recibio un traslado (Inicio y Bandeja).
 export function haceCuanto(iso: string): string {
@@ -71,11 +84,13 @@ function celdasDelMes(anio: number, mes: number): (number | null)[] {
 export default function SelectorFecha({
   visible,
   valor,
+  titulo = 'Fecha del traslado',
   onElegir,
   onCerrar,
 }: {
   visible: boolean;
   valor: string;
+  titulo?: string;
   onElegir: (valor: string) => void;
   onCerrar: () => void;
 }) {
@@ -98,7 +113,7 @@ export default function SelectorFecha({
   const celdas = celdasDelMes(mesVisible.anio, mesVisible.mes);
 
   return (
-    <HojaModal visible={visible} titulo="Fecha del traslado" onCerrar={onCerrar}>
+    <HojaModal visible={visible} titulo={titulo} onCerrar={onCerrar}>
       <View style={estilos.navegacionMes}>
         <Pressable onPress={() => moverMes(-1)} hitSlop={10} style={estilos.botonMes}>
           <Ionicons name="chevron-back" size={22} color={TEXTO_PRIMARIO} />

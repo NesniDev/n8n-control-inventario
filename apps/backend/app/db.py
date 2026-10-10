@@ -380,6 +380,15 @@ create table if not exists traslado_punto_items (
 
 create index if not exists idx_traslado_punto_items_traslado on traslado_punto_items (traslado_id);
 
+-- Fecha de vencimiento del producto, leida de la foto del talonario (opcional:
+-- no todos los productos la traen). Null en los items anteriores a este campo.
+alter table traslado_punto_items add column if not exists fecha_vencimiento date;
+
+-- Foto del talonario fisico, de la que la IA lee el encabezado y los
+-- productos al crear el traslado (ver extraer_talonario en
+-- app/services/traslados_puntos.py). Null en los traslados anteriores.
+alter table traslados_puntos add column if not exists foto_talonario_url text;
+
 -- Supervision de novedades (ver el plan "supervision-novedades"): quien
 -- resuelve un traslado que llego a un punto con diferencia de cantidad o con
 -- una novedad cargada. Cuenta propia -- no es un usuario_punto (no pertenece

@@ -28,10 +28,12 @@ export interface ItemTrasladoDraft {
   marca: string;
   presentacion: string;
   cantidad: string;
+  // ISO YYYY-MM-DD, o "" si el producto no tiene vencimiento.
+  fechaVencimiento: string;
 }
 
 export function nuevoItemDraft(): ItemTrasladoDraft {
-  return { localId: Crypto.randomUUID(), producto: '', marca: '', presentacion: '', cantidad: '' };
+  return { localId: Crypto.randomUUID(), producto: '', marca: '', presentacion: '', cantidad: '', fechaVencimiento: '' };
 }
 
 export interface TrasladoDraft {
@@ -42,6 +44,9 @@ export interface TrasladoDraft {
   // Numero impreso en el talonario fisico (ej. "00231") -- lo primero que
   // copia el punto que despacha, ver PantallaTrasladoNuevo.tsx.
   numeroTalonario: string;
+  // URL en Storage de la foto del talonario de la que se leyo el encabezado
+  // y los productos (ver PantallaTrasladoNuevo.tsx); "" hasta que se lee.
+  fotoTalonarioUrl: string;
   destino: Punto | null;
   transportadorNombre: string;
   fecha: string;
@@ -54,6 +59,7 @@ function nuevoDraft(): TrasladoDraft {
   return {
     id: Crypto.randomUUID(),
     numeroTalonario: '',
+    fotoTalonarioUrl: '',
     destino: null,
     transportadorNombre: '',
     fecha: hoyISO(),

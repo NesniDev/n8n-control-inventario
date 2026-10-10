@@ -3,12 +3,18 @@
 (docs/architecture.md): tablas aditivas, no toca entregas/sedes/empleados.
 """
 
+import re
+import unicodedata
+from datetime import date
+
 import asyncpg
 
+from app.config import get_settings
 from app.db import get_pool
 from app.models.log import EventoLog
 from app.models.traslado_punto import RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
 from app.services.logging_service import registrar_evento
+from app.services.vision_talonario import extraer_datos_talonario
 
 
 class TrasladoInvalido(Exception):
@@ -50,6 +56,102 @@ class ConsecutivoDuplicado(Exception):
     esErrorConsecutivoDuplicado en apps/mobile/errorMessages.ts)."""
 
 
+def _normalizar(texto: str) -> str:
+    """Minusculas, sin tildes y sin espacios sobrantes -- para comparar el
+    destino leido por la IA contra los puntos registrados."""
+    sin_tildes = unicodedata.normalize("NFD", texto or "")
+    sin_tildes = "".join(c for c in sin_tildes if unicodedata.category(c) != "Mn")
+    sin_tildes = sin_tildes.replace("—", "-").replace("–", "-")
+    return re.sub(r"\s+", " ", sin_tildes).strip().lower()
+
+
+def _nombre_sin_codigo(nombre: str, codigo: str | None) -> str:
+    """Nombre del punto sin el prefijo "CODIGO — " (ej. "CFC — La Cumbre" ->
+    "la cumbre"); si no tiene ese prefijo devuelve el nombre normalizado."""
+    normalizado = _normalizar(nombre)
+    for separador in ("—", "–", "-"):
+        if separador in nombre:
+            prefijo, _, resto = nombre.partition(separador)
+            if not codigo or _normalizar(prefijo) == _normalizar(codigo):
+                return _normalizar(resto)
+    return normalizado
+
+
+def _resolver_destino(texto: str, puntos: list[dict]) -> dict | None:
+    """Busca entre `puntos` el que corresponde al destino leido: por codigo
+    exacto, por nombre completo o por nombre sin el prefijo de codigo."""
+    buscado = _normalizar(texto)
+    if not buscado:
+        return None
+    for p in puntos:
+        codigo = _normalizar(p["codigo"] or "")
+        if codigo and buscado == codigo:
+            return p
+        if buscado in (_normalizar(p["nombre"]), _nombre_sin_codigo(p["nombre"], p["codigo"])):
+            return p
+    return None
+
+
+def _fecha_iso_valida(texto: str) -> bool:
+    try:
+        date.fromisoformat(texto)
+    except ValueError:
+        return False
+    return True
+
+
+async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
+    """Lee la foto del talonario con vision y resuelve el destino contra los
+    puntos activos (excluyendo el origen). Devuelve los campos leidos, el
+    `punto_destino` ({id, nombre, codigo} o None) y `faltantes`: nombres en
+    espanol de lo que no se pudo leer con suficiente certeza -- si no esta
+    vacia, la app movil obliga a repetir la foto. Lanza ExtraccionFallida
+    (ver app.services.vision) si la IA no pudo procesar la foto."""
+    extraido = await extraer_datos_talonario(foto_url)
+    umbral = get_settings().min_confidence
+    confianza = extraido.get("confianza", {})
+
+    pool = await get_pool()
+    filas = await pool.fetch(
+        "select id, nombre, codigo from puntos where activo = true and id <> $1::uuid", punto_origen_id
+    )
+    puntos = [{"id": str(f["id"]), "nombre": f["nombre"], "codigo": f["codigo"]} for f in filas]
+
+    numero = (extraido.get("numero_talonario") or "").strip()
+    destino_texto = (extraido.get("destino") or "").strip()
+    transportador = (extraido.get("transportador") or "").strip()
+    fecha = (extraido.get("fecha") or "").strip()
+    items = extraido.get("items") or []
+
+    punto_destino = _resolver_destino(destino_texto, puntos)
+
+    def _confiable(campo: str) -> bool:
+        return confianza.get(campo, 0) >= umbral
+
+    faltantes: list[str] = []
+    if not numero or not _confiable("numero_talonario") or not re.fullmatch(r"[A-Za-z0-9 /-]{1,30}", numero):
+        faltantes.append("Número de talonario")
+    if punto_destino is None or not _confiable("destino"):
+        faltantes.append("Destino")
+    if not transportador or not _confiable("transportador"):
+        faltantes.append("Transportador")
+    if not fecha or not _fecha_iso_valida(fecha) or not _confiable("fecha"):
+        faltantes.append("Fecha")
+    if not items:
+        faltantes.append("Productos")
+
+    return {
+        "numero_talonario": numero,
+        "destino": destino_texto,
+        "transportador": transportador,
+        "fecha": fecha,
+        "items": items,
+        "confianza": confianza,
+        "punto_destino": punto_destino,
+        "faltantes": faltantes,
+    }
+
+
 async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
     if payload.punto_origen_id == payload.punto_destino_id:
         raise TrasladoInvalido("El punto de origen y el de destino no pueden ser el mismo")
@@ -82,9 +184,9 @@ async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
                     insert into traslados_puntos (
                         id, punto_origen_id, punto_destino_id, transportador_nombre,
                         fecha, observaciones, firma_despacha_url, firma_transporta_url, creado_por,
-                        numero_talonario
+                        numero_talonario, foto_talonario_url
                     )
-                    values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::uuid, $10)
+                    values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::uuid, $10, $11)
                     returning *
                     """,
                     payload.id,
@@ -97,6 +199,7 @@ async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
                     payload.firma_transporta_url,
                     payload.creado_por,
                     payload.numero_talonario,
+                    payload.foto_talonario_url,
                 )
             except asyncpg.UniqueViolationError as exc:
                 # id repetido (ya generado y enviado antes -- ej. reintento
@@ -109,8 +212,10 @@ async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
             for item in payload.items:
                 fila_item = await conn.fetchrow(
                     """
-                    insert into traslado_punto_items (traslado_id, cantidad, producto, marca, presentacion)
-                    values ($1::uuid, $2, $3, $4, $5)
+                    insert into traslado_punto_items (
+                        traslado_id, cantidad, producto, marca, presentacion, fecha_vencimiento
+                    )
+                    values ($1::uuid, $2, $3, $4, $5, $6)
                     returning *
                     """,
                     payload.id,
@@ -118,6 +223,7 @@ async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
                     item.producto,
                     item.marca,
                     item.presentacion,
+                    item.fecha_vencimiento,
                 )
                 items.append(dict(fila_item))
 

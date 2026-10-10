@@ -772,6 +772,8 @@ export interface ItemTraslado {
   marca: string;
   presentacion: string;
   cantidad: number;
+  // ISO YYYY-MM-DD leido del talonario; null si el producto no trae vencimiento.
+  fecha_vencimiento?: string | null;
   // null hasta que el punto destino confirma la recepcion.
   cantidad_recibida: number | null;
   novedad: string | null;
@@ -789,6 +791,8 @@ export interface Traslado {
   // Numero impreso en el talonario fisico (ver TrasladoPuntoCrear en el
   // backend) -- null en los traslados creados antes de este campo.
   numero_talonario?: string | null;
+  // Foto del talonario de la que se leyo el traslado (null en los anteriores).
+  foto_talonario_url?: string | null;
   transportador_nombre: string;
   fecha: string;
   observaciones: string | null;
@@ -829,6 +833,38 @@ export interface ItemTrasladoCrear {
   marca: string;
   presentacion: string;
   cantidad: number;
+  fecha_vencimiento?: string | null;
+}
+
+/** Resultado de leer la foto de un talonario (POST /traslados-puntos/extraer). */
+export interface ExtraccionTalonario {
+  numero_talonario: string;
+  destino: string;
+  transportador: string;
+  // ISO YYYY-MM-DD o "" si no se pudo leer.
+  fecha: string;
+  items: {
+    cantidad: number;
+    producto: string;
+    marca: string;
+    presentacion: string;
+    fecha_vencimiento: string;
+  }[];
+  // Destino resuelto contra los puntos activos; null si no hubo coincidencia.
+  punto_destino: Punto | null;
+  // Nombres legibles de lo que no se pudo leer; si no esta vacia hay que
+  // repetir la foto.
+  faltantes: string[];
+}
+
+/** Le pide al backend que lea la foto del talonario (ya subida a Storage). */
+export async function extraerTalonario(fotoUrl: string, puntoOrigenId: string): Promise<ExtraccionTalonario> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/extraer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ foto_url: fotoUrl, punto_origen_id: puntoOrigenId }),
+  });
+  return parsearRespuesta<ExtraccionTalonario>(res);
 }
 
 /**
@@ -840,6 +876,7 @@ export interface ItemTrasladoCrear {
 export async function crearTrasladoPunto(payload: {
   id: string;
   numero_talonario: string;
+  foto_talonario_url: string;
   punto_origen_id: string;
   punto_destino_id: string;
   transportador_nombre: string;

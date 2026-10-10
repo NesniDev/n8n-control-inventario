@@ -1,4 +1,4 @@
-// Alta/edicion de un producto del traslado en una HojaModal, en el orden en
+// Edicion de un producto del traslado en una HojaModal, en el orden en
 // que se lee el papel en bodega: Cantidad, Nombre del producto, Marca,
 // Presentacion. Trabaja sobre una copia local del item -- nada se escribe en
 // el borrador (TrasladoContext) hasta tocar "Guardar", asi "Cancelar" o
@@ -7,8 +7,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import HojaModal from './HojaModal';
+import SelectorFecha, { formatearFechaLarga } from './SelectorFecha';
 import { nuevoItemDraft, type ItemTrasladoDraft } from './TrasladoContext';
-import { ContenidoBoton, FUENTE_BODY, FUENTE_BODY_SEMI, NEUTRAL_400, NEUTRAL_500, NEUTRAL_700, NEUTRAL_800, styles, TEXTO_PRIMARIO, TEXTO_SOBRE_ACENTO } from './tema';
+import { ACENTO, ContenidoBoton, FUENTE_BODY, FUENTE_BODY_SEMI, NEUTRAL_400, NEUTRAL_500, NEUTRAL_700, NEUTRAL_800, styles, TEXTO_PRIMARIO, TEXTO_SOBRE_ACENTO } from './tema';
 
 export function productoValido(item: ItemTrasladoDraft): boolean {
   return item.producto.trim() !== '' && /^\d+$/.test(item.cantidad.trim()) && Number(item.cantidad.trim()) > 0;
@@ -27,6 +28,7 @@ export default function ModalProducto({
   onCerrar: () => void;
 }) {
   const [item, setItem] = useState<ItemTrasladoDraft>(() => inicial ?? nuevoItemDraft());
+  const [fechaAbierta, setFechaAbierta] = useState(false);
 
   // Cada vez que se abre, arranca desde el item a editar o de uno vacio.
   useEffect(() => {
@@ -37,7 +39,8 @@ export default function ModalProducto({
   const valido = productoValido(item);
 
   return (
-    <HojaModal visible={visible} titulo={inicial ? 'Editar producto' : 'Agregar producto'} onCerrar={onCerrar}>
+    <>
+    <HojaModal visible={visible} titulo="Editar producto" onCerrar={onCerrar}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
         <Campo etiqueta="Cantidad">
           <TextInput
@@ -77,6 +80,27 @@ export default function ModalProducto({
             style={estilos.input}
           />
         </Campo>
+        <Campo etiqueta="Fecha de vencimiento (opcional)">
+          <View style={estilos.filaFecha}>
+            <Pressable
+              onPress={() => setFechaAbierta(true)}
+              style={({ pressed }) => [estilos.input, estilos.campoFecha, pressed && { borderColor: ACENTO }]}
+            >
+              <Text style={[estilos.textoFecha, !item.fechaVencimiento && { color: NEUTRAL_500 }]}>
+                {item.fechaVencimiento ? formatearFechaLarga(item.fechaVencimiento) : 'Sin vencimiento'}
+              </Text>
+            </Pressable>
+            {item.fechaVencimiento ? (
+              <Pressable
+                onPress={() => cambiar({ fechaVencimiento: '' })}
+                hitSlop={10}
+                style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
+              >
+                <ContenidoBoton icono="close-outline" texto="Quitar" color={NEUTRAL_400} />
+              </Pressable>
+            ) : null}
+          </View>
+        </Campo>
       </ScrollView>
 
       <View style={estilos.acciones}>
@@ -107,6 +131,14 @@ export default function ModalProducto({
         </Pressable>
       </View>
     </HojaModal>
+      <SelectorFecha
+        visible={fechaAbierta}
+        valor={item.fechaVencimiento}
+        titulo="Fecha de vencimiento"
+        onElegir={(fechaVencimiento) => cambiar({ fechaVencimiento })}
+        onCerrar={() => setFechaAbierta(false)}
+      />
+    </>
   );
 }
 
@@ -133,4 +165,7 @@ const estilos = StyleSheet.create({
     fontSize: 16,
   },
   acciones: { flexDirection: 'row', gap: 10 },
+  filaFecha: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  campoFecha: { flex: 1 },
+  textoFecha: { color: TEXTO_PRIMARIO, fontFamily: FUENTE_BODY, fontSize: 16 },
 });
