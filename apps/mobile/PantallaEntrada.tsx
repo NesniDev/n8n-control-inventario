@@ -60,6 +60,23 @@ const AREAS: { area: Area; titulo: string; icono: keyof typeof Ionicons.glyphMap
 
 const areaDe = (tipo: TipoSesion): Area => (tipo === 'bodega' ? 'bodega' : 'traslados');
 
+// En la base el nombre del punto lleva su codigo adelante ("CFC — La Cumbre").
+// En el login solo se muestra el nombre ("La Cumbre"); el resto de la app
+// sigue usando el nombre completo, que viaja en nombreCompleto y se
+// restituye al entrar.
+type PuntoLogin = Punto & { nombreCompleto: string };
+
+const quitarCodigo = (punto: Punto) =>
+  punto.codigo ? punto.nombre.replace(new RegExp(`^${punto.codigo}\\s*[—–-]\\s*`), '') : punto.nombre;
+
+// Ordenados alfabeticamente por el nombre que se ve (sin el codigo).
+const cargarPuntosLogin = async (): Promise<PuntoLogin[]> =>
+  (await fetchPuntos())
+    .map((p) => ({ ...p, nombre: quitarCodigo(p), nombreCompleto: p.nombre }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+
+const puntoOriginal = ({ nombreCompleto, ...punto }: PuntoLogin): Punto => ({ ...punto, nombre: nombreCompleto });
+
 export default function PantallaEntrada({ onLogin }: { onLogin: (sesion: Sesion) => void }) {
   const reducirMovimiento = useReducirMovimiento();
   // Hasta leer el recuerdo (un archivo chico, casi instantaneo) solo se ve el
@@ -296,12 +313,17 @@ function Entrada({
         key={tipo}
         encabezado={encabezado}
         etiquetaLugar="punto"
-        cargarLugares={fetchPuntos}
+        cargarLugares={cargarPuntosLogin}
         cargarUsuarios={fetchUsuariosPunto}
         login={loginPunto}
         usuarioUnicoPorLugar
         onLogin={(usuario, punto, largoPin) =>
-          entrar({ tipo: 'punto', usuario: usuario as UsuarioPunto, punto: punto as Punto }, punto.id, usuario.id, largoPin)
+          entrar(
+            { tipo: 'punto', usuario: usuario as UsuarioPunto, punto: puntoOriginal(punto as PuntoLogin) },
+            punto.id,
+            usuario.id,
+            largoPin
+          )
         }
         usuarioRecordado={recuerdo.usuarios.punto}
         accionExtra={[
