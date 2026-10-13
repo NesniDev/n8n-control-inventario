@@ -12,7 +12,12 @@ import asyncpg
 from app.config import get_settings
 from app.db import get_pool
 from app.models.log import EventoLog
-from app.models.traslado_punto import RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
+from app.models.traslado_punto import (
+    RecepcionTraslado,
+    SolucionNovedad,
+    TrasladoPuntoCrear,
+    normalizar_numero_syscafe,
+)
 from app.services.logging_service import registrar_evento
 from app.services.talonarios import (
     TalonarioConflicto,
@@ -60,6 +65,12 @@ class ConsecutivoDuplicado(Exception):
     app/db.py) -- se traduce a 409, con un detail distinto del de
     NovedadYaResuelta para que el movil pueda distinguir los dos casos (ver
     esErrorConsecutivoDuplicado en apps/mobile/errorMessages.ts)."""
+
+
+class SyscafeDuplicado(Exception):
+    """Ese numero Syscafe ya esta asignado a otro traslado (indice unico
+    parcial traslados_puntos_numero_syscafe_key, ver app/db.py) -- se traduce a
+    409; el mensaje nombra la hoja del talonario del otro traslado."""
 
 
 def _normalizar(texto: str) -> str:
@@ -443,4 +454,107 @@ async def resolver_novedad(traslado_id: str, payload: SolucionNovedad) -> dict:
 
     resultado = dict(actualizado)
     resultado["items"] = [dict(i) for i in items]
+    return resultado
+
+
+async def asignar_numero_syscafe(traslado_id: str, valor: str | None) -> dict:
+    """Guarda (o borra, si `valor` es None o vacio) el numero Syscafe de un
+    traslado, en cualquier estado. Se normaliza aca tambien (ver
+    normalizar_numero_syscafe). Sin auditoria en logs, a proposito."""
+    valor = normalizar_numero_syscafe(valor)
+    pool = await get_pool()
+    try:
+        actualizado = await pool.fetchrow(
+            "update traslados_puntos set numero_syscafe = $2 where id = $1::uuid returning *",
+            traslado_id,
+            valor,
+        )
+    except asyncpg.UniqueViolationError as exc:
+        otro = await pool.fetchrow(
+            "select numero_talonario, talonario_id, consecutivo from traslados_puntos"
+            " where numero_syscafe = $1 and id <> $2::uuid",
+            valor,
+            traslado_id,
+        )
+        if otro is not None and otro["talonario_id"] and otro["numero_talonario"]:
+            referencia = otro["numero_talonario"]
+        elif otro is not None:
+            referencia = f"TP-{otro['consecutivo']:06d}"
+        else:
+            referencia = "otro traslado"
+        raise SyscafeDuplicado(f"El número Syscafe {valor} ya está asignado al traslado {referencia}") from exc
+    if actualizado is None:
+        raise TrasladoNoEncontrado("Traslado no encontrado")
+    items = await pool.fetch(
+        "select * from traslado_punto_items where traslado_id = $1::uuid order by id", traslado_id
+    )
+    resultado = dict(actualizado)
+    resultado["items"] = [dict(i) for i in items]
+    return resultado
+
+
+async def validar_supervisor_activo(supervisor_id: str) -> None:
+    """Misma validacion de confianza que resolver_novedad: el supervisor tiene
+    que existir y estar activo. Lanza TrasladoInvalido si no."""
+    pool = await get_pool()
+    try:
+        fila = await pool.fetchrow(
+            "select id from supervisores where id = $1::uuid and estado = 'activo'", supervisor_id
+        )
+    except asyncpg.DataError:
+        fila = None
+    if fila is None:
+        raise TrasladoInvalido("Supervisor invalido o inactivo")
+
+
+async def listar_traslados_syscafe(punto_id: str | None, pendientes: bool) -> list[dict]:
+    """Lista de Supervision: traslados (con su numero Syscafe) mas las hojas
+    anuladas de los talonarios, tipo "traslado" | "anulada". Pendientes
+    (traslados sin numero Syscafe) primero, luego lo mas reciente. Las anuladas
+    no tienen campo Syscafe, asi que `pendientes=true` las excluye."""
+    pool = await get_pool()
+    filtro_t = "where ($1::uuid is null or t.punto_origen_id = $1::uuid)"
+    filtro_a = "where ($1::uuid is null or tp.punto_id = $1::uuid)"
+    if pendientes:
+        filtro_t += " and t.numero_syscafe is null"
+        anuladas = ""
+    else:
+        anuladas = f"""
+            union all
+            select 'anulada' as tipo, a.id, null::bigint as consecutivo,
+                tp.letra || ' ' || a.numero as numero_talonario, tp.id as talonario_id,
+                null::text as numero_syscafe, tp.punto_id as punto_origen_id,
+                po.nombre as punto_origen_nombre, null::uuid as punto_destino_id,
+                null::text as punto_destino_nombre, 'anulada' as estado,
+                a.created_at::date as fecha, a.created_at, a.motivo
+            from talonario_hojas_anuladas a
+            join talonarios_punto tp on tp.id = a.talonario_id
+            left join puntos po on po.id = tp.punto_id
+            {filtro_a}
+        """
+    filas = await pool.fetch(
+        f"""
+        select * from (
+            select 'traslado' as tipo, t.id, t.consecutivo, t.numero_talonario, t.talonario_id,
+                t.numero_syscafe, t.punto_origen_id, po.nombre as punto_origen_nombre,
+                t.punto_destino_id, pd.nombre as punto_destino_nombre, t.estado, t.fecha,
+                t.created_at, null::text as motivo
+            from traslados_puntos t
+            left join puntos po on po.id = t.punto_origen_id
+            left join puntos pd on pd.id = t.punto_destino_id
+            {filtro_t}
+            {anuladas}
+        ) x
+        order by (x.tipo = 'traslado' and x.numero_syscafe is null) desc, x.created_at desc
+        limit 500
+        """,
+        punto_id,
+    )
+    resultado = []
+    for fila in filas:
+        item = dict(fila)
+        for campo in ("id", "talonario_id", "punto_origen_id", "punto_destino_id"):
+            if item.get(campo) is not None:
+                item[campo] = str(item[campo])
+        resultado.append(item)
     return resultado

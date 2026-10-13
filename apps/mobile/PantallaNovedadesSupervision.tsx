@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { buscarConsecutivoTraslado, fetchNovedadesTraslado, referenciaTraslado, type Traslado } from './api';
+import { buscarConsecutivoTraslado, fetchNovedadesTraslado, etiquetaSyscafe, referenciaTraslado, type Traslado } from './api';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import { AvisoRol } from './ResumenTraslado';
@@ -71,7 +71,13 @@ function TarjetaNovedad({
       <View style={[estilos.franja, { backgroundColor: color }]} />
       <View style={estilos.contenido}>
         <View style={estilos.filaSuperior}>
-          <Text style={estilos.numero}>{referenciaTraslado(traslado)}</Text>
+          <Text style={estilos.numero}>
+            {referenciaTraslado(traslado)}
+            <Text style={{ color: traslado.numero_syscafe ? ACENTO : NEUTRAL_500, fontFamily: FUENTE_BODY }}>
+              {'  ·  '}
+              {etiquetaSyscafe(traslado)}
+            </Text>
+          </Text>
           <View
             style={[
               estilos.pildora,
@@ -255,6 +261,14 @@ export default function PantallaNovedadesSupervision() {
             texto="Revisa los traslados que llegaron con observación y registra qué se hizo con cada uno."
           />
 
+          <Pressable
+            onPress={() => navigation.navigate('TrasladosSyscafe')}
+            style={({ pressed }) => [estilos.enlace, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="receipt-outline" size={16} color={ACENTO} />
+            <Text style={estilos.enlaceTexto}>Ir a traslados Syscafe</Text>
+          </Pressable>
+
           {/* Buscador de consecutivo -- mientras hay texto, reemplaza las
               pestañas y listas de abajo por los resultados (ver el plan
               "consecutivo-solucion"). */}
@@ -363,6 +377,8 @@ export default function PantallaNovedadesSupervision() {
 }
 
 const estilos = StyleSheet.create({
+  enlace: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  enlaceTexto: { color: ACENTO, fontSize: 13.5, fontFamily: FUENTE_BODY_SEMI },
   buscador: {
     flexDirection: 'row',
     alignItems: 'center',

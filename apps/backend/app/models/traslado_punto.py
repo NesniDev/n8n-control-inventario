@@ -147,3 +147,45 @@ class SolucionNovedad(BaseModel):
         if not re.fullmatch(r"\d{1,10}", texto):
             raise ValueError("El número del consecutivo debe tener solo dígitos (1 a 10)")
         return texto
+
+
+_MSG_SYSCAFE = (
+    "El número Syscafe debe tener el formato CÓDIGO-NÚMERO (ej. NBR-945): "
+    "2 a 4 letras o números empezando por letra, un guion y de 1 a 7 dígitos"
+)
+_SYSCAFE_CON_SEPARADOR = re.compile(r"([A-Z][A-Z0-9]{1,3})[\s\-]+(\d{1,7})")
+# Sin separador solo se acepta un codigo de 3 a 4 letras ("NBR945"): con 2 letras
+# o con digitos en el codigo ("TF15832") no se sabe donde termina el codigo
+# ("TF1-5832" o "TF-15832"), asi que se pide el guion.
+_SYSCAFE_SIN_SEPARADOR = re.compile(r"([A-Z]{3,4})(\d{1,7})")
+
+
+def normalizar_numero_syscafe(valor: str | None) -> str | None:
+    """Normaliza el numero Syscafe a "CODIGO-NUMERO" (mayusculas, sin espacios
+    sobrantes). Acepta "NBR-945", "nbr 945" y "NBR945"; None o vacio devuelve
+    None (borra el valor). Cualquier otra cosa lanza ValueError."""
+    texto = re.sub(r"\s+", " ", (valor or "").strip().upper())
+    if not texto:
+        return None
+    coincidencia = _SYSCAFE_CON_SEPARADOR.fullmatch(texto) or _SYSCAFE_SIN_SEPARADOR.fullmatch(texto)
+    if coincidencia is None:
+        raise ValueError(_MSG_SYSCAFE)
+    return f"{coincidencia.group(1)}-{coincidencia.group(2)}"
+
+
+class AsignarSyscafeDashboard(BaseModel):
+    """Payload de PATCH /traslados-puntos/{id}/syscafe/dashboard -- el actor
+    sale de la sesion del dashboard. numero_syscafe vacio o null borra el valor."""
+
+    # Se normaliza y valida en el router (ver _asignar_syscafe), no con un
+    # validador de pydantic: un ValueError ahi responderia el 422 con `detail`
+    # como lista y el movil necesita un texto.
+    numero_syscafe: str | None = None
+
+
+class AsignarSyscafe(AsignarSyscafeDashboard):
+    """Payload de PATCH /traslados-puntos/{id}/syscafe (movil) -- Supervision
+    manda su id, mismo modelo de confianza que SolucionNovedad (el PIN se
+    verifico en el login)."""
+
+    supervisor_id: str

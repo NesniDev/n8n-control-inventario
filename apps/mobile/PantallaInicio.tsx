@@ -41,6 +41,7 @@ import {
   fetchFacturasFaltantes,
   fetchFacturasYaSubidas,
   fetchNovedadesTraslado,
+  listarTrasladosSyscafe,
   fetchResumenHoy,
   fetchTrasladosPunto,
 } from './api';
@@ -550,6 +551,17 @@ async function filaNovedades(): Promise<Pendiente> {
   };
 }
 
+async function filaSyscafe(): Promise<Pendiente> {
+  const lista = await listarTrasladosSyscafe({ pendientes: true });
+  return {
+    clave: 'syscafe',
+    texto: 'Traslados sin número Syscafe',
+    cantidad: lista.length,
+    icono: 'receipt-outline',
+    abrir: (nav) => nav.navigate('TrasladosPuntos', { screen: 'TrasladosSyscafe' }),
+  };
+}
+
 async function cargarPendientes(sesion: Sesion): Promise<Pendiente[]> {
   switch (sesion.tipo) {
     case 'bodega':
@@ -570,7 +582,7 @@ async function cargarPendientes(sesion: Sesion): Promise<Pendiente[]> {
       ];
     }
     case 'supervision':
-      return [await filaNovedades()];
+      return [await filaNovedades(), await filaSyscafe()];
   }
 }
 

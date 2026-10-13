@@ -829,6 +829,9 @@ export interface Traslado {
   // resolver_novedad en el backend) -- solo tiene valor una vez resuelta,
   // mismo criterio que solucion/solucionado_por.
   consecutivo_solucion?: string | null;
+  // Numero del traslado en Syscafe (ej. "NBR-945"), lo registra Supervision;
+  // null/undefined mientras este pendiente (ver asignarSyscafe).
+  numero_syscafe?: string | null;
 }
 
 /**
@@ -839,6 +842,12 @@ export interface Traslado {
 export function referenciaTraslado(t: Pick<Traslado, 'consecutivo' | 'talonario_id' | 'numero_talonario'>): string {
   if (t.talonario_id && t.numero_talonario) return t.numero_talonario;
   return `TP-${String(t.consecutivo).padStart(6, '0')}`;
+}
+
+/** Etiqueta del numero Syscafe junto a la referencia: "Syscafe NBR-945" o
+ * "Syscafe: pendiente". */
+export function etiquetaSyscafe(t: Pick<Traslado, 'numero_syscafe'>): string {
+  return t.numero_syscafe ? `Syscafe ${t.numero_syscafe}` : 'Syscafe: pendiente';
 }
 
 export interface ItemTrasladoCrear {
@@ -1166,6 +1175,67 @@ export async function buscarConsecutivoTraslado(q: string): Promise<Traslado[]> 
   const params = new URLSearchParams({ q: texto });
   const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/buscar-consecutivo?${params}`);
   return parsearRespuesta<Traslado[]>(res);
+}
+
+/** Fila de la lista de Supervision para registrar el numero Syscafe: un
+ * traslado o una hoja anulada del talonario (GET /traslados-puntos/syscafe). */
+export interface FilaSyscafe {
+  tipo: 'traslado' | 'anulada';
+  id: string;
+  consecutivo: number | null;
+  numero_talonario: string | null;
+  talonario_id: string | null;
+  numero_syscafe: string | null;
+  punto_origen_id: string;
+  punto_origen_nombre: string | null;
+  punto_destino_id: string | null;
+  punto_destino_nombre: string | null;
+  estado: string;
+  fecha: string;
+  created_at: string;
+  // Solo en las anuladas.
+  motivo: string | null;
+}
+
+/** Traslados (y hojas anuladas) para que Supervision registre el numero
+ * Syscafe, pendientes primero. `puntoId` filtra por punto de origen. */
+export async function listarTrasladosSyscafe(
+  filtros: { puntoId?: string; pendientes?: boolean } = {},
+  opciones?: OpcionesCache
+): Promise<FilaSyscafe[]> {
+  const params = new URLSearchParams();
+  if (filtros.puntoId) params.set('punto_id', filtros.puntoId);
+  if (filtros.pendientes) params.set('pendientes', 'true');
+  return conCache<FilaSyscafe[]>(
+    `syscafe:${params.toString()}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/syscafe?${params}`);
+      return parsearRespuesta<FilaSyscafe[]>(res);
+    },
+    opciones
+  );
+}
+
+/**
+ * Guarda (o borra, con null/vacio) el numero Syscafe de un traslado -- 422 si
+ * el formato no es CODIGO-NUMERO, 409 si ya lo tiene otro traslado (el detail
+ * nombra la hoja del talonario de ese otro traslado).
+ */
+export async function asignarSyscafe(
+  trasladoId: string,
+  supervisorId: string,
+  numeroSyscafe: string | null
+): Promise<Traslado> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/${trasladoId}/syscafe`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supervisor_id: supervisorId, numero_syscafe: numeroSyscafe }),
+  });
+  const resultado = await parsearRespuesta<Traslado>(res);
+  // Lo guardado en la cache quedo viejo (ver cache.ts).
+  invalidarCache('syscafe:', 'novedades:', 'traslados:', 'traslado:');
+  return resultado;
 }
 
 // Facturas faltantes -- el bodeguero avisa que una factura todavia no fue

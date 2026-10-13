@@ -432,6 +432,51 @@ export async function actualizarProducto(
   return res.json();
 }
 
+// Traslados entre puntos con su numero Syscafe (ver GET /traslados-puntos/syscafe
+// en el backend): traslados y hojas anuladas del talonario, pendientes primero.
+// Se llena desde la app movil (Supervision) o desde la pagina /traslados.
+export interface FilaTrasladoSyscafe {
+  tipo: "traslado" | "anulada";
+  id: string;
+  consecutivo: number | null;
+  numero_talonario: string | null;
+  talonario_id: string | null;
+  numero_syscafe: string | null;
+  punto_origen_id: string;
+  punto_origen_nombre: string | null;
+  punto_destino_id: string | null;
+  punto_destino_nombre: string | null;
+  estado: string;
+  fecha: string;
+  created_at: string;
+  // Solo en las anuladas.
+  motivo: string | null;
+}
+
+export const listarTrasladosSyscafe = (filtros: { puntoId?: string; pendientes?: boolean } = {}) => {
+  const params = new URLSearchParams();
+  if (filtros.puntoId) params.set("punto_id", filtros.puntoId);
+  if (filtros.pendientes) params.set("pendientes", "true");
+  const query = params.toString();
+  return getJson<FilaTrasladoSyscafe[]>(`/traslados-puntos/syscafe${query ? `?${query}` : ""}`);
+};
+
+export const fetchPuntosPublicos = () => getJson<{ id: string; nombre: string; codigo: string | null }[]>("/puntos");
+
+// Guarda (o borra, con null) el numero Syscafe de un traslado. Requiere sesion
+// admin/supervisor; 422 si el formato no es CODIGO-NUMERO, 409 si ya lo tiene
+// otro traslado (el mensaje nombra la hoja de ese otro).
+export async function asignarSyscafeDashboard(trasladoId: string, numeroSyscafe: string | null): Promise<void> {
+  const res = await apiFetch(`/traslados-puntos/${trasladoId}/syscafe/dashboard`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ numero_syscafe: numeroSyscafe }),
+  });
+  if (!res.ok) {
+    throw new Error(await mensajeDeError(res, "No se pudo guardar el número Syscafe"));
+  }
+}
+
 // Ranking de productos mas/menos vendidos en un rango de fechas (ver GET
 // /ranking/productos en el backend) -- se agrega en Python a partir de
 // entrega_items, sin agregacion en SQL (ver apps/backend/app/services/ranking.py).

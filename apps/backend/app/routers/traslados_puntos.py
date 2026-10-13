@@ -15,8 +15,16 @@ from app.models.empleado import PinNuevo
 from app.models.punto import PinLoginPunto, PuntoActualizar, PuntoCrear, UsuarioPuntoActualizar, UsuarioPuntoCrear
 from app.models.supervisor import PinLoginSupervisor, SupervisorActualizar, SupervisorCrear
 from app.models.talonario import HojaAnular, TalonarioConfigurar
-from app.models.traslado_punto import ExtraerTalonario, RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
-from app.services.permisos_dashboard import autorizar_admin, requiere_admin
+from app.models.traslado_punto import (
+    AsignarSyscafe,
+    AsignarSyscafeDashboard,
+    ExtraerTalonario,
+    RecepcionTraslado,
+    SolucionNovedad,
+    TrasladoPuntoCrear,
+    normalizar_numero_syscafe,
+)
+from app.services.permisos_dashboard import autorizar_admin, requiere_admin, requiere_supervisor
 from app.services.auth_pin import generar_sal, hashear_pin, verificar_pin
 from app.services.talonarios import (
     TalonarioConflicto,
@@ -31,13 +39,17 @@ from app.services.traslados_puntos import (
     NovedadInvalida,
     NovedadNoEncontrada,
     NovedadYaResuelta,
+    SyscafeDuplicado,
     TrasladoInvalido,
     TrasladoNoEncontrado,
     TrasladoYaRecibido,
+    asignar_numero_syscafe,
     crear_traslado,
     extraer_talonario,
+    listar_traslados_syscafe,
     registrar_recepcion,
     resolver_novedad,
+    validar_supervisor_activo,
 )
 from app.services.vision import ExtraccionFallida
 from app.services.usuarios import (
@@ -416,6 +428,15 @@ async def buscar_consecutivo_traslado(q: str = "") -> list[dict]:
     return [_serializar_traslado(dict(r)) for r in rows]
 
 
+@router.get("/traslados-puntos/syscafe")
+async def listar_syscafe(punto_id: UUID | None = None, pendientes: bool = False) -> list[dict]:
+    """Lista de Supervision para registrar el numero Syscafe: traslados (tipo
+    "traslado") y hojas anuladas (tipo "anulada"), pendientes primero. OJO: mismo
+    motivo que /novedades -- tiene que declararse ANTES que
+    GET /traslados-puntos/{traslado_id}."""
+    return await listar_traslados_syscafe(str(punto_id) if punto_id else None, pendientes)
+
+
 @router.get("/traslados-puntos/{traslado_id}")
 async def obtener_traslado(traslado_id: UUID) -> dict:
     pool = await get_pool()
@@ -467,3 +488,34 @@ async def resolver_novedad_endpoint(traslado_id: UUID, payload: SolucionNovedad)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     items = resultado.pop("items")
     return _serializar_traslado(resultado, items)
+
+
+async def _asignar_syscafe(traslado_id: UUID, valor: str | None) -> dict:
+    try:
+        valor = normalizar_numero_syscafe(valor)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        resultado = await asignar_numero_syscafe(str(traslado_id), valor)
+    except TrasladoNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SyscafeDuplicado as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    items = resultado.pop("items")
+    return _serializar_traslado(resultado, items)
+
+
+@router.patch("/traslados-puntos/{traslado_id}/syscafe")
+async def asignar_syscafe_movil(traslado_id: UUID, payload: AsignarSyscafe) -> dict:
+    """Movil (Supervision): guarda o borra (null/vacio) el numero Syscafe."""
+    try:
+        await validar_supervisor_activo(payload.supervisor_id)
+    except TrasladoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return await _asignar_syscafe(traslado_id, payload.numero_syscafe)
+
+
+@router.patch("/traslados-puntos/{traslado_id}/syscafe/dashboard", dependencies=[Depends(requiere_supervisor)])
+async def asignar_syscafe_dashboard(traslado_id: UUID, payload: AsignarSyscafeDashboard) -> dict:
+    """Dashboard: sesion admin/supervisor (o token legacy); `consulta` queda fuera."""
+    return await _asignar_syscafe(traslado_id, payload.numero_syscafe)

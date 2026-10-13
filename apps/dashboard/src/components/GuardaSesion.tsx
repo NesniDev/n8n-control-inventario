@@ -62,6 +62,7 @@ const ENLACES_NAV: { href: string; etiqueta: string; soloAdmin?: boolean }[] = [
   { href: "/", etiqueta: "Panel" },
   { href: "/productos", etiqueta: "Catálogo" },
   { href: "/ranking", etiqueta: "Ranking" },
+  { href: "/traslados", etiqueta: "Traslados" },
   { href: "/turnos", etiqueta: "Turnos", soloAdmin: true },
   { href: "/creador", etiqueta: "Administración", soloAdmin: true },
 ];

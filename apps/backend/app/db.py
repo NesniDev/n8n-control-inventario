@@ -484,6 +484,15 @@ create unique index if not exists traslados_puntos_talonario_numero_key
 create index if not exists idx_traslados_puntos_talonario
     on traslados_puntos (talonario_id) where talonario_id is not null;
 
+-- Numero del traslado en Syscafe (sistema contable, ej. "NBR-945"): lo registra
+-- Supervision para cruzarlo con la hoja del talonario (ver
+-- asignar_numero_syscafe en app/services/traslados_puntos.py). Unico solo entre
+-- los que tienen valor (indice parcial) -- un traslado sin numero todavia no
+-- puede chocar con nada.
+alter table traslados_puntos add column if not exists numero_syscafe text;
+create unique index if not exists traslados_puntos_numero_syscafe_key
+    on traslados_puntos (numero_syscafe) where numero_syscafe is not null;
+
 -- Tipos de documento que la IA de vision recibe como guia en el prompt (ver
 -- app/services/tipos_documento.py y vision.py) -- se administran desde
 -- /creador en el dashboard. No restringen entregas.tipo (sin check ahi): son

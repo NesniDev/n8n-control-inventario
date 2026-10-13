@@ -9,10 +9,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { fetchTrasladoPunto, referenciaTraslado, type EstadoTraslado, type Traslado } from './api';
+import { etiquetaSyscafe, fetchTrasladoPunto, referenciaTraslado, type EstadoTraslado, type Traslado } from './api';
+import EditorSyscafe from './EditorSyscafe';
 import { mensajeError } from './errorMessages';
 import FirmasTraslado from './FirmasTraslado';
 import ResumenTraslado from './ResumenTraslado';
+import { useSesion } from './SesionContext';
 import { haceCuanto, textoVencimiento } from './SelectorFecha';
 import { HeaderTraslado } from './TrasladoContext';
 import { ACENTO, FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, styles, TEXTO_PRIMARIO } from './tema';
@@ -34,6 +36,7 @@ export const ESTADO_TRASLADO: Record<
 
 export default function PantallaTrasladoDetalle({ route }: Props) {
   const { trasladoId } = route.params;
+  const { sesion } = useSesion();
   const [traslado, setTraslado] = useState<Traslado | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +137,7 @@ export default function PantallaTrasladoDetalle({ route }: Props) {
         ) : null}
 
         <ResumenTraslado
-          numero={referenciaTraslado(traslado)}
+          numero={`${referenciaTraslado(traslado)} · ${etiquetaSyscafe(traslado)}`}
           origen={traslado.punto_origen_nombre ?? '—'}
           destino={traslado.punto_destino_nombre ?? '—'}
           transportador={traslado.transportador_nombre}
@@ -189,6 +192,12 @@ export default function PantallaTrasladoDetalle({ route }: Props) {
               </View>
             ) : null}
           </View>
+        ) : null}
+
+        {/* Supervision registra o corrige el numero Syscafe (el resto de
+            sesiones lo ve de solo lectura junto a la referencia, arriba). */}
+        {sesion.tipo === 'supervision' ? (
+          <EditorSyscafe traslado={traslado} supervisorId={sesion.supervisor.id} onGuardado={setTraslado} />
         ) : null}
 
         <FirmasTraslado

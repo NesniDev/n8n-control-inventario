@@ -40,6 +40,7 @@ import PantallaTrasladoRecepcion from './PantallaTrasladoRecepcion';
 import PantallaTrasladoDetalle from './PantallaTrasladoDetalle';
 import PantallaNovedadesSupervision from './PantallaNovedadesSupervision';
 import PantallaNovedadDetalle from './PantallaNovedadDetalle';
+import PantallaTrasladosSyscafe from './PantallaTrasladosSyscafe';
 import PantallaInicio from './PantallaInicio';
 import { FUENTE_BODY_BOLD, useEstiloTabBar } from './tema';
 import { MARCA } from './vidrio';
@@ -58,7 +59,8 @@ export type DespachosStackParamList = {
 // cuelgan de InicioTraslados, no una de la otra.
 // NovedadesSupervision -> NovedadDetalle es el camino de Supervision (Erika
 // revisando y resolviendo novedades, ver TrasladoContext.tsx RolTraslados) --
-// rama totalmente aparte, sin nada colgando de InicioTraslados.
+// rama totalmente aparte, sin nada colgando de InicioTraslados. TrasladosSyscafe
+// (lista del numero Syscafe) -> DetalleTraslado es la otra rama de Supervision.
 export type TrasladosStackParamList = {
   InicioTraslados: undefined;
   NuevoTraslado: undefined;
@@ -69,6 +71,7 @@ export type TrasladosStackParamList = {
   DetalleTraslado: { trasladoId: string };
   NovedadesSupervision: undefined;
   NovedadDetalle: { trasladoId: string };
+  TrasladosSyscafe: undefined;
 };
 
 export type TabsParamList = {
@@ -173,6 +176,8 @@ function Traslados() {
         <>
           <TrasladosStack.Screen name="NovedadesSupervision" component={PantallaNovedadesSupervision} />
           <TrasladosStack.Screen name="NovedadDetalle" component={PantallaNovedadDetalle} />
+          <TrasladosStack.Screen name="TrasladosSyscafe" component={PantallaTrasladosSyscafe} />
+          <TrasladosStack.Screen name="DetalleTraslado" component={PantallaTrasladoDetalle} />
         </>
       ) : (
         <>

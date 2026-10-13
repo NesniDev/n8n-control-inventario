@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { fetchTrasladoPunto, referenciaTraslado, registrarRecepcion, subirFirmaTraslado, type ItemTraslado, type Traslado } from './api';
+import { fetchTrasladoPunto, etiquetaSyscafe, referenciaTraslado, registrarRecepcion, subirFirmaTraslado, type ItemTraslado, type Traslado } from './api';
 import EvitarTeclado from './EvitarTeclado';
 import { esErrorTrasladoYaRecibido, mensajeError, MENSAJE_TRASLADO_YA_RECIBIDO } from './errorMessages';
 import CampoFirma from './CampoFirma';
@@ -315,7 +315,7 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
           />
 
           <ResumenTraslado
-            numero={referenciaTraslado(traslado)}
+            numero={`${referenciaTraslado(traslado)} · ${etiquetaSyscafe(traslado)}`}
             origen={traslado.punto_origen_nombre ?? '—'}
             destino={traslado.punto_destino_nombre ?? punto?.nombre ?? '—'}
             transportador={traslado.transportador_nombre}

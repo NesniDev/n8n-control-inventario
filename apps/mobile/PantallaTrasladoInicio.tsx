@@ -16,7 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   fetchTalonarioPunto,
   fetchTrasladosPunto,
-  referenciaTraslado,
+  etiquetaSyscafe, referenciaTraslado,
   type EstadoTraslado,
   type TalonarioPunto,
   type Traslado,
@@ -84,7 +84,13 @@ function TarjetaTraslado({
       <View style={[estilos.franja, { backgroundColor: info.color }]} />
       <View style={estilos.contenido}>
         <View style={estilos.filaSuperior}>
-          <Text style={estilos.numero}>{referenciaTraslado(traslado)}</Text>
+          <Text style={estilos.numero}>
+            {referenciaTraslado(traslado)}
+            <Text style={{ color: traslado.numero_syscafe ? ACENTO : NEUTRAL_500, fontFamily: FUENTE_BODY }}>
+              {'  ·  '}
+              {etiquetaSyscafe(traslado)}
+            </Text>
+          </Text>
           <View style={[estilos.pildora, { backgroundColor: info.fondo }]}>
             <Ionicons name={info.icono} size={13} color={info.color} />
             <Text style={[estilos.pildoraTexto, { color: info.color }]}>{info.texto}</Text>
