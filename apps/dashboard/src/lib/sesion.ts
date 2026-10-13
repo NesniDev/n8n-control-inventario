@@ -6,11 +6,17 @@
 
 export type RolDashboard = "admin" | "supervisor" | "consulta";
 
+// Area: que secciones ve el usuario (el rol define que puede hacer en ellas).
+export type AreaDashboard = "todo" | "bodega" | "traslados";
+
 export interface UsuarioDashboard {
   id: string;
   usuario: string;
   nombre: string;
   rol: RolDashboard;
+  // Opcional: las sesiones guardadas antes de existir las areas no la traen
+  // y cuentan como "todo".
+  area?: AreaDashboard;
 }
 
 export interface Sesion {
@@ -131,3 +137,35 @@ export const ETIQUETA_ROL: Record<RolDashboard, string> = {
   supervisor: "Supervisor",
   consulta: "Consulta",
 };
+
+export const ETIQUETA_AREA: Record<AreaDashboard, string> = {
+  todo: "Todo",
+  bodega: "Bodega",
+  traslados: "Traslados",
+};
+
+// Area con la que actua el usuario: el admin siempre es "todo", y una sesion
+// vieja sin area tambien.
+export const areaEfectiva = (u: UsuarioDashboard | null | undefined): AreaDashboard =>
+  !u || u.rol === "admin" ? "todo" : (u.area ?? "todo");
+
+// Paginas que ve cada area (las exclusivas de admin se filtran aparte).
+const RUTAS_POR_AREA: Record<AreaDashboard, string[] | "todas"> = {
+  todo: "todas",
+  bodega: ["/", "/productos", "/ranking"],
+  traslados: ["/traslados"],
+};
+
+const coincideRuta = (ruta: string, base: string) =>
+  base === "/" ? ruta === "/" : ruta === base || ruta.startsWith(`${base}/`);
+
+export function rutaPermitida(u: UsuarioDashboard | null | undefined, ruta: string): boolean {
+  const permitidas = RUTAS_POR_AREA[areaEfectiva(u)];
+  return permitidas === "todas" || permitidas.some((base) => coincideRuta(ruta, base));
+}
+
+// Primera pagina a la que puede entrar el usuario (destino de la redireccion).
+export function rutaInicial(u: UsuarioDashboard | null | undefined): string {
+  const permitidas = RUTAS_POR_AREA[areaEfectiva(u)];
+  return permitidas === "todas" ? "/" : permitidas[0];
+}

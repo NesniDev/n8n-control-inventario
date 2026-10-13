@@ -31,7 +31,7 @@ from app.models.entrega import (
     TipoDocumento,
 )
 from app.models.log import EventoLog
-from app.services.permisos_dashboard import usuario_dashboard
+from app.services.permisos_dashboard import usuario_dashboard, usuario_en_areas
 from app.models.no_entregado import NoEntregadoCreate
 from app.services.devoluciones import DevolucionInvalida, registrar_devolucion
 from app.services.no_entregados import NoEntregadoInvalido, registrar_no_entregado
@@ -55,7 +55,7 @@ from app.services.permisos_dashboard import (
     ActorDashboard,
     actor_para_log,
     requiere_admin,
-    requiere_supervisor,
+    requiere_supervisor_area,
     usuario_dashboard_opcional,
 )
 from app.services.reportes import generar_reporte_mensual_xlsx
@@ -65,8 +65,9 @@ router = APIRouter(prefix="/entregas", tags=["entregas"])
 
 
 def _exigir_rol_escritura(usuario: dict) -> None:
-    """Un usuario del dashboard con rol 'consulta' es de solo lectura."""
-    if usuario["rol"] not in ("admin", "supervisor"):
+    """Un usuario del dashboard con rol 'consulta' es de solo lectura, y solo
+    escriben las areas todo y bodega (un supervisor de traslados no corrige entregas)."""
+    if usuario["rol"] not in ("admin", "supervisor") or not usuario_en_areas(usuario, ("todo", "bodega")):
         raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
 
 
@@ -836,7 +837,7 @@ _EXPORT_COLUMNAS = [
 
 @router.patch("/{entrega_id}/revisar")
 async def revisar_entrega(
-    entrega_id: str, payload: EntregaRevision, actor: ActorDashboard = Depends(requiere_supervisor)
+    entrega_id: str, payload: EntregaRevision, actor: ActorDashboard = Depends(requiere_supervisor_area("todo", "bodega"))
 ) -> dict:
     """Corrige tipo/indicativo_numero de una entrega. Con payload.aprobar=True
     (default) ademas la aprueba, dejandola como 'procesada' -- comportamiento

@@ -15,6 +15,7 @@ from app.models.log import EventoLog
 from app.models.usuario_dashboard import normalizar_usuario
 from app.services.auth_pin import generar_sal, hashear_password, verificar_password
 from app.services.logging_service import registrar_evento
+from app.services.permisos_dashboard import area_efectiva
 from app.services.sesion_dashboard import crear_token, obtener_secreto
 
 MAX_INTENTOS = 5
@@ -52,7 +53,13 @@ class PasswordIncorrecta(Exception):
 
 
 def _publico(fila: asyncpg.Record) -> dict:
-    return {"id": str(fila["id"]), "usuario": fila["usuario"], "nombre": fila["nombre"], "rol": fila["rol"]}
+    return {
+        "id": str(fila["id"]),
+        "usuario": fila["usuario"],
+        "nombre": fila["nombre"],
+        "rol": fila["rol"],
+        "area": area_efectiva(fila["rol"], fila["area"]),
+    }
 
 
 def _completo(fila: asyncpg.Record) -> dict:
@@ -157,31 +164,34 @@ async def _registrar_cambio(actor: dict, entidad_id: str, accion: str, detalle: 
     )
 
 
-async def crear(actor: dict, usuario: str, nombre: str, rol: str, password: str) -> dict:
+async def crear(actor: dict, usuario: str, nombre: str, rol: str, password: str, area: str = "todo") -> dict:
+    # El admin siempre es area "todo", sea lo que sea que llegue.
+    area = area_efectiva(rol, area)
     sal = generar_sal()
     pool = await get_pool()
     try:
         fila = await pool.fetchrow(
             """
-            insert into usuarios_dashboard (usuario, nombre, rol, pass_hash, pass_salt)
-            values ($1, $2, $3, $4, $5) returning *
+            insert into usuarios_dashboard (usuario, nombre, rol, area, pass_hash, pass_salt)
+            values ($1, $2, $3, $4, $5, $6) returning *
             """,
             usuario,
             nombre,
             rol,
+            area,
             hashear_password(password, sal),
             sal,
         )
     except asyncpg.UniqueViolationError as exc:
         raise UsuarioDuplicado() from exc
     await _registrar_cambio(
-        actor, str(fila["id"]), "creado", {"usuario": usuario, "nombre": nombre, "rol": rol}
+        actor, str(fila["id"]), "creado", {"usuario": usuario, "nombre": nombre, "rol": rol, "area": area}
     )
     return _completo(fila)
 
 
 async def actualizar(actor: dict, usuario_id: str, cambios: dict) -> dict:
-    """Update parcial de nombre/rol/activo. Guardas: un admin no puede
+    """Update parcial de nombre/rol/area/activo. Guardas: un admin no puede
     desactivarse ni quitarse el rol admin a si mismo, y siempre debe quedar al
     menos un admin activo."""
     pool = await get_pool()
@@ -204,7 +214,12 @@ async def actualizar(actor: dict, usuario_id: str, cambios: dict) -> dict:
                 if len(ids_admin_activos) <= 1:
                     raise ReglaAdmin("Debe quedar al menos un administrador activo")
 
-            efectivos = {k: v for k, v in cambios.items() if k in ("nombre", "rol", "activo") and v is not None}
+            efectivos = {k: v for k, v in cambios.items() if k in ("nombre", "rol", "area", "activo") and v is not None}
+            # Un admin queda siempre en area "todo": si el rol resultante es
+            # admin se fuerza, y si cambia el rol a admin se normaliza el area.
+            rol_resultante = efectivos.get("rol", actual["rol"])
+            if rol_resultante == "admin" and (efectivos.get("area") or actual["area"]) != "todo":
+                efectivos["area"] = "todo"
             if efectivos:
                 asignaciones = ", ".join(f"{col} = ${i}" for i, col in enumerate(efectivos, start=2))
                 fila = await conn.fetchrow(
@@ -278,7 +293,7 @@ async def crear_o_actualizar_admin(conn: asyncpg.Connection, usuario: str, nombr
     await conn.execute(
         """
         update usuarios_dashboard
-        set nombre = $2, rol = 'admin', activo = true, pass_hash = $3, pass_salt = $4,
+        set nombre = $2, rol = 'admin', area = 'todo', activo = true, pass_hash = $3, pass_salt = $4,
             intentos_fallidos = 0, bloqueado_hasta = null
         where id = $1
         """,

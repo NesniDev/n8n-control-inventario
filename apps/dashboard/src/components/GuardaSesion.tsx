@@ -12,7 +12,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cambiarPassword } from "@/lib/api";
 import { useSesion } from "@/lib/SesionProvider";
-import { ETIQUETA_ROL, type RolDashboard } from "@/lib/sesion";
+import { ETIQUETA_ROL, rutaInicial, rutaPermitida, type RolDashboard } from "@/lib/sesion";
 
 // Rutas que no exigen sesion del panel: el login y /faia (que tiene su propio
 // login por PIN para empleados de FAIA).
@@ -38,9 +38,16 @@ export function GuardaSesion({ children }: { children: ReactNode }) {
     router.replace(`/login${siguiente}`);
   }, [listo, publica, sesion, pathname, router]);
 
+  // Area: si la ruta no corresponde al area del usuario, se lo lleva a su
+  // primera pagina permitida (ej. traslados -> /traslados).
+  const permitida = publica || !sesion || rutaPermitida(sesion.usuario, pathname);
+  useEffect(() => {
+    if (!permitida && sesion) router.replace(rutaInicial(sesion.usuario));
+  }, [permitida, sesion, router]);
+
   if (publica) return <>{children}</>;
 
-  if (!listo || !sesion) {
+  if (!listo || !sesion || !permitida) {
     return (
       <div className="flex min-h-screen items-center justify-center" aria-busy>
         <div className="h-2 w-24 animate-pulse rounded bg-surface-2" />
@@ -96,7 +103,7 @@ function BarraUsuario() {
             contenedor, sin ensanchar la pagina. */}
         <nav aria-label="Principal" className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
           <ul className="flex w-max items-center gap-1">
-            {ENLACES_NAV.filter((e) => !e.soloAdmin || esAdmin).map((e) => (
+            {ENLACES_NAV.filter((e) => (!e.soloAdmin || esAdmin) && rutaPermitida(usuario, e.href)).map((e) => (
               <li key={e.href}>
                 <Link
                   href={e.href}

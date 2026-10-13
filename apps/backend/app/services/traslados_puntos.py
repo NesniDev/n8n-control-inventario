@@ -482,17 +482,21 @@ async def resolver_novedad(traslado_id: str, payload: SolucionNovedad) -> dict:
     return resultado
 
 
-async def asignar_numero_syscafe(traslado_id: str, valor: str | None) -> dict:
+async def asignar_numero_syscafe(traslado_id: str, valor: str | None, por: str | None = None) -> dict:
     """Guarda (o borra, si `valor` es None o vacio) el numero Syscafe de un
     traslado, en cualquier estado. Se normaliza aca tambien (ver
-    normalizar_numero_syscafe). Sin auditoria en logs, a proposito."""
+    normalizar_numero_syscafe). Sin auditoria en logs, a proposito; si queda
+    registro de quien y cuando (`por` es el nombre para mostrar) para el feed
+    de actividad -- tambien al borrar el valor."""
     valor = normalizar_numero_syscafe(valor)
     pool = await get_pool()
     try:
         actualizado = await pool.fetchrow(
-            "update traslados_puntos set numero_syscafe = $2 where id = $1::uuid returning *",
+            "update traslados_puntos set numero_syscafe = $2, numero_syscafe_at = now(),"
+            " numero_syscafe_por = $3 where id = $1::uuid returning *",
             traslado_id,
             valor,
+            por,
         )
     except asyncpg.UniqueViolationError as exc:
         otro = await pool.fetchrow(
@@ -518,28 +522,40 @@ async def asignar_numero_syscafe(traslado_id: str, valor: str | None) -> dict:
     return resultado
 
 
-async def validar_supervisor_activo(supervisor_id: str) -> None:
+async def validar_supervisor_activo(supervisor_id: str) -> str:
     """Misma validacion de confianza que resolver_novedad: el supervisor tiene
-    que existir y estar activo. Lanza TrasladoInvalido si no."""
+    que existir y estar activo. Lanza TrasladoInvalido si no; devuelve su nombre."""
     pool = await get_pool()
     try:
         fila = await pool.fetchrow(
-            "select id from supervisores where id = $1::uuid and estado = 'activo'", supervisor_id
+            "select id, nombre from supervisores where id = $1::uuid and estado = 'activo'", supervisor_id
         )
     except asyncpg.DataError:
         fila = None
     if fila is None:
         raise TrasladoInvalido("Supervisor invalido o inactivo")
+    return fila["nombre"]
 
 
-async def listar_traslados_syscafe(punto_id: str | None, pendientes: bool) -> list[dict]:
+async def listar_traslados_syscafe(
+    punto_id: str | None, pendientes: bool, desde: date | None = None, hasta: date | None = None
+) -> list[dict]:
     """Lista de Supervision: traslados (con su numero Syscafe) mas las hojas
     anuladas de los talonarios, tipo "traslado" | "anulada". Pendientes
     (traslados sin numero Syscafe) primero, luego lo mas reciente. Las anuladas
-    no tienen campo Syscafe, asi que `pendientes=true` las excluye."""
+    no tienen campo Syscafe, asi que `pendientes=true` las excluye. `desde`/`hasta`
+    (inclusivos) filtran por t.fecha en los traslados y por la fecha de
+    creacion en las anuladas."""
     pool = await get_pool()
-    filtro_t = "where ($1::uuid is null or t.punto_origen_id = $1::uuid)"
-    filtro_a = "where ($1::uuid is null or tp.punto_id = $1::uuid)"
+    filtro_t = (
+        "where ($1::uuid is null or t.punto_origen_id = $1::uuid)"
+        " and ($2::date is null or t.fecha >= $2::date) and ($3::date is null or t.fecha <= $3::date)"
+    )
+    filtro_a = (
+        "where ($1::uuid is null or tp.punto_id = $1::uuid)"
+        " and ($2::date is null or a.created_at::date >= $2::date)"
+        " and ($3::date is null or a.created_at::date <= $3::date)"
+    )
     if pendientes:
         filtro_t += " and t.numero_syscafe is null"
         anuladas = ""
@@ -551,10 +567,11 @@ async def listar_traslados_syscafe(punto_id: str | None, pendientes: bool) -> li
                 null::text as numero_syscafe, tp.punto_id as punto_origen_id,
                 po.nombre as punto_origen_nombre, null::uuid as punto_destino_id,
                 null::text as punto_destino_nombre, 'anulada' as estado,
-                a.created_at::date as fecha, a.created_at, a.motivo
+                a.created_at::date as fecha, a.created_at, a.motivo, ua.nombre as anulado_por_nombre
             from talonario_hojas_anuladas a
             join talonarios_punto tp on tp.id = a.talonario_id
             left join puntos po on po.id = tp.punto_id
+            left join usuarios_punto ua on ua.id = a.anulado_por
             {filtro_a}
         """
     filas = await pool.fetch(
@@ -563,7 +580,7 @@ async def listar_traslados_syscafe(punto_id: str | None, pendientes: bool) -> li
             select 'traslado' as tipo, t.id, t.consecutivo, t.numero_talonario, t.talonario_id,
                 t.numero_syscafe, t.punto_origen_id, po.nombre as punto_origen_nombre,
                 t.punto_destino_id, pd.nombre as punto_destino_nombre, t.estado, t.fecha,
-                t.created_at, null::text as motivo
+                t.created_at, null::text as motivo, null::text as anulado_por_nombre
             from traslados_puntos t
             left join puntos po on po.id = t.punto_origen_id
             left join puntos pd on pd.id = t.punto_destino_id
@@ -574,6 +591,8 @@ async def listar_traslados_syscafe(punto_id: str | None, pendientes: bool) -> li
         limit 500
         """,
         punto_id,
+        desde,
+        hasta,
     )
     resultado = []
     for fila in filas:
@@ -582,4 +601,96 @@ async def listar_traslados_syscafe(punto_id: str | None, pendientes: bool) -> li
             if item.get(campo) is not None:
                 item[campo] = str(item[campo])
         resultado.append(item)
+    return resultado
+
+
+async def listar_actividad(limite: int = 50) -> list[dict]:
+    """Feed de actividad del panel de traslados, lo mas reciente primero, en
+    lenguaje simple. Se deriva de timestamps que ya existen (envio, recepcion,
+    solucion de novedad, hojas anuladas y asignacion de Syscafe), sin tabla
+    propia. Cada rama trae a lo sumo `limite` filas; el recorte final es global."""
+    pool = await get_pool()
+    ref = (
+        "case when t.talonario_id is not null and t.numero_talonario is not null"
+        " then t.numero_talonario else 'TP-' || lpad(t.consecutivo::text, 6, '0') end"
+    )
+    filas = await pool.fetch(
+        f"""
+        select * from (
+            (select 'envio' as tipo, t.created_at as momento, t.id as traslado_id, {ref} as referencia,
+                po.nombre as origen, pd.nombre as destino, null::text as actor, null::text as detalle,
+                t.estado
+            from traslados_puntos t
+            left join puntos po on po.id = t.punto_origen_id
+            left join puntos pd on pd.id = t.punto_destino_id
+            order by t.created_at desc limit $1)
+            union all
+            (select 'recepcion', t.recibido_at, t.id, {ref}, po.nombre, pd.nombre, ur.nombre, null, t.estado
+            from traslados_puntos t
+            left join puntos po on po.id = t.punto_origen_id
+            left join puntos pd on pd.id = t.punto_destino_id
+            left join usuarios_punto ur on ur.id = t.recibido_por
+            where t.recibido_at is not null
+            order by t.recibido_at desc limit $1)
+            union all
+            (select 'solucion', t.solucionado_at, t.id, {ref}, po.nombre, pd.nombre, s.nombre,
+                t.consecutivo_solucion, t.estado
+            from traslados_puntos t
+            left join puntos po on po.id = t.punto_origen_id
+            left join puntos pd on pd.id = t.punto_destino_id
+            left join supervisores s on s.id = t.solucionado_por
+            where t.solucionado_at is not null
+            order by t.solucionado_at desc limit $1)
+            union all
+            (select 'syscafe', t.numero_syscafe_at, t.id, {ref}, po.nombre, pd.nombre, t.numero_syscafe_por,
+                t.numero_syscafe, t.estado
+            from traslados_puntos t
+            left join puntos po on po.id = t.punto_origen_id
+            left join puntos pd on pd.id = t.punto_destino_id
+            where t.numero_syscafe_at is not null
+            order by t.numero_syscafe_at desc limit $1)
+            union all
+            (select 'anulada', a.created_at, null::uuid, tp.letra || ' ' || a.numero, po.nombre, null,
+                ua.nombre, a.motivo, 'anulada'
+            from talonario_hojas_anuladas a
+            join talonarios_punto tp on tp.id = a.talonario_id
+            left join puntos po on po.id = tp.punto_id
+            left join usuarios_punto ua on ua.id = a.anulado_por
+            order by a.created_at desc limit $1)
+        ) x
+        order by x.momento desc
+        limit $1
+        """,
+        limite,
+    )
+    resultado = []
+    for f in filas:
+        origen = f["origen"] or "—"
+        destino = f["destino"] or "—"
+        ref_txt = f["referencia"]
+        if f["tipo"] == "envio":
+            texto = f"{origen} envió {ref_txt} a {destino}"
+        elif f["tipo"] == "recepcion":
+            con_novedad = f["estado"] == "recibido_con_novedad"
+            texto = f"{destino} recibió {ref_txt}" + (" con novedad" if con_novedad else "")
+        elif f["tipo"] == "solucion":
+            consecutivo = f" ({f['detalle']})" if f["detalle"] else ""
+            texto = f"Supervisión resolvió la novedad de {ref_txt}{consecutivo}"
+        elif f["tipo"] == "syscafe":
+            quien = f["actor"] or "Supervisión"
+            if f["detalle"]:
+                texto = f"{quien} asignó Syscafe {f['detalle']} a {ref_txt}"
+            else:
+                texto = f"{quien} quitó el Syscafe de {ref_txt}"
+        else:
+            motivo = f": {f['detalle']}" if f["detalle"] else ""
+            texto = f"Se anuló la hoja {ref_txt} de {origen}{motivo}"
+        resultado.append(
+            {
+                "tipo": f["tipo"],
+                "momento": f["momento"].isoformat(),
+                "texto": texto,
+                "traslado_id": str(f["traslado_id"]) if f["traslado_id"] else None,
+            }
+        )
     return resultado

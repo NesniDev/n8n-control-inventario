@@ -62,7 +62,7 @@ async def listar_usuarios(_: dict = Depends(requiere_rol("admin"))) -> list[dict
 @router.post("/dashboard/usuarios", status_code=201)
 async def crear_usuario(payload: UsuarioDashboardCrear, admin: dict = Depends(requiere_rol("admin"))) -> dict:
     try:
-        return await servicio.crear(admin, payload.usuario, payload.nombre, payload.rol, payload.password)
+        return await servicio.crear(admin, payload.usuario, payload.nombre, payload.rol, payload.password, payload.area)
     except servicio.UsuarioDuplicado as exc:
         raise HTTPException(status_code=409, detail="Ese usuario ya existe") from exc
 

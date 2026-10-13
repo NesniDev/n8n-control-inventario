@@ -63,7 +63,11 @@ export function SesionProvider({ children }: { children: ReactNode }) {
       .then((usuario) => {
         const actual = leerSesion();
         if (cancelado || !actual || actual.token !== token) return;
-        if (actual.usuario.nombre !== usuario.nombre || actual.usuario.rol !== usuario.rol) {
+        if (
+          actual.usuario.nombre !== usuario.nombre ||
+          actual.usuario.rol !== usuario.rol ||
+          actual.usuario.area !== usuario.area
+        ) {
           guardarSesion({ ...actual, usuario });
         }
       })

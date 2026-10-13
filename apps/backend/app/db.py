@@ -493,6 +493,13 @@ alter table traslados_puntos add column if not exists numero_syscafe text;
 create unique index if not exists traslados_puntos_numero_syscafe_key
     on traslados_puntos (numero_syscafe) where numero_syscafe is not null;
 
+-- Quien y cuando asigno (o quito) el numero Syscafe, para el feed de
+-- actividad del panel de traslados (GET /traslados-puntos/actividad).
+-- `por` es el nombre para mostrar: supervisor en el movil, usuario del
+-- dashboard en la sesion web ("Administración" con el token legacy).
+alter table traslados_puntos add column if not exists numero_syscafe_at timestamptz;
+alter table traslados_puntos add column if not exists numero_syscafe_por text;
+
 -- Tipos de documento que la IA de vision recibe como guia en el prompt (ver
 -- app/services/tipos_documento.py y vision.py) -- se administran desde
 -- /creador en el dashboard. No restringen entregas.tipo (sin check ahi): son
@@ -571,6 +578,14 @@ create table if not exists usuarios_dashboard (
 alter table usuarios_dashboard drop constraint if exists usuarios_dashboard_rol_check;
 alter table usuarios_dashboard add constraint usuarios_dashboard_rol_check
     check (rol in ('admin', 'supervisor', 'consulta'));
+
+-- Area del usuario del dashboard: que secciones ve y en cuales puede escribir
+-- (ortogonal al rol). El admin siempre actua como 'todo' (ver
+-- app/services/permisos_dashboard.py).
+alter table usuarios_dashboard add column if not exists area text not null default 'todo';
+alter table usuarios_dashboard drop constraint if exists usuarios_dashboard_area_check;
+alter table usuarios_dashboard add constraint usuarios_dashboard_area_check
+    check (area in ('todo', 'bodega', 'traslados'));
 
 -- Realtime de Supabase: sin esto el dashboard no recibe push de cambios,
 -- solo podria hacer polling. Falla silenciosamente (DO block) si ya estaban

@@ -43,7 +43,7 @@ import {
   type UsuarioDashboardAdmin,
 } from "@/lib/api";
 import { useSesion } from "@/lib/SesionProvider";
-import { ETIQUETA_ROL, type RolDashboard } from "@/lib/sesion";
+import { ETIQUETA_AREA, ETIQUETA_ROL, type AreaDashboard, type RolDashboard } from "@/lib/sesion";
 import { EncabezadoPagina, ErrorConReintento, EstadoVacio, Icono, TarjetaConHeader } from "@/components/ui";
 
 const INPUT =
@@ -74,6 +74,7 @@ const PESTANAS: { id: Pestana; etiqueta: string }[] = [
 ];
 
 const ROLES_DASHBOARD: RolDashboard[] = ["admin", "supervisor", "consulta"];
+const AREAS_DASHBOARD: AreaDashboard[] = ["todo", "bodega", "traslados"];
 const PASSWORD_MIN = 8;
 
 function Campo({ etiqueta, children, className = "" }: { etiqueta: string; children: ReactNode; className?: string }) {
@@ -906,15 +907,20 @@ function SeccionUsuariosDashboard() {
   const [usuario, setUsuario] = useState("");
   const [nombre, setNombre] = useState("");
   const [rol, setRol] = useState<RolDashboard>("consulta");
+  const [area, setArea] = useState<AreaDashboard>("todo");
   const [password, setPassword] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
-  const [edit, setEdit] = useState<{ nombre: string; rol: RolDashboard }>({ nombre: "", rol: "consulta" });
+  const [edit, setEdit] = useState<{ nombre: string; rol: RolDashboard; area: AreaDashboard }>({
+    nombre: "",
+    rol: "consulta",
+    area: "todo",
+  });
 
   const agregar = async () => {
     setEnviando(true);
     const ok = await ejecutar(
-      () => crearUsuarioDashboard({ usuario: usuario.trim().toLowerCase(), nombre: nombre.trim(), rol, password }),
+      () => crearUsuarioDashboard({ usuario: usuario.trim().toLowerCase(), nombre: nombre.trim(), rol, area: rol === "admin" ? "todo" : area, password }),
       "Usuario creado"
     );
     setEnviando(false);
@@ -928,7 +934,7 @@ function SeccionUsuariosDashboard() {
 
   const guardarEdicion = async (u: UsuarioDashboardAdmin) => {
     const ok = await ejecutar(
-      () => actualizarUsuarioDashboard(u.id, { nombre: edit.nombre.trim(), rol: edit.rol }),
+      () => actualizarUsuarioDashboard(u.id, { nombre: edit.nombre.trim(), rol: edit.rol, area: edit.rol === "admin" ? "todo" : edit.area }),
       "Usuario actualizado"
     );
     if (ok) {
@@ -940,7 +946,7 @@ function SeccionUsuariosDashboard() {
   return (
     <TarjetaConHeader
       titulo="Usuarios del dashboard"
-      subtitulo="Quienes inician sesión en este panel con usuario y contraseña. El rol define qué pueden hacer."
+      subtitulo="Quienes inician sesión en este panel con usuario y contraseña. El rol define qué pueden hacer y el área qué secciones ven."
       pildora={data ? String(data.length) : undefined}
     >
       <div className="flex flex-wrap items-end gap-2">
@@ -961,6 +967,20 @@ function SeccionUsuariosDashboard() {
             {ROLES_DASHBOARD.map((r) => (
               <option key={r} value={r}>
                 {ETIQUETA_ROL[r]}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo etiqueta="Área">
+          <select
+            value={rol === "admin" ? "todo" : area}
+            disabled={rol === "admin"}
+            onChange={(e) => setArea(e.target.value as AreaDashboard)}
+            className={INPUT}
+          >
+            {AREAS_DASHBOARD.map((a) => (
+              <option key={a} value={a}>
+                {ETIQUETA_AREA[a]}
               </option>
             ))}
           </select>
@@ -1004,6 +1024,18 @@ function SeccionUsuariosDashboard() {
                         </option>
                       ))}
                     </select>
+                    <select
+                      value={edit.rol === "admin" ? "todo" : edit.area}
+                      disabled={edit.rol === "admin"}
+                      onChange={(e) => setEdit({ ...edit, area: e.target.value as AreaDashboard })}
+                      className={INPUT}
+                    >
+                      {AREAS_DASHBOARD.map((a) => (
+                        <option key={a} value={a}>
+                          {ETIQUETA_AREA[a]}
+                        </option>
+                      ))}
+                    </select>
                     <button className={BOTON_LINK} disabled={!edit.nombre.trim()} onClick={() => guardarEdicion(u)}>
                       Guardar
                     </button>
@@ -1017,7 +1049,9 @@ function SeccionUsuariosDashboard() {
                       {u.nombre}
                       {esYo ? <span className="ml-1 text-xs text-muted">(tú)</span> : null}
                       <span className="ml-2 font-mono text-xs text-muted">{u.usuario}</span>
-                      <span className="ml-2 text-xs text-muted">{ETIQUETA_ROL[u.rol]}</span>
+                      <span className="ml-2 text-xs text-muted">
+                        {ETIQUETA_ROL[u.rol]} · {ETIQUETA_AREA[u.area ?? "todo"]}
+                      </span>
                       <span className="block text-[11px] text-subtle">
                         Último ingreso: {fechaCorta(u.ultimo_login_at) ?? "nunca"}
                         {bloqueado ? (
@@ -1030,7 +1064,7 @@ function SeccionUsuariosDashboard() {
                       className={BOTON_LINK}
                       onClick={() => {
                         setEditandoId(u.id);
-                        setEdit({ nombre: u.nombre, rol: u.rol });
+                        setEdit({ nombre: u.nombre, rol: u.rol, area: u.area ?? "todo" });
                       }}
                     >
                       Editar

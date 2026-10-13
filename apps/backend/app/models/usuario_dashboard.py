@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 RolDashboard = Literal["admin", "supervisor", "consulta"]
+AreaDashboard = Literal["todo", "bodega", "traslados"]
 
 PASSWORD_MIN = 8
 PASSWORD_MAX = 200
@@ -36,6 +37,7 @@ class UsuarioDashboardCrear(BaseModel):
     usuario: str
     nombre: str = Field(min_length=1, max_length=100)
     rol: RolDashboard
+    area: AreaDashboard = "todo"
     password: str = Field(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)
 
     @field_validator("usuario")
@@ -57,6 +59,7 @@ class UsuarioDashboardActualizar(BaseModel):
 
     nombre: str | None = Field(default=None, min_length=1, max_length=100)
     rol: RolDashboard | None = None
+    area: AreaDashboard | None = None
     activo: bool | None = None
 
     @field_validator("nombre")

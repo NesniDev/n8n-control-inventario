@@ -7,6 +7,7 @@ import {
   expirarSesion,
   leerSesion,
   tokenActual,
+  type AreaDashboard,
   type RolDashboard,
   type Sesion,
   type UsuarioDashboard,
@@ -451,15 +452,78 @@ export interface FilaTrasladoSyscafe {
   created_at: string;
   // Solo en las anuladas.
   motivo: string | null;
+  anulado_por_nombre: string | null;
 }
 
-export const listarTrasladosSyscafe = (filtros: { puntoId?: string; pendientes?: boolean } = {}) => {
+// desde/hasta: "YYYY-MM-DD" inclusivos (fecha del traslado; en anuladas, la de creacion).
+export const listarTrasladosSyscafe = (
+  filtros: { puntoId?: string; pendientes?: boolean; desde?: string; hasta?: string } = {},
+) => {
   const params = new URLSearchParams();
   if (filtros.puntoId) params.set("punto_id", filtros.puntoId);
   if (filtros.pendientes) params.set("pendientes", "true");
+  if (filtros.desde) params.set("desde", filtros.desde);
+  if (filtros.hasta) params.set("hasta", filtros.hasta);
   const query = params.toString();
   return getJson<FilaTrasladoSyscafe[]>(`/traslados-puntos/syscafe${query ? `?${query}` : ""}`);
 };
+
+// Detalle de un traslado (GET /traslados-puntos/{id}). Las URLs de foto/firmas
+// ya son URLs publicas de Storage (las guarda asi la app movil).
+export interface ItemTrasladoDetalle {
+  id: string;
+  producto: string;
+  marca: string;
+  presentacion: string;
+  cantidad: number;
+  cantidad_recibida: number | null;
+  novedad: string | null;
+  fecha_vencimiento: string | null;
+}
+
+export interface TrasladoDetalle {
+  id: string;
+  consecutivo: number;
+  numero_talonario: string | null;
+  talonario_id: string | null;
+  numero_syscafe: string | null;
+  numero_syscafe_at: string | null;
+  numero_syscafe_por: string | null;
+  punto_origen_nombre: string | null;
+  punto_destino_nombre: string | null;
+  transportador_nombre: string;
+  fecha: string;
+  estado: string;
+  observaciones: string | null;
+  novedad: string | null;
+  novedad_estado: string | null;
+  solucion: string | null;
+  consecutivo_solucion: string | null;
+  solucionado_por_nombre: string | null;
+  solucionado_at: string | null;
+  creado_por_nombre: string | null;
+  created_at: string;
+  recibido_por_nombre: string | null;
+  recibido_at: string | null;
+  foto_talonario_url: string | null;
+  firma_despacha_url: string | null;
+  firma_transporta_url: string | null;
+  firma_recibe_url: string | null;
+  items: ItemTrasladoDetalle[];
+}
+
+export const fetchTrasladoDetalle = (id: string) => getJson<TrasladoDetalle>(`/traslados-puntos/${id}`);
+
+// Feed de actividad reciente del panel de traslados, en lenguaje simple.
+export interface ActividadTraslado {
+  tipo: "envio" | "recepcion" | "solucion" | "syscafe" | "anulada";
+  momento: string;
+  texto: string;
+  traslado_id: string | null;
+}
+
+export const fetchActividadTraslados = (limite = 50) =>
+  getJson<ActividadTraslado[]>(`/traslados-puntos/actividad?limite=${limite}`);
 
 export const fetchPuntosPublicos = () => getJson<{ id: string; nombre: string; codigo: string | null }[]>("/puntos");
 
@@ -694,11 +758,12 @@ export const crearUsuarioDashboard = (datos: {
   usuario: string;
   nombre: string;
   rol: RolDashboard;
+  area: AreaDashboard;
   password: string;
 }) => adminFetch<UsuarioDashboardAdmin>("/dashboard/usuarios", { method: "POST", body: datos });
 export const actualizarUsuarioDashboard = (
   id: string,
-  cambios: { nombre?: string; rol?: RolDashboard; activo?: boolean }
+  cambios: { nombre?: string; rol?: RolDashboard; area?: AreaDashboard; activo?: boolean }
 ) => adminFetch<UsuarioDashboardAdmin>(`/dashboard/usuarios/${id}`, { method: "PATCH", body: cambios });
 export const resetearPasswordUsuarioDashboard = (id: string, password: string) =>
   adminFetch<{ ok: boolean }>(`/dashboard/usuarios/${id}/password`, { method: "POST", body: { password } });

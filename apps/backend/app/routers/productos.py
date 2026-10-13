@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import get_pool
 from app.models.producto import ProductoActualizar, ProductoCreate
-from app.services.permisos_dashboard import requiere_supervisor
+from app.services.permisos_dashboard import requiere_supervisor_area
 
 router = APIRouter(prefix="/productos", tags=["productos"])
 
@@ -33,7 +33,7 @@ async def listar_productos(buscar: str | None = None) -> list[dict]:
     return [_con_id(row) for row in rows]
 
 
-@router.post("", status_code=201, dependencies=[Depends(requiere_supervisor)])
+@router.post("", status_code=201, dependencies=[Depends(requiere_supervisor_area("todo", "bodega"))])
 async def crear_producto(producto: ProductoCreate) -> dict:
     pool = await get_pool()
     try:
@@ -47,7 +47,7 @@ async def crear_producto(producto: ProductoCreate) -> dict:
     return _con_id(row)
 
 
-@router.patch("/{producto_id}", dependencies=[Depends(requiere_supervisor)])
+@router.patch("/{producto_id}", dependencies=[Depends(requiere_supervisor_area("todo", "bodega"))])
 async def actualizar_producto(producto_id: str, cambios: ProductoActualizar) -> dict:
     codigo = cambios.codigo.strip() if cambios.codigo is not None else None
     nombre = cambios.nombre.strip() if cambios.nombre is not None else None

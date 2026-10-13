@@ -26,6 +26,15 @@ _MSG_SIN_PERMISO = "No tienes permiso para esta acción"
 actor_actual: contextvars.ContextVar[str | None] = contextvars.ContextVar("actor_dashboard", default=None)
 
 
+def area_efectiva(rol: str, area: str | None) -> str:
+    """Area con la que actua el usuario: el admin siempre es "todo", sin
+    importar lo guardado; un valor ausente (filas o sesiones anteriores a la
+    columna) tambien cuenta como "todo"."""
+    if rol == "admin" or not area:
+        return "todo"
+    return area
+
+
 @dataclass(frozen=True)
 class ActorDashboard:
     """Quien hace la accion: `actor` es el texto para logs ("dashboard:<usuario>"
@@ -59,12 +68,18 @@ async def _usuario_desde_header(authorization: str | None) -> dict | None:
         raise HTTPException(status_code=401, detail=_MSG_SESION_EXPIRADA) from None
     pool = await get_pool()
     fila = await pool.fetchrow(
-        "select id, usuario, nombre, rol from usuarios_dashboard where id = $1::uuid and activo = true",
+        "select id, usuario, nombre, rol, area from usuarios_dashboard where id = $1::uuid and activo = true",
         usuario_id,
     )
     if fila is None:
         raise HTTPException(status_code=401, detail=_MSG_SESION_EXPIRADA)
-    return {"id": str(fila["id"]), "usuario": fila["usuario"], "nombre": fila["nombre"], "rol": fila["rol"]}
+    return {
+        "id": str(fila["id"]),
+        "usuario": fila["usuario"],
+        "nombre": fila["nombre"],
+        "rol": fila["rol"],
+        "area": area_efectiva(fila["rol"], fila["area"]),
+    }
 
 
 async def usuario_dashboard_opcional(authorization: str | None = Header(default=None)) -> dict | None:
@@ -94,17 +109,29 @@ def requiere_rol(*roles: str):
     return dependencia
 
 
+def usuario_en_areas(usuario: dict, areas: tuple[str, ...] | None) -> bool:
+    """True si no se exige area, o si el area efectiva del usuario esta en
+    `areas` (el admin siempre pasa)."""
+    if areas is None or usuario["rol"] == "admin":
+        return True
+    return area_efectiva(usuario["rol"], usuario.get("area")) in areas
+
+
 async def autorizar_roles(
-    roles: tuple[str, ...], authorization: str | None, x_admin_token: str | None
+    roles: tuple[str, ...],
+    authorization: str | None,
+    x_admin_token: str | None,
+    areas: tuple[str, ...] | None = None,
 ) -> ActorDashboard:
-    """Sesion con alguno de `roles` O el token legacy X-Admin-Token.
+    """Sesion con alguno de `roles` (y, si se indica, de `areas`) O el token
+    legacy X-Admin-Token (tratado como admin: pasa todas las areas).
 
     # TRANSICION: el token legacy (X-Admin-Token / ADMIN_DELETE_TOKEN) se
     # acepta mientras el dashboard viejo siga en uso. Se elimina esta rama (y
     # el uso de verificar_token_admin) cuando el dashboard salga con login.
     """
     usuario = await _usuario_desde_header(authorization)
-    if usuario is not None and usuario["rol"] in roles:
+    if usuario is not None and usuario["rol"] in roles and usuario_en_areas(usuario, areas):
         actor = ActorDashboard(f"dashboard:{usuario['usuario']}", usuario)
     elif x_admin_token is not None:
         verificar_token_admin(x_admin_token)  # 401 si es incorrecto, 503 si no esta configurado
@@ -134,3 +161,16 @@ async def requiere_supervisor(
 ) -> ActorDashboard:
     """Sesion admin/supervisor O token legacy (ver TRANSICION en autorizar_roles)."""
     return await autorizar_roles(("admin", "supervisor"), authorization, x_admin_token)
+
+
+def requiere_supervisor_area(*areas: str):
+    """Fabrica de dependencias: sesion admin/supervisor cuya area sea alguna de
+    `areas` (el admin siempre pasa) O token legacy (ver TRANSICION en
+    autorizar_roles). Un supervisor de otra area recibe 403."""
+
+    async def dependencia(
+        authorization: str | None = Header(default=None), x_admin_token: str | None = Header(default=None)
+    ) -> ActorDashboard:
+        return await autorizar_roles(("admin", "supervisor"), authorization, x_admin_token, areas)
+
+    return dependencia
