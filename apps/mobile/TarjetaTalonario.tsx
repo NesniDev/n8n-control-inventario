@@ -11,19 +11,13 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { fetchTalonarioPunto, type TalonarioPunto } from './api';
 import { ModalAnularHoja, ModalConfigurarTalonario, rangoCorto } from './ModalTalonario';
-import {
-  ACENTO,
-  ContenidoBoton,
-  FUENTE_BODY,
-  FUENTE_BODY_SEMI,
-  FUENTE_DISPLAY,
-  NEUTRAL_400,
-  styles,
-  TEXTO_PRIMARIO,
-  TEXTO_SOBRE_ACENTO,
-} from './tema';
+import { FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, TEXTO_PRIMARIO } from './tema';
+import { MARCA } from './vidrio';
 
-const AMARILLO = '#fbbf24';
+// Mismas superficies que las tarjetas de Inicio (PantallaInicio.tsx).
+const SUPERFICIE = '#0f2350';
+const BORDE_SUPERFICIE = 'rgba(255,255,255,0.08)';
+const ROJO = '#f87171';
 
 export default function TarjetaTalonario({
   puntoId,
@@ -89,80 +83,88 @@ export default function TarjetaTalonario({
   if (talonario === undefined) return null;
 
   if (talonario === null) {
+    // Sin talonario: fila compacta tocable, como las de Pendientes/soporte.
     return (
       <>
-        <View style={[styles.tarjeta, estilos.tarjetaTalonario, { borderColor: AMARILLO }]}>
-          <View style={estilos.talonarioTitulo}>
-            <Ionicons name="document-text-outline" size={18} color={AMARILLO} />
-            <Text style={estilos.talonarioTituloTexto}>Configura tu talonario</Text>
+        <Pressable
+          onPress={() => setConfigurando(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Configura tu talonario. Necesario para crear traslados."
+          style={({ pressed }) => [estilos.tarjeta, estilos.filaVacia, pressed && estilos.presionado]}
+        >
+          <View style={[estilos.icono, { backgroundColor: MARCA.oro }]}>
+            <Ionicons name="receipt-outline" size={20} color={MARCA.tinta} />
           </View>
-          <Text style={estilos.talonarioDetalle}>
-            Antes de crear traslados, indica la letra y el primer número de tu talonario.
-          </Text>
-          <Pressable
-            style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
-            onPress={() => setConfigurando(true)}
-          >
-            <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="settings-outline" texto="Configurar talonario" />
-          </Pressable>
-        </View>
+          <View style={{ flex: 1 }}>
+            <Text style={estilos.titulo}>Configura tu talonario</Text>
+            <Text style={estilos.subtitulo}>Necesario para crear traslados</Text>
+          </View>
+          <View style={estilos.pastillaAccion}>
+            <Text style={estilos.pastillaAccionTexto}>Configurar</Text>
+            <Ionicons name="chevron-forward" size={14} color={MARCA.tinta} />
+          </View>
+        </Pressable>
         {modales}
       </>
     );
   }
 
+  const total = talonario.numero_final - talonario.numero_inicial + 1;
+  const usadas = total - talonario.quedan;
   const pocas = !talonario.agotado && talonario.quedan <= talonario.umbral_aviso;
+  const colorEstado = talonario.agotado ? ROJO : pocas ? MARCA.oro : MARCA.verde;
+
   return (
     <>
-      <View
-        style={[
-          styles.tarjeta,
-          estilos.tarjetaTalonario,
-          (talonario.agotado || pocas) && { borderColor: talonario.agotado ? '#f87171' : AMARILLO },
-        ]}
-      >
-        <View style={estilos.talonarioTitulo}>
-          <Ionicons name="document-text-outline" size={18} color={ACENTO} />
-          <Text style={estilos.talonarioTituloTexto}>Talonario {rangoCorto(talonario)}</Text>
+      <View style={[estilos.tarjeta, estilos.tarjetaActiva, (talonario.agotado || pocas) && { borderColor: `${colorEstado}73` }]}>
+        <View style={estilos.encabezado}>
+          <View style={[estilos.icono, { backgroundColor: 'rgba(245,197,66,0.14)' }]}>
+            <Ionicons name="receipt-outline" size={20} color={MARCA.oro} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={estilos.etiqueta}>Talonario</Text>
+            <Text style={estilos.titulo}>{rangoCorto(talonario)}</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={estilos.etiqueta}>Siguiente hoja</Text>
+            <Text style={[estilos.hoja, talonario.agotado && { color: ROJO }]}>
+              {talonario.agotado ? 'Agotado' : talonario.siguiente_hoja}
+            </Text>
+          </View>
         </View>
-        {talonario.agotado ? (
-          <Text style={[estilos.talonarioAviso, { color: '#f87171' }]}>
-            Talonario agotado. Pide un talonario y configúralo.
+
+        {/* Hojas usadas del talonario. */}
+        <View style={estilos.barraFondo}>
+          <View style={[estilos.barraRelleno, { width: `${(usadas / total) * 100}%`, backgroundColor: colorEstado }]} />
+        </View>
+
+        <View style={estilos.pie}>
+          <Text style={[estilos.subtitulo, { flex: 1 }, (talonario.agotado || pocas) && { color: colorEstado, fontFamily: FUENTE_BODY_SEMI }]}>
+            {talonario.agotado
+              ? 'Pide un talonario y configúralo'
+              : pocas
+                ? `Pide un talonario · quedan ${talonario.quedan}`
+                : `Quedan ${talonario.quedan} ${talonario.quedan === 1 ? 'hoja' : 'hojas'}`}
           </Text>
-        ) : (
-          <Text style={estilos.talonarioDetalle}>
-            Siguiente hoja: <Text style={estilos.talonarioResaltado}>{talonario.siguiente_hoja}</Text> · Quedan{' '}
-            <Text style={estilos.talonarioResaltado}>{talonario.quedan}</Text>
-          </Text>
-        )}
-        {pocas ? (
-          <Text style={[estilos.talonarioAviso, { color: AMARILLO }]}>
-            Pide un talonario (quedan {talonario.quedan} {talonario.quedan === 1 ? 'hoja' : 'hojas'})
-          </Text>
-        ) : null}
-        <View style={estilos.talonarioBotones}>
           {talonario.agotado ? null : (
             <Pressable
-              style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
               onPress={() => setAnulando(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Anular hoja"
+              style={({ pressed }) => [estilos.chip, pressed && estilos.presionado]}
             >
-              <ContenidoBoton icono="close-circle-outline" texto="Anular hoja" color={TEXTO_PRIMARIO} />
+              <Ionicons name="close-circle-outline" size={15} color={TEXTO_PRIMARIO} />
+              <Text style={estilos.chipTexto}>Anular</Text>
             </Pressable>
           )}
           <Pressable
-            style={({ pressed }) => [
-              styles.boton,
-              talonario.agotado && styles.botonPrimario,
-              { flex: 1 },
-              pressed && styles.botonPresionado,
-            ]}
             onPress={() => setConfigurando(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Cambiar talonario"
+            style={({ pressed }) => [estilos.chip, talonario.agotado && estilos.chipPrimario, pressed && estilos.presionado]}
           >
-            <ContenidoBoton
-              icono="swap-horizontal-outline"
-              texto="Cambiar talonario"
-              color={talonario.agotado ? TEXTO_SOBRE_ACENTO : TEXTO_PRIMARIO}
-            />
+            <Ionicons name="swap-horizontal-outline" size={15} color={talonario.agotado ? MARCA.tinta : TEXTO_PRIMARIO} />
+            <Text style={[estilos.chipTexto, talonario.agotado && { color: MARCA.tinta }]}>Cambiar</Text>
           </Pressable>
         </View>
       </View>
@@ -172,11 +174,50 @@ export default function TarjetaTalonario({
 }
 
 const estilos = StyleSheet.create({
-  tarjetaTalonario: { gap: 10 },
-  talonarioTitulo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  talonarioTituloTexto: { color: TEXTO_PRIMARIO, fontSize: 16, fontFamily: FUENTE_DISPLAY },
-  talonarioDetalle: { color: NEUTRAL_400, fontSize: 14, fontFamily: FUENTE_BODY },
-  talonarioResaltado: { color: ACENTO, fontFamily: FUENTE_BODY_SEMI },
-  talonarioAviso: { fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  talonarioBotones: { flexDirection: 'row', gap: 10 },
+  tarjeta: {
+    borderRadius: 18,
+    backgroundColor: SUPERFICIE,
+    borderWidth: 1,
+    borderColor: BORDE_SUPERFICIE,
+  },
+  filaVacia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderColor: 'rgba(245,197,66,0.45)',
+  },
+  tarjetaActiva: { gap: 12, padding: 14 },
+  presionado: { opacity: 0.75 },
+  icono: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  encabezado: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  etiqueta: { color: NEUTRAL_400, fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
+  titulo: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
+  subtitulo: { color: NEUTRAL_400, fontSize: 13.5, fontFamily: FUENTE_BODY },
+  hoja: { color: MARCA.oro, fontSize: 22, fontFamily: FUENTE_DISPLAY, lineHeight: 26 },
+  pastillaAccion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingLeft: 12,
+    paddingRight: 8,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: MARCA.oro,
+  },
+  pastillaAccionTexto: { color: MARCA.tinta, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  barraFondo: { height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)' },
+  barraRelleno: { height: 6, borderRadius: 3 },
+  pie: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  chipPrimario: { backgroundColor: MARCA.oro },
+  chipTexto: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
 });

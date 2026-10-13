@@ -98,7 +98,7 @@ export function ModalConfigurarTalonario({
 
   return (
     <HojaModal visible={visible} titulo={actual ? 'Cambiar talonario' : 'Configura tu talonario'} onCerrar={onCerrar}>
-      <Campo etiqueta="Letra (1 a 3 letras)">
+      <Campo etiqueta="Prefijo">
         <TextInput
           value={letra}
           onChangeText={(v) => setLetra(v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3))}
@@ -111,7 +111,7 @@ export function ModalConfigurarTalonario({
           autoFocus
         />
       </Campo>
-      <Campo etiqueta="Primer número de la hoja">
+      <Campo etiqueta="Número">
         <TextInput
           value={numero}
           onChangeText={(v) => setNumero(v.replace(/[^0-9]/g, '').slice(0, 7))}
