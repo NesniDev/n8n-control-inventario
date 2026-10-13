@@ -6,6 +6,7 @@
 import re
 import unicodedata
 from datetime import date
+from difflib import SequenceMatcher
 
 import asyncpg
 
@@ -94,9 +95,18 @@ def _nombre_sin_codigo(nombre: str, codigo: str | None) -> str:
     return normalizado
 
 
+# Parecido minimo (0-1, SequenceMatcher) para aceptar un destino que no
+# coincide exacto, y ventaja minima sobre el segundo mejor candidato -- si dos
+# puntos se parecen casi igual al texto leido, no se elige ninguno.
+_SIMILITUD_MINIMA = 0.8
+_VENTAJA_MINIMA = 0.1
+
+
 def _resolver_destino(texto: str, puntos: list[dict]) -> dict | None:
-    """Busca entre `puntos` el que corresponde al destino leido: por codigo
-    exacto, por nombre completo o por nombre sin el prefijo de codigo."""
+    """Busca entre `puntos` el que corresponde al destino leido: primero por
+    codigo exacto, nombre completo o nombre sin el prefijo de codigo; si nada
+    coincide exacto, por parecido (letra a mano, abreviaturas, un error de
+    lectura) siempre que haya un unico candidato claro."""
     buscado = _normalizar(texto)
     if not buscado:
         return None
@@ -106,7 +116,18 @@ def _resolver_destino(texto: str, puntos: list[dict]) -> dict | None:
             return p
         if buscado in (_normalizar(p["nombre"]), _nombre_sin_codigo(p["nombre"], p["codigo"])):
             return p
-    return None
+
+    puntajes = []
+    for p in puntos:
+        variantes = {_normalizar(p["nombre"]), _nombre_sin_codigo(p["nombre"], p["codigo"])}
+        puntaje = max(SequenceMatcher(None, buscado, v).ratio() for v in variantes if v)
+        puntajes.append((puntaje, p))
+    puntajes.sort(key=lambda par: par[0], reverse=True)
+    if not puntajes or puntajes[0][0] < _SIMILITUD_MINIMA:
+        return None
+    if len(puntajes) > 1 and puntajes[0][0] - puntajes[1][0] < _VENTAJA_MINIMA:
+        return None
+    return puntajes[0][1]
 
 
 def _fecha_iso_valida(texto: str) -> bool:
@@ -132,15 +153,19 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
     Sin talonario activo (o agotado) lanza TalonarioNoDisponible ANTES de
     llamar a la IA, para no gastar una lectura que no se va a poder usar."""
     esperada = await hoja_esperada(punto_origen_id)
-    extraido = await extraer_datos_talonario(foto_url)
-    umbral = get_settings().min_confidence
-    confianza = extraido.get("confianza", {})
 
+    # Los puntos se consultan antes de la lectura para mostrarselos al modelo:
+    # asi elige el destino entre los registrados en vez de transcribir la
+    # letra a mano tal cual (que despues no coincidia con ningun punto).
     pool = await get_pool()
     filas = await pool.fetch(
         "select id, nombre, codigo from puntos where activo = true and id <> $1::uuid", punto_origen_id
     )
     puntos = [{"id": str(f["id"]), "nombre": f["nombre"], "codigo": f["codigo"]} for f in filas]
+
+    extraido = await extraer_datos_talonario(foto_url, [p["nombre"] for p in puntos])
+    umbral = get_settings().min_confidence
+    confianza = extraido.get("confianza", {})
 
     numero = (extraido.get("numero_talonario") or "").strip()
     destino_texto = (extraido.get("destino") or "").strip()

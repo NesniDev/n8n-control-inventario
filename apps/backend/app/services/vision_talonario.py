@@ -86,8 +86,27 @@ _TALONARIO_PROMPT = (
 )
 
 
-async def extraer_datos_talonario(evidencia_url: str) -> dict:
+def _armar_prompt(destinos: list[str]) -> str:
+    """Agrega al prompt los puntos de destino registrados, para que el modelo
+    devuelva uno de ellos (tal cual esta escrito en la lista) en vez de la
+    transcripcion literal de la letra a mano."""
+    if not destinos:
+        return _TALONARIO_PROMPT
+    lista = "; ".join(destinos)
+    return (
+        f"{_TALONARIO_PROMPT} Los puntos de destino registrados son: {lista}. "
+        "Si el destino escrito corresponde a uno de ellos (aunque este "
+        "abreviado, incompleto o mal escrito), devuelve en destino el nombre "
+        "exactamente como aparece en esa lista. Si no corresponde a ninguno, "
+        "transcribelo tal cual con una confianza baja."
+    )
+
+
+async def extraer_datos_talonario(evidencia_url: str, destinos: list[str] | None = None) -> dict:
     """Lee la foto de un talonario de traslado (encabezado + productos).
+
+    `destinos` son los nombres de los puntos validos como destino; se le
+    muestran al modelo para que elija entre ellos (ver _armar_prompt).
 
     Devuelve el dict validado contra _TALONARIO_SCHEMA. Lanza ExtraccionFallida
     si no se pudo descargar la foto, el proveedor de IA rehusa la solicitud o
@@ -114,7 +133,7 @@ async def extraer_datos_talonario(evidencia_url: str) -> dict:
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{image_b64}"}},
-                        {"type": "text", "text": _TALONARIO_PROMPT},
+                        {"type": "text", "text": _armar_prompt(destinos or [])},
                     ],
                 }
             ],
