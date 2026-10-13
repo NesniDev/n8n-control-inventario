@@ -437,6 +437,53 @@ alter table traslados_puntos add column if not exists consecutivo_solucion text;
 create unique index if not exists traslados_puntos_consecutivo_solucion_key
     on traslados_puntos (consecutivo_solucion) where consecutivo_solucion is not null;
 
+-- Talonario por punto (ver app/services/talonarios.py): cada punto trabaja con
+-- UN talonario activo a la vez, de 50 hojas fijas (letra + numero_inicial ..
+-- numero_final), y cada traslado consume la siguiente hoja en orden. Un
+-- talonario cerrado conserva su historial; las hojas que quedaron sin usar
+-- simplemente se dejan de usar.
+create table if not exists talonarios_punto (
+    id uuid primary key default gen_random_uuid(),
+    punto_id uuid not null references puntos(id),
+    letra text not null check (length(letra) between 1 and 3),
+    numero_inicial integer not null check (numero_inicial > 0),
+    numero_final integer not null,
+    estado text not null default 'activo' check (estado in ('activo', 'cerrado')),
+    creado_por uuid not null references usuarios_punto(id),
+    created_at timestamptz not null default now(),
+    cerrado_at timestamptz,
+    motivo_cierre text,
+    check (numero_final = numero_inicial + 49)
+);
+
+-- Un solo talonario activo por punto (indice parcial): es el seguro de base de
+-- datos contra dos configuraciones simultaneas.
+create unique index if not exists talonarios_punto_activo_key
+    on talonarios_punto (punto_id) where estado = 'activo';
+create index if not exists idx_talonarios_punto_punto
+    on talonarios_punto (punto_id, created_at desc);
+
+-- Hojas anuladas (danadas, mal impresas, etc.). Solo se anula la siguiente
+-- hoja pendiente; el motivo es obligatorio.
+create table if not exists talonario_hojas_anuladas (
+    id uuid primary key default gen_random_uuid(),
+    talonario_id uuid not null references talonarios_punto(id),
+    numero integer not null,
+    motivo text not null,
+    anulado_por uuid not null references usuarios_punto(id),
+    created_at timestamptz not null default now(),
+    unique (talonario_id, numero)
+);
+
+-- Talonario del que salio el traslado. Null en los traslados anteriores a esta
+-- funcion (su numero_talonario era libre y puede estar repetido), por eso el
+-- indice unico es parcial: solo vigila los traslados que si traen talonario_id.
+alter table traslados_puntos add column if not exists talonario_id uuid references talonarios_punto(id);
+create unique index if not exists traslados_puntos_talonario_numero_key
+    on traslados_puntos (punto_origen_id, numero_talonario) where talonario_id is not null;
+create index if not exists idx_traslados_puntos_talonario
+    on traslados_puntos (talonario_id) where talonario_id is not null;
+
 -- Tipos de documento que la IA de vision recibe como guia en el prompt (ver
 -- app/services/tipos_documento.py y vision.py) -- se administran desde
 -- /creador en el dashboard. No restringen entregas.tipo (sin check ahi): son

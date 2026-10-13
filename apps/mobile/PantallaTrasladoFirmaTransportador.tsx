@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { crearTrasladoPunto, subirFirmaTraslado } from './api';
+import { crearTrasladoPunto, referenciaTraslado, subirFirmaTraslado } from './api';
 import { mensajeError } from './errorMessages';
 import CampoFirma from './CampoFirma';
 import ResumenTraslado, { AvisoRol } from './ResumenTraslado';
@@ -62,7 +62,7 @@ export default function PantallaTrasladoFirmaTransportador() {
       });
 
       reiniciarDraft();
-      navigation.navigate('ResultadoTraslado', { consecutivo: traslado.consecutivo });
+      navigation.navigate('ResultadoTraslado', { referencia: referenciaTraslado(traslado) });
     } catch (err) {
       setMensaje(mensajeError(err, 'traslado'));
     } finally {

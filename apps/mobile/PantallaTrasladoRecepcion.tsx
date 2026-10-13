@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { fetchTrasladoPunto, registrarRecepcion, subirFirmaTraslado, type ItemTraslado, type Traslado } from './api';
+import { fetchTrasladoPunto, referenciaTraslado, registrarRecepcion, subirFirmaTraslado, type ItemTraslado, type Traslado } from './api';
 import EvitarTeclado from './EvitarTeclado';
 import { esErrorTrasladoYaRecibido, mensajeError, MENSAJE_TRASLADO_YA_RECIBIDO } from './errorMessages';
 import CampoFirma from './CampoFirma';
@@ -315,11 +315,11 @@ export default function PantallaTrasladoRecepcion({ route }: Props) {
           />
 
           <ResumenTraslado
-            numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
+            numero={referenciaTraslado(traslado)}
             origen={traslado.punto_origen_nombre ?? '—'}
             destino={traslado.punto_destino_nombre ?? punto?.nombre ?? '—'}
             transportador={traslado.transportador_nombre}
-            talonario={traslado.numero_talonario}
+            talonario={traslado.talonario_id ? null : traslado.numero_talonario}
             fecha={traslado.fecha}
             items={(traslado.items ?? []).map((item) => ({
               key: item.id,

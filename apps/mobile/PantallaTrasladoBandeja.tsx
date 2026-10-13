@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { fetchTrasladosPunto, type Traslado } from './api';
+import { fetchTrasladosPunto, referenciaTraslado, type Traslado } from './api';
 import { mensajeError } from './errorMessages';
 import { AvisoRol } from './ResumenTraslado';
 import { formatearFechaLarga, haceCuanto } from './SelectorFecha';
@@ -41,7 +41,7 @@ function TarjetaPorRecibir({ traslado, onRecibir }: { traslado: Traslado; onReci
       <View style={estilos.franja} />
       <View style={estilos.contenido}>
         <View style={estilos.filaSuperior}>
-          <Text style={estilos.numero}>TP-{String(traslado.consecutivo).padStart(6, '0')}</Text>
+          <Text style={estilos.numero}>{referenciaTraslado(traslado)}</Text>
           <View style={estilos.pildora}>
             <Ionicons name="time-outline" size={13} color={AMARILLO} />
             <Text style={estilos.pildoraTexto}>Enviado {haceCuanto(traslado.created_at)}</Text>
@@ -74,7 +74,7 @@ function TarjetaPorRecibir({ traslado, onRecibir }: { traslado: Traslado; onReci
               </Text>
             </View>
           ) : null}
-          {traslado.numero_talonario ? (
+          {traslado.numero_talonario && !traslado.talonario_id ? (
             <View style={[estilos.metadato, { flexShrink: 1 }]}>
               <Ionicons name="document-text-outline" size={13} color={NEUTRAL_500} />
               <Text style={estilos.metadatoTexto} numberOfLines={1}>

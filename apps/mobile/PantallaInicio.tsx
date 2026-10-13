@@ -54,6 +54,7 @@ import {
   NEUTRAL_400,
   TEXTO_PRIMARIO,
 } from './tema';
+import TarjetaTalonario from './TarjetaTalonario';
 import { MARCA } from './vidrio';
 
 // Sin numero de version a proposito: "version" de app.json entra en el
@@ -753,6 +754,11 @@ export default function PantallaInicio() {
                 </Text>
                 <Ionicons name="refresh" size={18} color="#f87171" />
               </Presionable>
+            ) : null}
+
+            {/* Talonario del punto: solo en sesiones de punto (traslados). */}
+            {sesion.tipo === 'punto' ? (
+              <TarjetaTalonario puntoId={sesion.punto.id} usuarioId={sesion.usuario.id} />
             ) : null}
 
             <Pendientes />

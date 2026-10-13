@@ -791,6 +791,9 @@ export interface Traslado {
   // Numero impreso en el talonario fisico (ver TrasladoPuntoCrear en el
   // backend) -- null en los traslados creados antes de este campo.
   numero_talonario?: string | null;
+  // Talonario (configurado por el punto) del que salio la hoja -- null en los
+  // traslados anteriores al talonario por punto; ahi se sigue mostrando TP-xxxxxx.
+  talonario_id?: string | null;
   // Foto del talonario de la que se leyo el traslado (null en los anteriores).
   foto_talonario_url?: string | null;
   transportador_nombre: string;
@@ -828,6 +831,16 @@ export interface Traslado {
   consecutivo_solucion?: string | null;
 }
 
+/**
+ * Referencia visible de un traslado: la hoja del talonario ("A 6305") si el
+ * traslado salio de un talonario configurado, o el consecutivo "TP-000012" en
+ * los anteriores. Un solo lugar para no repetir la regla en cada pantalla.
+ */
+export function referenciaTraslado(t: Pick<Traslado, 'consecutivo' | 'talonario_id' | 'numero_talonario'>): string {
+  if (t.talonario_id && t.numero_talonario) return t.numero_talonario;
+  return `TP-${String(t.consecutivo).padStart(6, '0')}`;
+}
+
 export interface ItemTrasladoCrear {
   producto: string;
   marca: string;
@@ -839,6 +852,9 @@ export interface ItemTrasladoCrear {
 /** Resultado de leer la foto de un talonario (POST /traslados-puntos/extraer). */
 export interface ExtraccionTalonario {
   numero_talonario: string;
+  // Hoja que toca fotografiar ahora ("A 6305"); si el numero leido no coincide,
+  // "Número de talonario" viene en `faltantes` y hay que repetir la foto.
+  numero_esperado: string;
   destino: string;
   transportador: string;
   // ISO YYYY-MM-DD o "" si no se pudo leer.
@@ -855,6 +871,71 @@ export interface ExtraccionTalonario {
   // Nombres legibles de lo que no se pudo leer; si no esta vacia hay que
   // repetir la foto.
   faltantes: string[];
+}
+
+/** Talonario activo de un punto (GET /puntos/{id}/talonario). */
+export interface TalonarioPunto {
+  id: string;
+  punto_id: string;
+  letra: string;
+  numero_inicial: number;
+  numero_final: number;
+  // "A 6301 – A 6350"
+  rango: string;
+  siguiente_numero: number | null;
+  // "A 6305"; null si el talonario se agoto.
+  siguiente_hoja: string | null;
+  quedan: number;
+  agotado: boolean;
+  umbral_aviso: number;
+}
+
+/** Talonario activo del punto, o null si todavia no configuro ninguno. */
+export async function fetchTalonarioPunto(puntoId: string, opciones?: OpcionesCache): Promise<TalonarioPunto | null> {
+  return conCache<TalonarioPunto | null>(
+    `talonario:${puntoId}`,
+    VIGENCIA_CORTA,
+    async () => {
+      const res = await fetchConTimeout(`${API_BASE_URL}/puntos/${puntoId}/talonario`);
+      const cuerpo = await parsearRespuesta<{ talonario: TalonarioPunto | null }>(res);
+      return cuerpo.talonario;
+    },
+    opciones
+  );
+}
+
+/** Configura o cambia el talonario activo; `motivo` es obligatorio si el actual no se agoto. */
+export async function configurarTalonario(payload: {
+  punto_id: string;
+  usuario_id: string;
+  letra: string;
+  numero_inicial: number;
+  motivo?: string;
+}): Promise<TalonarioPunto> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/talonarios-puntos/configurar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const cuerpo = await parsearRespuesta<{ talonario: TalonarioPunto }>(res);
+  invalidarCache('talonario:');
+  return cuerpo.talonario;
+}
+
+/** Anula la siguiente hoja pendiente del talonario activo (motivo obligatorio). */
+export async function anularHojaTalonario(payload: {
+  punto_id: string;
+  usuario_id: string;
+  motivo: string;
+}): Promise<{ hoja_anulada: string; talonario: TalonarioPunto }> {
+  const res = await fetchConTimeout(`${API_BASE_URL}/talonarios-puntos/anular-hoja`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const resultado = await parsearRespuesta<{ hoja_anulada: string; talonario: TalonarioPunto }>(res);
+  invalidarCache('talonario:');
+  return resultado;
 }
 
 /** Le pide al backend que lea la foto del talonario (ya subida a Storage). */
@@ -893,8 +974,9 @@ export async function crearTrasladoPunto(payload: {
     body: JSON.stringify(payload),
   });
   const resultado = await parsearRespuesta<Traslado>(res);
-  // Lo guardado en la cache quedo viejo (ver cache.ts).
-  invalidarCache('traslados:', 'traslado:');
+  // Lo guardado en la cache quedo viejo (ver cache.ts); crear un traslado
+  // consume una hoja, asi que el talonario tambien.
+  invalidarCache('traslados:', 'traslado:', 'talonario:');
   return resultado;
 }
 

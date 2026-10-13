@@ -62,3 +62,9 @@ class EventoLog(StrEnum):
     # Intento de login al dashboard -- resultado: ok | fallido | bloqueado.
     # Nunca lleva contrasenas en el detalle. Ver app/services/usuarios_dashboard.py.
     DASHBOARD_LOGIN = "dashboard_login"
+    # Un punto configuro (o cambio) su talonario activo -- el detalle trae el
+    # talonario anterior (si habia) y el nuevo, y el motivo del cambio. Ver
+    # app/services/talonarios.py.
+    TALONARIO_CONFIGURADO = "talonario_configurado"
+    # Se anulo la siguiente hoja pendiente de un talonario (con motivo).
+    TALONARIO_HOJA_ANULADA = "talonario_hoja_anulada"

@@ -6,13 +6,21 @@
 // hay una linea de resumen y la lista va ordenada con lo que pide atencion
 // primero. Tocar una tarjeta abre DetalleTraslado.
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { fetchTrasladosPunto, type EstadoTraslado, type Traslado } from './api';
+import {
+  fetchTalonarioPunto,
+  fetchTrasladosPunto,
+  referenciaTraslado,
+  type EstadoTraslado,
+  type TalonarioPunto,
+  type Traslado,
+} from './api';
 import { mensajeError } from './errorMessages';
 import { ESTADO_TRASLADO } from './PantallaTrasladoDetalle';
 import { HeaderTraslado, useTraslado } from './TrasladoContext';
@@ -32,7 +40,7 @@ import {
   TEXTO_PRIMARIO,
   TEXTO_SOBRE_ACENTO,
 } from './tema';
-import type { TrasladosStackParamList } from './Navegacion';
+import type { TabsParamList, TrasladosStackParamList } from './Navegacion';
 
 type NavegacionInicio = NativeStackNavigationProp<TrasladosStackParamList, 'InicioTraslados'>;
 
@@ -76,7 +84,7 @@ function TarjetaTraslado({
       <View style={[estilos.franja, { backgroundColor: info.color }]} />
       <View style={estilos.contenido}>
         <View style={estilos.filaSuperior}>
-          <Text style={estilos.numero}>TP-{String(traslado.consecutivo).padStart(6, '0')}</Text>
+          <Text style={estilos.numero}>{referenciaTraslado(traslado)}</Text>
           <View style={[estilos.pildora, { backgroundColor: info.fondo }]}>
             <Ionicons name={info.icono} size={13} color={info.color} />
             <Text style={[estilos.pildoraTexto, { color: info.color }]}>{info.texto}</Text>
@@ -114,7 +122,7 @@ function TarjetaTraslado({
               </Text>
             </View>
           ) : null}
-          {traslado.numero_talonario ? (
+          {traslado.numero_talonario && !traslado.talonario_id ? (
             <View style={[estilos.metadato, { flexShrink: 1 }]}>
               <Ionicons name="document-text-outline" size={13} color={NEUTRAL_500} />
               <Text style={estilos.metadatoTexto} numberOfLines={1}>
@@ -153,6 +161,12 @@ export default function PantallaTrasladoInicio() {
   const navigation = useNavigation<NavegacionInicio>();
   const { punto } = useTraslado();
 
+  // Solo para bloquear "Nuevo traslado"; la tarjeta para configurarlo vive en
+  // la tab Inicio (ver TarjetaTalonario.tsx).
+  // undefined = todavia no se sabe (cargando o fallo la consulta, en cuyo caso
+  // no se bloquea nada: el backend valida igual al crear); null = sin talonario.
+  const [talonario, setTalonario] = useState<TalonarioPunto | null | undefined>(undefined);
+
   const [enviados, setEnviados] = useState<Traslado[]>([]);
   const [recibidos, setRecibidos] = useState<Traslado[]>([]);
   const [porRecibir, setPorRecibir] = useState(0);
@@ -169,10 +183,13 @@ export default function PantallaTrasladoInicio() {
     if (!yaCargado.current) setCargando(true);
     setError(null);
     try {
-      const [listaEnviados, listaLlegadas] = await Promise.all([
+      const [listaEnviados, listaLlegadas, talonarioActual] = await Promise.all([
         fetchTrasladosPunto({ origenId: punto.id }, { forzar }),
         fetchTrasladosPunto({ destinoId: punto.id }, { forzar }),
+        // El talonario cambia con cada traslado creado: siempre fresco al volver aqui.
+        fetchTalonarioPunto(punto.id, { forzar: true }).catch(() => undefined),
       ]);
+      if (talonarioActual !== undefined) setTalonario(talonarioActual);
       setEnviados(listaEnviados);
       // Lo que llega a este punto se parte en dos: lo que todavia esta en
       // camino va a "Por recibir"; lo ya confirmado, a la pestaña Recibidos.
@@ -202,6 +219,29 @@ export default function PantallaTrasladoInicio() {
     setRefrescando(false);
   };
 
+  // Sin talonario (o agotado) no se puede crear un traslado: se manda a configurarlo
+  // en la tab Inicio.
+  const sinTalonario = talonario === null || talonario?.agotado === true;
+  const nuevoTraslado = () => {
+    if (sinTalonario) {
+      Alert.alert(
+        talonario === null ? 'Configura tu talonario' : 'Talonario agotado',
+        talonario === null
+          ? 'Antes de crear un traslado debes configurar tu talonario en la pestaña Inicio.'
+          : 'Pide un talonario nuevo y configúralo en la pestaña Inicio para seguir creando traslados.',
+        [
+          { text: 'Ahora no', style: 'cancel' },
+          {
+            text: 'Ir a Inicio',
+            onPress: () => navigation.getParent<BottomTabNavigationProp<TabsParamList>>()?.navigate('Inicio'),
+          },
+        ]
+      );
+      return;
+    }
+    navigation.navigate('NuevoTraslado');
+  };
+
   const lista = ordenar(pestana === 'enviados' ? enviados : recibidos);
   const resumen = (Object.keys(PRIORIDAD) as EstadoTraslado[])
     .map((estado) => ({ estado, n: lista.filter((t) => t.estado === estado).length }))
@@ -218,8 +258,13 @@ export default function PantallaTrasladoInicio() {
 
         <View style={styles.acciones}>
           <Pressable
-            style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
-            onPress={() => navigation.navigate('NuevoTraslado')}
+            style={({ pressed }) => [
+              styles.boton,
+              styles.botonPrimario,
+              sinTalonario && styles.botonDeshabilitado,
+              pressed && styles.botonPresionado,
+            ]}
+            onPress={nuevoTraslado}
           >
             <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="add-circle-outline" texto="Nuevo traslado" />
           </Pressable>
@@ -307,6 +352,7 @@ export default function PantallaTrasladoInicio() {
           ))
         )}
       </ScrollView>
+
     </SafeAreaView>
   );
 }

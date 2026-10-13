@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { buscarConsecutivoTraslado, fetchNovedadesTraslado, type Traslado } from './api';
+import { buscarConsecutivoTraslado, fetchNovedadesTraslado, referenciaTraslado, type Traslado } from './api';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
 import { AvisoRol } from './ResumenTraslado';
@@ -71,7 +71,7 @@ function TarjetaNovedad({
       <View style={[estilos.franja, { backgroundColor: color }]} />
       <View style={estilos.contenido}>
         <View style={estilos.filaSuperior}>
-          <Text style={estilos.numero}>TP-{String(traslado.consecutivo).padStart(6, '0')}</Text>
+          <Text style={estilos.numero}>{referenciaTraslado(traslado)}</Text>
           <View
             style={[
               estilos.pildora,
@@ -103,7 +103,7 @@ function TarjetaNovedad({
               {productos} {productos === 1 ? 'producto' : 'productos'}
             </Text>
           </View>
-          {traslado.numero_talonario ? (
+          {traslado.numero_talonario && !traslado.talonario_id ? (
             <View style={[estilos.metadato, { flexShrink: 1 }]}>
               <Ionicons name="document-text-outline" size={13} color={NEUTRAL_500} />
               <Text style={estilos.metadatoTexto} numberOfLines={1}>

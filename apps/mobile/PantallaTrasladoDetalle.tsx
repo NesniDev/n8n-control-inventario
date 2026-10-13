@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { fetchTrasladoPunto, type EstadoTraslado, type Traslado } from './api';
+import { fetchTrasladoPunto, referenciaTraslado, type EstadoTraslado, type Traslado } from './api';
 import { mensajeError } from './errorMessages';
 import FirmasTraslado from './FirmasTraslado';
 import ResumenTraslado from './ResumenTraslado';
@@ -134,11 +134,11 @@ export default function PantallaTrasladoDetalle({ route }: Props) {
         ) : null}
 
         <ResumenTraslado
-          numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
+          numero={referenciaTraslado(traslado)}
           origen={traslado.punto_origen_nombre ?? '—'}
           destino={traslado.punto_destino_nombre ?? '—'}
           transportador={traslado.transportador_nombre}
-          talonario={traslado.numero_talonario}
+          talonario={traslado.talonario_id ? null : traslado.numero_talonario}
           fecha={traslado.fecha}
           items={items.map((item) => ({
             key: item.id,

@@ -489,7 +489,7 @@ export default function PantallaCapturaFoto({ navigation }: Props) {
         setCargando(false);
         Alert.alert(
           'Foto no procesable',
-          'No se pudo leer el documento. Tomá otra foto con mejor luz y encuadre.',
+          'No se pudo leer el documento. Toma otra foto con mejor luz y encuadre.',
           [{ text: 'Entendido' }]
         );
         return; // se queda en Captura, foto sigue puesta, listo para repetir

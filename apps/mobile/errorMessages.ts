@@ -14,6 +14,7 @@ export type ContextoError =
   | 'devolucion'
   | 'no_entregado'
   | 'traslado'
+  | 'talonario'
   | 'factura_faltante';
 
 const MENSAJE_SERVIDOR = 'Error del servidor. Intenta de nuevo en unos minutos.';
@@ -30,7 +31,9 @@ const MENSAJES_POR_CONTEXTO: Record<ContextoError, string> = {
   no_entregado: 'No se pudo registrar el producto como no entregado. Intentá de nuevo.',
   // Cubre crear el traslado y confirmar la recepcion -- los dos caminos del
   // flujo de Traslados que llaman a mensajeError (ver PantallaTraslado*.tsx).
-  traslado: 'No se pudo procesar el traslado. Intentá de nuevo.',
+  traslado: 'No se pudo procesar el traslado. Intenta de nuevo.',
+  // Configurar o anular una hoja del talonario (ver PantallaTrasladoInicio.tsx).
+  talonario: 'No se pudo actualizar el talonario. Intenta de nuevo.',
   // Cubre reportar y descartar una factura faltante (ver PantallaFacturasFaltantes.tsx).
   factura_faltante: 'No se pudo procesar el reporte de factura. Intenta de nuevo.',
 };
@@ -225,6 +228,11 @@ export function mensajeError(err: unknown, contexto?: ContextoError): string {
     if ((status === 404 || status === 422) && typeof detail === 'string' && detail.trim()) {
       // Ya son mensajes de negocio escritos a mano en el backend
       // (ExtraccionFallida, CantidadInvalida, "no se encontro ese documento", etc.).
+      return detail;
+    }
+    // 409 del talonario (sin talonario, agotado, o la hoja ya la uso otra
+    // persona): el detail ya dice que hoja toca ahora, se muestra tal cual.
+    if (status === 409 && (contexto === 'traslado' || contexto === 'talonario') && typeof detail === 'string' && detail.trim()) {
       return detail;
     }
     return mensajePorContexto(contexto);

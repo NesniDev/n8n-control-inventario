@@ -6,7 +6,7 @@
 // quien despacha. El origen es fijo -- el punto del usuario logueado. El envio
 // real (crear el traslado en el backend) pasa en FirmaTransportador, no aca
 // -- esta pantalla solo arma el borrador (ver TrasladoContext.tsx).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 
-import { extraerTalonario, subirEvidencia, type Punto } from './api';
+import { extraerTalonario, fetchTalonarioPunto, subirEvidencia, type Punto, type TalonarioPunto } from './api';
 import { quitarCodigo } from './PantallaEntrada';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
@@ -117,6 +117,21 @@ export default function PantallaTrasladoNuevo() {
   // en cualquiera de los dos casos solo se puede repetir la foto.
   const [errorLectura, setErrorLectura] = useState<string | null>(null);
   const [faltantes, setFaltantes] = useState<string[]>([]);
+  // Talonario activo del punto: de ahi sale la hoja que toca fotografiar.
+  // undefined = todavia no se sabe (no bloquea; el backend valida igual).
+  const [talonario, setTalonario] = useState<TalonarioPunto | null | undefined>(undefined);
+  // Hoja esperada segun la ultima lectura (el backend la devuelve en cada extraccion).
+  const [hojaEsperada, setHojaEsperada] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!punto) return;
+    fetchTalonarioPunto(punto.id, { forzar: true })
+      .then(setTalonario)
+      .catch(() => undefined);
+  }, [punto]);
+
+  const sinTalonario = talonario === null || talonario?.agotado === true;
+  const esperada = hojaEsperada ?? talonario?.siguiente_hoja ?? null;
 
   const limpiarLectura = () => {
     actualizarDraft({
@@ -142,6 +157,7 @@ export default function PantallaTrasladoNuevo() {
       setFotoUri(uri);
       const { url } = await subirEvidencia(uri);
       const lectura = await extraerTalonario(url, punto.id);
+      setHojaEsperada(lectura.numero_esperado ?? null);
       if (lectura.faltantes.length > 0 || !lectura.punto_destino) {
         setFaltantes(lectura.faltantes.length > 0 ? lectura.faltantes : ['Destino']);
         return;
@@ -241,6 +257,21 @@ export default function PantallaTrasladoNuevo() {
               miniatura + "Repetir foto" (que vuelve a leer y reemplaza todo). */}
           <View style={styles.tarjeta}>
             <Text style={styles.etiquetaSeccion}>Foto del talonario</Text>
+            {esperada && !sinTalonario ? (
+              <View style={estilos.hojaEsperada}>
+                <Ionicons name="document-text-outline" size={16} color={ACENTO} />
+                <Text style={estilos.hojaEsperadaTexto}>
+                  Hoja esperada: <Text style={{ color: ACENTO }}>{esperada}</Text>
+                </Text>
+              </View>
+            ) : null}
+            {sinTalonario ? (
+              <Text style={styles.textoErrorInline}>
+                {talonario === null
+                  ? 'Tu punto no tiene un talonario activo. Vuelve al inicio y configura tu talonario.'
+                  : 'Talonario agotado. Pide un talonario y configúralo desde el inicio.'}
+              </Text>
+            ) : null}
             {hayFoto ? (
               <Image source={{ uri: fotoUri ?? draft.fotoTalonarioUrl }} style={estilos.miniatura} resizeMode="cover" />
             ) : null}
@@ -249,7 +280,7 @@ export default function PantallaTrasladoNuevo() {
                 <ActivityIndicator color={ACENTO} />
                 <Text style={styles.previewSubtexto}>Leyendo el talonario...</Text>
               </View>
-            ) : (
+            ) : sinTalonario ? null : (
               <View style={estilos.filaBotones}>
                 <Pressable
                   style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
@@ -274,6 +305,9 @@ export default function PantallaTrasladoNuevo() {
                 <Text style={styles.textoErrorInline}>
                   {errorLectura ?? 'No se pudo leer el talonario con claridad.'}
                 </Text>
+                {faltantes.includes('Número de talonario') && esperada ? (
+                  <Text style={styles.textoErrorInline}>La foto debe ser de la hoja {esperada}.</Text>
+                ) : null}
                 {faltantes.length > 0 ? (
                   <Text style={styles.textoErrorInline}>No se leyó: {faltantes.join(', ')}.</Text>
                 ) : null}
@@ -474,6 +508,8 @@ export default function PantallaTrasladoNuevo() {
 }
 
 const estilos = StyleSheet.create({
+  hojaEsperada: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  hojaEsperadaTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   valorLectura: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   encabezadoLectura: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   cajaTalonario: {

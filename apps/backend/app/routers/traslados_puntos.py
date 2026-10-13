@@ -14,9 +14,18 @@ from app.db import get_pool
 from app.models.empleado import PinNuevo
 from app.models.punto import PinLoginPunto, PuntoActualizar, PuntoCrear, UsuarioPuntoActualizar, UsuarioPuntoCrear
 from app.models.supervisor import PinLoginSupervisor, SupervisorActualizar, SupervisorCrear
+from app.models.talonario import HojaAnular, TalonarioConfigurar
 from app.models.traslado_punto import ExtraerTalonario, RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
 from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.auth_pin import generar_sal, hashear_pin, verificar_pin
+from app.services.talonarios import (
+    TalonarioConflicto,
+    TalonarioInvalido,
+    TalonarioNoDisponible,
+    anular_siguiente_hoja,
+    configurar_talonario,
+    obtener_talonario_activo,
+)
 from app.services.traslados_puntos import (
     ConsecutivoDuplicado,
     NovedadInvalida,
@@ -265,6 +274,7 @@ _CAMPOS_UUID_TRASLADO = (
     "punto_origen_id",
     "punto_destino_id",
     "creado_por",
+    "talonario_id",
     "recibido_por",
     "solucionado_por",
 )
@@ -288,6 +298,10 @@ def _serializar_traslado(fila: dict, items: list[dict] | None = None) -> dict:
 async def crear_traslado_endpoint(payload: TrasladoPuntoCrear) -> dict:
     try:
         resultado = await crear_traslado(payload)
+    except (TalonarioNoDisponible, TalonarioConflicto) as exc:
+        # 409: conflicto de estado del talonario (sin talonario, agotado, o la
+        # hoja ya la uso otra persona) -- el detail dice que hoja toca ahora.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except TrasladoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     items = resultado.pop("items")
@@ -302,7 +316,39 @@ async def extraer_talonario_endpoint(payload: ExtraerTalonario) -> dict:
     rutas con path param por consistencia con /novedades."""
     try:
         return await extraer_talonario(payload.foto_url, payload.punto_origen_id)
+    except TalonarioNoDisponible as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ExtraccionFallida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/puntos/{punto_id}/talonario")
+async def obtener_talonario_punto(punto_id: UUID) -> dict:
+    """Talonario activo del punto con la siguiente hoja, cuantas quedan y el
+    rango. Sin talonario activo responde 200 con `{"talonario": null}` (no es
+    un error: es el estado inicial de un punto, la app muestra "Configura tu
+    talonario")."""
+    return {"talonario": await obtener_talonario_activo(str(punto_id))}
+
+
+@router.post("/talonarios-puntos/configurar", status_code=201)
+async def configurar_talonario_endpoint(payload: TalonarioConfigurar) -> dict:
+    """Configura o cambia el talonario activo del punto. Si el activo no se
+    agoto, `motivo` es obligatorio (422 si falta)."""
+    try:
+        return {"talonario": await configurar_talonario(payload)}
+    except TalonarioConflicto as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TalonarioInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/talonarios-puntos/anular-hoja")
+async def anular_hoja_endpoint(payload: HojaAnular) -> dict:
+    """Anula la siguiente hoja pendiente del talonario activo (con motivo)."""
+    try:
+        return await anular_siguiente_hoja(payload)
+    except TalonarioInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 

@@ -62,7 +62,7 @@ export type TrasladosStackParamList = {
   InicioTraslados: undefined;
   NuevoTraslado: undefined;
   FirmaTransportador: undefined;
-  ResultadoTraslado: { consecutivo: number };
+  ResultadoTraslado: { referencia: string };
   BandejaRecepcion: undefined;
   RecepcionTraslado: { trasladoId: string };
   DetalleTraslado: { trasladoId: string };

@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { fetchPuntos, fetchTrasladoPunto, resolverNovedadTraslado, type ItemTraslado, type Punto, type Traslado } from './api';
+import { fetchPuntos, fetchTrasladoPunto, referenciaTraslado, resolverNovedadTraslado, type ItemTraslado, type Punto, type Traslado } from './api';
 import {
   esErrorConsecutivoDuplicado,
   esErrorNovedadYaResuelta,
@@ -206,11 +206,11 @@ export default function PantallaNovedadDetalle({ route }: Props) {
           </View>
 
           <ResumenTraslado
-            numero={`TP-${String(traslado.consecutivo).padStart(6, '0')}`}
+            numero={referenciaTraslado(traslado)}
             origen={traslado.punto_origen_nombre ?? '—'}
             destino={traslado.punto_destino_nombre ?? '—'}
             transportador={traslado.transportador_nombre}
-            talonario={traslado.numero_talonario}
+            talonario={traslado.talonario_id ? null : traslado.numero_talonario}
             fecha={traslado.fecha}
             items={items.map((item) => ({
               key: item.id,

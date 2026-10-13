@@ -14,6 +14,12 @@ from app.db import get_pool
 from app.models.log import EventoLog
 from app.models.traslado_punto import RecepcionTraslado, SolucionNovedad, TrasladoPuntoCrear
 from app.services.logging_service import registrar_evento
+from app.services.talonarios import (
+    TalonarioConflicto,
+    hoja_esperada,
+    parsear_referencia,
+    validar_y_tomar_hoja,
+)
 from app.services.vision_talonario import extraer_datos_talonario
 
 
@@ -106,7 +112,15 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
     `punto_destino` ({id, nombre, codigo} o None) y `faltantes`: nombres en
     espanol de lo que no se pudo leer con suficiente certeza -- si no esta
     vacia, la app movil obliga a repetir la foto. Lanza ExtraccionFallida
-    (ver app.services.vision) si la IA no pudo procesar la foto."""
+    (ver app.services.vision) si la IA no pudo procesar la foto.
+
+    El numero de talonario se compara contra la siguiente hoja del talonario
+    activo del punto origen (ver app/services/talonarios.py): si coincide se
+    devuelve la referencia esperada ("A 6305"); si no, "Número de talonario"
+    entra en `faltantes` y `numero_esperado` dice que hoja debe fotografiarse.
+    Sin talonario activo (o agotado) lanza TalonarioNoDisponible ANTES de
+    llamar a la IA, para no gastar una lectura que no se va a poder usar."""
+    esperada = await hoja_esperada(punto_origen_id)
     extraido = await extraer_datos_talonario(foto_url)
     umbral = get_settings().min_confidence
     confianza = extraido.get("confianza", {})
@@ -129,7 +143,15 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
         return confianza.get(campo, 0) >= umbral
 
     faltantes: list[str] = []
-    if not numero or not _confiable("numero_talonario") or not re.fullmatch(r"[A-Za-z0-9 /-]{1,30}", numero):
+    referencia_leida = parsear_referencia(numero)
+    numero_coincide = (
+        _confiable("numero_talonario")
+        and referencia_leida is not None
+        and referencia_leida == (esperada["letra"], esperada["siguiente_numero"])
+    )
+    if numero_coincide:
+        numero = esperada["siguiente_hoja"]
+    else:
         faltantes.append("Número de talonario")
     if punto_destino is None or not _confiable("destino"):
         faltantes.append("Destino")
@@ -142,6 +164,7 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
 
     return {
         "numero_talonario": numero,
+        "numero_esperado": esperada["siguiente_hoja"],
         "destino": destino_texto,
         "transportador": transportador,
         "fecha": fecha,
@@ -178,15 +201,21 @@ async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # La hoja se valida y se toma con lock sobre el talonario activo:
+            # si otra persona del mismo punto guardo primero, esta cae al 409
+            # con la hoja que toca fotografiar ahora.
+            talonario_id, numero_talonario = await validar_y_tomar_hoja(
+                conn, payload.punto_origen_id, payload.numero_talonario
+            )
             try:
                 fila = await conn.fetchrow(
                     """
                     insert into traslados_puntos (
                         id, punto_origen_id, punto_destino_id, transportador_nombre,
                         fecha, observaciones, firma_despacha_url, firma_transporta_url, creado_por,
-                        numero_talonario, foto_talonario_url
+                        numero_talonario, foto_talonario_url, talonario_id
                     )
-                    values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::uuid, $10, $11)
+                    values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::uuid, $10, $11, $12::uuid)
                     returning *
                     """,
                     payload.id,
@@ -198,10 +227,15 @@ async def crear_traslado(payload: TrasladoPuntoCrear) -> dict:
                     payload.firma_despacha_url,
                     payload.firma_transporta_url,
                     payload.creado_por,
-                    payload.numero_talonario,
+                    numero_talonario,
                     payload.foto_talonario_url,
+                    talonario_id,
                 )
             except asyncpg.UniqueViolationError as exc:
+                if exc.constraint_name == "traslados_puntos_talonario_numero_key":
+                    raise TalonarioConflicto(
+                        "Esa hoja ya se usó. Vuelve a cargar el talonario y toma la foto de la hoja que sigue."
+                    ) from exc
                 # id repetido (ya generado y enviado antes -- ej. reintento
                 # tras un timeout de red) -- no deberia pasar en uso normal
                 # (uuid del celular), pero falla con un mensaje claro en vez
