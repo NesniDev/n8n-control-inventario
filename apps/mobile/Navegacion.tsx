@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import type { Flujo } from './api';
 import { EntregaProvider } from './EntregaContext';
+import { CalabazasBorde, DecoracionTabs } from './halloween';
 import { TrasladoProvider } from './TrasladoContext';
 import { SesionProvider, tieneAcceso, useSesion, type AreaApp, type Sesion } from './SesionContext';
 import PantallaEntrada from './PantallaEntrada';
@@ -200,9 +201,13 @@ function IconoTab({ nombre, activa }: { nombre: keyof typeof Ionicons.glyphMap; 
   return <Ionicons name={activa ? relleno : nombre} size={22} color={activa ? MARCA.oro : TAB_INACTIVA} />;
 }
 
-// Fondo de la barra: degradado azul -> azul noche, los colores del logo.
+// Fondo de la barra: degradado azul -> azul noche, los colores del logo. Encima,
+// la decoracion de temporada (solo en Halloween, ver halloween.tsx).
 const FondoTabs = () => (
-  <LinearGradient colors={[MARCA.azul, MARCA.noche]} style={StyleSheet.absoluteFill} />
+  <>
+    <LinearGradient colors={[MARCA.azul, MARCA.noche]} style={StyleSheet.absoluteFill} />
+    <DecoracionTabs />
+  </>
 );
 
 function TabsPrincipales() {
@@ -271,6 +276,8 @@ export default function Navegacion() {
           {() => (
             <SesionProvider value={valorSesion}>
               <TabsPrincipales />
+              {/* Solo con sesion: la entrada tiene sus propias calabazas (ver halloween.tsx). */}
+              <CalabazasBorde />
             </SesionProvider>
           )}
         </RootStack.Screen>

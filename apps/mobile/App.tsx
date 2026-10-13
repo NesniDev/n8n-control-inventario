@@ -11,6 +11,7 @@ import {
 } from '@expo-google-fonts/manrope';
 
 import ErrorBoundary from './ErrorBoundary';
+import { CapaHalloween } from './halloween';
 import Navegacion from './Navegacion';
 import { ACENTO, styles } from './tema';
 
@@ -43,6 +44,8 @@ export default function App() {
           <NavigationContainer>
             <StatusBar style="light" />
             <Navegacion />
+            {/* Decoracion de temporada encima de todo, sin bloquear toques (ver halloween.tsx). */}
+            <CapaHalloween />
           </NavigationContainer>
         )}
       </SafeAreaProvider>
