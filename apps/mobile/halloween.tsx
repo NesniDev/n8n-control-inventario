@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import type { NavigationContainerRefWithCurrent, ParamListBase } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -50,20 +51,30 @@ export const HALLOWEEN_ACTIVO = FORZAR_HALLOWEEN || esTemporadaHalloween(new Dat
 // de arriba a abajo), cuanto sube o baja al cruzar, sentido (1 = izquierda a
 // derecha, -1 = al reves), tamaño, cuanto se demora en cruzar y con que
 // retraso arranca dentro de la ronda.
+// Pocos a proposito: los celulares de los operadores son de gama baja, y
+// mientras algo se anima la pantalla se redibuja en cada cuadro (bateria).
 const MURCIELAGOS = [
-  { alto: 0.04, deriva: 40, sentido: 1, tamano: 30, duracion: 6000, retraso: 0 },
-  { alto: 0.12, deriva: -30, sentido: -1, tamano: 22, duracion: 7500, retraso: 1200 },
-  { alto: 0.22, deriva: 60, sentido: 1, tamano: 26, duracion: 6800, retraso: 3000 },
-  { alto: 0.33, deriva: -50, sentido: -1, tamano: 34, duracion: 5800, retraso: 600 },
-  { alto: 0.44, deriva: 30, sentido: 1, tamano: 20, duracion: 8000, retraso: 4200 },
-  { alto: 0.55, deriva: -60, sentido: -1, tamano: 28, duracion: 6500, retraso: 2000 },
-  { alto: 0.66, deriva: 40, sentido: 1, tamano: 24, duracion: 7200, retraso: 5000 },
-  { alto: 0.76, deriva: -40, sentido: -1, tamano: 32, duracion: 6200, retraso: 3600 },
+  { alto: 0.06, deriva: 40, sentido: 1, tamano: 30, duracion: 6000, retraso: 0 },
+  { alto: 0.3, deriva: -50, sentido: -1, tamano: 26, duracion: 6500, retraso: 2500 },
+  { alto: 0.52, deriva: 40, sentido: 1, tamano: 24, duracion: 7000, retraso: 6000 },
+  { alto: 0.74, deriva: -40, sentido: -1, tamano: 32, duracion: 6200, retraso: 4000 },
 ];
 
-// Pausa entre rondas de cada murcielago. Como arrancan con retrasos
-// distintos, casi siempre hay alguno cruzando la pantalla.
-const PAUSA_ENTRE_RONDAS = 3000;
+// Pausa larga entre rondas: la mayor parte del tiempo la pantalla queda
+// quieta y no se redibuja.
+const PAUSA_ENTRE_RONDAS = 10000;
+
+// Pantallas donde no vuela nada (camara, firma y fotos): ahi la fluidez
+// importa mas que la decoracion. Telarañas y calabazas, que son quietas y no
+// cuestan, se quedan. Son los nombres de las rutas de Navegacion.tsx.
+const RUTAS_SIN_VOLADORES = new Set([
+  'Captura',
+  'Confirmando',
+  'NuevoTraslado',
+  'FirmaTransportador',
+  'RecepcionTraslado',
+  'NovedadDetalle',
+]);
 
 const ALETEOS_POR_SEGUNDO = 4;
 const ALAS_ABAJO = 0.4;
@@ -82,11 +93,9 @@ const rangoAleteo = (duracion: number) => {
 // Fantasmas: menos y mas lentos, flotando con un vaiven amplio en vez de
 // aletear.
 const FANTASMAS = [
-  { alto: 0.28, deriva: 30, sentido: -1, tamano: 35, duracion: 14000, retraso: 2500 },
-  { alto: 0.5, deriva: -40, sentido: 1, tamano: 29, duracion: 16000, retraso: 8000 },
-  { alto: 0.8, deriva: -20, sentido: -1, tamano: 33, duracion: 15000, retraso: 12000 },
+  { alto: 0.4, deriva: 30, sentido: -1, tamano: 35, duracion: 14000, retraso: 3000 },
+  { alto: 0.82, deriva: -20, sentido: 1, tamano: 33, duracion: 15000, retraso: 12000 },
 ];
-
 
 type Ruta = (typeof MURCIELAGOS)[number];
 
@@ -227,25 +236,49 @@ const CALABAZAS_TABS = [
 ];
 const ABAJO_SOBRE_TABS = 54;
 
-export function CapaHalloween() {
+// Nombre de la pantalla abierta (la mas interna: Captura, Confirmando...).
+// Escucha el contenedor de navegacion desde aca y no con onStateChange en
+// App.tsx, para que cambiar de pantalla solo vuelva a dibujar esta capa y no
+// toda la navegacion.
+function useRutaActual(navegacion: NavigationContainerRefWithCurrent<ParamListBase>) {
+  const [ruta, setRuta] = useState<string | undefined>();
+  useEffect(() => {
+    const actualizar = () => setRuta(navegacion.getCurrentRoute()?.name);
+    if (navegacion.isReady()) actualizar();
+    return navegacion.addListener('state', actualizar);
+  }, [navegacion]);
+  return ruta;
+}
+
+// En las pantallas de RUTAS_SIN_VOLADORES los voladores se desmontan y sus
+// animaciones se detienen.
+export function CapaHalloween({
+  navegacion,
+}: {
+  navegacion: NavigationContainerRefWithCurrent<ParamListBase>;
+}) {
   const insets = useSafeAreaInsets();
   const reducirMovimiento = useSinMovimiento();
+  const rutaActual = useRutaActual(navegacion);
   if (!HALLOWEEN_ACTIVO) return null;
+  const conVoladores = !rutaActual || !RUTAS_SIN_VOLADORES.has(rutaActual);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <View style={[StyleSheet.absoluteFill, { top: insets.top }]}>
-        {MURCIELAGOS.map((ruta, i) => (
-          <Volador key={`m${i}`} {...ruta} aleteo reducirMovimiento={reducirMovimiento}>
-            <Murcielago tamano={ruta.tamano} />
-          </Volador>
-        ))}
-        {FANTASMAS.map((ruta, i) => (
-          <Volador key={`f${i}`} {...ruta} vaiven={24} reducirMovimiento={reducirMovimiento}>
-            <Fantasma tamano={ruta.tamano} />
-          </Volador>
-        ))}
-      </View>
+      {conVoladores ? (
+        <View style={[StyleSheet.absoluteFill, { top: insets.top }]}>
+          {MURCIELAGOS.map((ruta, i) => (
+            <Volador key={`m${i}`} {...ruta} aleteo reducirMovimiento={reducirMovimiento}>
+              <Murcielago tamano={ruta.tamano} />
+            </Volador>
+          ))}
+          {FANTASMAS.map((ruta, i) => (
+            <Volador key={`f${i}`} {...ruta} vaiven={24} reducirMovimiento={reducirMovimiento}>
+              <Fantasma tamano={ruta.tamano} />
+            </Volador>
+          ))}
+        </View>
+      ) : null}
       {TELARANAS.map((t, i) => (
         <Text key={`t${i}`} style={[estilos.emoji, posicionAdorno(t, insets), { fontSize: t.tamano }]}>
           🕸️

@@ -1,6 +1,6 @@
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts, SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
 import {
@@ -30,6 +30,8 @@ export default function App() {
     Manrope_600SemiBold,
     Manrope_700Bold,
   });
+  // Para que la decoracion de temporada sepa que pantalla esta abierta.
+  const navegacion = useNavigationContainerRef();
 
   return (
     <ErrorBoundary>
@@ -41,11 +43,13 @@ export default function App() {
             </View>
           </SafeAreaView>
         ) : (
-          <NavigationContainer>
+          <NavigationContainer ref={navegacion}>
             <StatusBar style="light" />
             <Navegacion />
-            {/* Decoracion de temporada encima de todo, sin bloquear toques (ver halloween.tsx). */}
-            <CapaHalloween />
+            {/* Decoracion de temporada encima de todo, sin bloquear toques (ver
+                halloween.tsx). Recibe la pantalla abierta para no animar nada en
+                camara y firma. */}
+            <CapaHalloween navegacion={navegacion} />
           </NavigationContainer>
         )}
       </SafeAreaProvider>
