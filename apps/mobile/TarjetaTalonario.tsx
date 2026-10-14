@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { fetchTalonariosPunto, type TalonarioPunto } from './api';
-import { ModalAnularHoja, ModalConfigurarTalonario, rangoCorto } from './ModalTalonario';
+import { empresaTalonario, ModalAnularHoja, ModalConfigurarTalonario, rangoCorto } from './ModalTalonario';
 import { FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, TEXTO_PRIMARIO } from './tema';
 import { MARCA } from './vidrio';
 
@@ -137,7 +137,7 @@ export default function TarjetaTalonario({
                   <Ionicons name="receipt-outline" size={20} color={MARCA.oro} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={estilos.etiqueta}>Talonario</Text>
+                  <Text style={estilos.etiqueta}>{empresaTalonario(talonario.letra) ?? 'Talonario'}</Text>
                   <Text style={estilos.titulo}>{rangoCorto(talonario)}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>

@@ -25,6 +25,18 @@ import {
 // Hojas por talonario: fijo en 50 (debe coincidir con HOJAS_POR_TALONARIO del backend).
 const HOJAS = 50;
 
+// Empresas con talonario propio: cada una usa siempre la misma letra, asi el
+// operador elige la empresa y no teclea el prefijo.
+export const EMPRESAS_TALONARIO = [
+  { letra: 'A', nombre: 'Comercializadora El Imperio' },
+  { letra: 'V', nombre: 'Agroveterinaria La Rebaja' },
+] as const;
+
+/** Nombre de la empresa de un talonario por su letra, o null si la letra no es de ninguna. */
+export function empresaTalonario(letra: string): string | null {
+  return EMPRESAS_TALONARIO.find((e) => e.letra === letra)?.nombre ?? null;
+}
+
 /** "A 6301–6350" -- rango corto para la tarjeta de inicio. */
 export function rangoCorto(t: Pick<TalonarioPunto, 'letra' | 'numero_inicial' | 'numero_final'>): string {
   return `${t.letra} ${t.numero_inicial}–${t.numero_final}`;
@@ -51,7 +63,7 @@ export function ModalConfigurarTalonario({
   visible: boolean;
   puntoId: string;
   usuarioId: string;
-  // Talonarios activos del punto. Si el de la letra tecleada todavia tiene
+  // Talonarios activos del punto. Si el de la empresa elegida todavia tiene
   // hojas, cambiarlo exige motivo; los de otras letras no se tocan.
   talonarios: TalonarioPunto[];
   // Letra que se precarga al abrir (al pulsar "Cambiar" en un talonario).
@@ -76,7 +88,7 @@ export function ModalConfigurarTalonario({
 
   const actual = talonarios.find((t) => t.letra === letra) ?? null;
   const exigeMotivo = actual !== null && !actual.agotado;
-  const letraValida = /^[A-Z]{1,3}$/.test(letra);
+  const letraValida = EMPRESAS_TALONARIO.some((e) => e.letra === letra);
   const inicial = numero ? Number(numero) : 0;
   const numeroValido = /^\d{1,7}$/.test(numero) && inicial > 0 && inicial + HOJAS - 1 <= 9999999;
   const valido = letraValida && numeroValido && (!exigeMotivo || motivo.trim() !== '');
@@ -107,18 +119,25 @@ export function ModalConfigurarTalonario({
       titulo={actual ? 'Cambiar talonario' : talonarios.length > 0 ? 'Agregar talonario' : 'Configura tu talonario'}
       onCerrar={onCerrar}
     >
-      <Campo etiqueta="Prefijo">
-        <TextInput
-          value={letra}
-          onChangeText={(v) => setLetra(v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3))}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={3}
-          placeholder="Ej. A"
-          placeholderTextColor={NEUTRAL_500}
-          style={estilos.input}
-          autoFocus={!letraInicial}
-        />
+      <Campo etiqueta="Empresa">
+        <View style={styles.chipsEnvoltorio}>
+          {EMPRESAS_TALONARIO.map((empresa) => {
+            const activa = empresa.letra === letra;
+            return (
+              <Pressable
+                key={empresa.letra}
+                onPress={() => setLetra(empresa.letra)}
+                style={[styles.chipSede, activa && styles.chipSedeActiva]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: activa }}
+              >
+                <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
+                  {empresa.nombre} ({empresa.letra})
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </Campo>
       <Campo etiqueta="Número">
         <TextInput
@@ -129,7 +148,7 @@ export function ModalConfigurarTalonario({
           placeholder="Ej. 6301"
           placeholderTextColor={NEUTRAL_500}
           style={estilos.input}
-          autoFocus={!!letraInicial}
+          autoFocus={!!letraInicial && letraValida}
         />
       </Campo>
 
