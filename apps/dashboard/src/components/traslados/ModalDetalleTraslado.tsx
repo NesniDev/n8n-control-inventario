@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { asignarSyscafeDashboard, fetchTrasladoDetalle, type TrasladoDetalle } from "@/lib/api";
 import { claseBoton, ErrorConReintento, Icono, Pildora, type TonoPildora } from "@/components/ui";
 import { Folio } from "@/components/entregas/Folio";
-import { ESTADOS, fechaCorta, fechaHora, referencia } from "./compartido";
+import { empresaTalonario, ESTADOS, fechaCorta, fechaHora, referencia } from "./compartido";
 import { Dato, ModalBase } from "./ModalBase";
 
 export function ModalDetalleTraslado({
@@ -65,6 +65,9 @@ export function ModalDetalleTraslado({
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {empresaTalonario({ tipo: "traslado", ...t }) ? (
+              <Dato etiqueta="Empresa">{empresaTalonario({ tipo: "traslado", ...t })}</Dato>
+            ) : null}
             <Dato etiqueta="Origen y destino">
               {t.punto_origen_nombre ?? "—"} <Icono nombre="derecha" className="mx-0.5 inline h-3.5 w-3.5 align-text-bottom text-muted" />
               <span className="sr-only">a</span> {t.punto_destino_nombre ?? "—"}

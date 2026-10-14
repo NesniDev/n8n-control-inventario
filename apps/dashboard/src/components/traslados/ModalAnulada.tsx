@@ -5,7 +5,7 @@
 import type { FilaTrasladoSyscafe } from "@/lib/api";
 import { Pildora } from "@/components/ui";
 import { Folio } from "@/components/entregas/Folio";
-import { fechaHora, referencia } from "./compartido";
+import { empresaTalonario, fechaHora, referencia } from "./compartido";
 import { Dato, ModalBase } from "./ModalBase";
 
 export function ModalAnulada({ fila, onCerrar }: { fila: FilaTrasladoSyscafe; onCerrar: () => void }) {
@@ -18,6 +18,7 @@ export function ModalAnulada({ fila, onCerrar }: { fila: FilaTrasladoSyscafe; on
       pildora={<Pildora tono="neutro">Anulada</Pildora>}
     >
       <div className="grid grid-cols-2 gap-4">
+        <Dato etiqueta="Empresa">{empresaTalonario(fila) ?? "—"}</Dato>
         <Dato etiqueta="Punto">{fila.punto_origen_nombre ?? "—"}</Dato>
         <Dato etiqueta="Fecha">{fechaHora(fila.created_at)}</Dato>
         <Dato etiqueta="Anulada por">{fila.anulado_por_nombre ?? "—"}</Dato>

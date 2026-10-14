@@ -30,7 +30,15 @@ import {
 } from "@/components/ui";
 import { useSesion } from "@/lib/SesionProvider";
 import { areaEfectiva } from "@/lib/sesion";
-import { ESTADOS, fechaCorta, fechaHora, referencia } from "@/components/traslados/compartido";
+import {
+  EMPRESAS_TALONARIO,
+  empresaTalonario,
+  ESTADOS,
+  fechaCorta,
+  fechaHora,
+  letraTalonario,
+  referencia,
+} from "@/components/traslados/compartido";
 import { ModalAnulada } from "@/components/traslados/ModalAnulada";
 import { ModalDetalleTraslado } from "@/components/traslados/ModalDetalleTraslado";
 
@@ -43,6 +51,7 @@ function textoBusqueda(f: FilaTrasladoSyscafe): string {
   return normalizar(
     [
       referencia(f),
+      empresaTalonario(f),
       f.numero_syscafe,
       f.numero_talonario,
       f.punto_origen_nombre,
@@ -65,6 +74,8 @@ export default function TrasladosPage() {
   const puedeAsignar = puedeEditar && ["todo", "traslados"].includes(areaEfectiva(usuario));
   const [puntoId, setPuntoId] = useState("");
   const [estado, setEstado] = useState("");
+  // Letra del talonario ("A", "V") para ver solo una empresa; "" = todas.
+  const [empresa, setEmpresa] = useState("");
   const [soloPendientes, setSoloPendientes] = useState(false);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -101,7 +112,13 @@ export default function TrasladosPage() {
   const [anuladaDetalle, setAnuladaDetalle] = useState<FilaTrasladoSyscafe | null>(null);
 
   // El orden (pendientes primero) viene del backend y el filtro lo conserva.
-  const porEstado = useMemo(() => (filas ?? []).filter((f) => !estado || f.estado === estado), [filas, estado]);
+  const porEstado = useMemo(
+    () =>
+      (filas ?? []).filter(
+        (f) => (!estado || f.estado === estado) && (!empresa || letraTalonario(f) === empresa),
+      ),
+    [filas, estado, empresa],
+  );
   const visibles = useMemo(() => {
     const q = normalizar(busquedaDiferida);
     if (!q) return porEstado;
@@ -222,6 +239,24 @@ export default function TrasladosPage() {
               {Object.entries(ESTADOS).map(([valor, { texto }]) => (
                 <option key={valor} value={valor}>
                   {texto}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="traslados-empresa" className="text-xs font-medium text-muted">
+              Empresa
+            </label>
+            <select
+              id="traslados-empresa"
+              value={empresa}
+              onChange={(e) => setEmpresa(e.target.value)}
+              className={claseCampo}
+            >
+              <option value="">Todas</option>
+              {EMPRESAS_TALONARIO.map((e) => (
+                <option key={e.letra} value={e.letra}>
+                  {e.nombre} ({e.letra})
                 </option>
               ))}
             </select>
@@ -357,9 +392,12 @@ export default function TrasladosPage() {
                           pendiente ? "border-brand-gold" : "border-transparent"
                         }`}
                       >
-                        <span className={`cifra text-[16px] ${anulada ? "text-muted" : "text-ink"}`}>
+                        <span className={`cifra block text-[16px] ${anulada ? "text-muted" : "text-ink"}`}>
                           {referencia(fila)}
                         </span>
+                        {empresaTalonario(fila) ? (
+                          <span className="block text-xs text-muted">{empresaTalonario(fila)}</span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                         {anulada ? (

@@ -18,6 +18,29 @@ export function referencia(
   return `TP-${String(fila.consecutivo ?? 0).padStart(6, "0")}`;
 }
 
+// Empresas con talonario propio, por la letra de la hoja (debe coincidir con
+// EMPRESAS_TALONARIO de la app movil, ModalTalonario.tsx).
+export const EMPRESAS_TALONARIO = [
+  { letra: "A", nombre: "Comercializadora El Imperio" },
+  { letra: "V", nombre: "Agroveterinaria La Rebaja" },
+] as const;
+
+/** Letra de la hoja ("V 120" -> "V") si la fila es de talonario; null en los traslados antiguos. */
+export function letraTalonario(
+  fila: Pick<FilaTrasladoSyscafe, "tipo" | "numero_talonario" | "talonario_id">,
+): string | null {
+  if (!fila.numero_talonario || !(fila.tipo === "anulada" || fila.talonario_id)) return null;
+  return /^\s*([A-Za-z]{1,3})/.exec(fila.numero_talonario)?.[1].toUpperCase() ?? null;
+}
+
+/** Empresa del talonario de la fila segun su letra, o null si no aplica. */
+export function empresaTalonario(
+  fila: Pick<FilaTrasladoSyscafe, "tipo" | "numero_talonario" | "talonario_id">,
+): string | null {
+  const letra = letraTalonario(fila);
+  return EMPRESAS_TALONARIO.find((e) => e.letra === letra)?.nombre ?? null;
+}
+
 // "2026-10-13" -> "13/10/2026" sin pasar por Date (evita el corrimiento de zona horaria).
 export function fechaCorta(iso: string): string {
   const [anio, mes, dia] = iso.slice(0, 10).split("-");
