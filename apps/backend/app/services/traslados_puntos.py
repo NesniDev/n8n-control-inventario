@@ -22,8 +22,10 @@ from app.models.traslado_punto import (
 from app.services.logging_service import registrar_evento
 from app.services.talonarios import (
     TalonarioConflicto,
-    hoja_esperada,
+    elegir_por_letra,
+    hojas_esperadas,
     parsear_referencia,
+    unir_hojas_esperadas,
     validar_y_tomar_hoja,
 )
 from app.services.vision_talonario import extraer_datos_talonario
@@ -147,12 +149,13 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
     (ver app.services.vision) si la IA no pudo procesar la foto.
 
     El numero de talonario se compara contra la siguiente hoja del talonario
-    activo del punto origen (ver app/services/talonarios.py): si coincide se
-    devuelve la referencia esperada ("A 6305"); si no, "Número de talonario"
-    entra en `faltantes` y `numero_esperado` dice que hoja debe fotografiarse.
-    Sin talonario activo (o agotado) lanza TalonarioNoDisponible ANTES de
-    llamar a la IA, para no gastar una lectura que no se va a poder usar."""
-    esperada = await hoja_esperada(punto_origen_id)
+    activo del punto origen cuya letra es la leida (ver app/services/talonarios.py):
+    si coincide se devuelve la referencia esperada ("A 6305"); si no, "Número
+    de talonario" entra en `faltantes` y `numero_esperado` dice que hoja debe
+    fotografiarse (si no se reconocio la letra, las esperadas unidas: "A 6305
+    o V 120"). Sin talonario activo (o agotados) lanza TalonarioNoDisponible
+    ANTES de llamar a la IA, para no gastar una lectura que no se va a poder usar."""
+    disponibles = await hojas_esperadas(punto_origen_id)
 
     # Los puntos se consultan antes de la lectura para mostrarselos al modelo:
     # asi elige el destino entre los registrados en vez de transcribir la
@@ -163,7 +166,9 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
     )
     puntos = [{"id": str(f["id"]), "nombre": f["nombre"], "codigo": f["codigo"]} for f in filas]
 
-    extraido = await extraer_datos_talonario(foto_url, [p["nombre"] for p in puntos])
+    extraido = await extraer_datos_talonario(
+        foto_url, [p["nombre"] for p in puntos], [t["letra"] for t in disponibles]
+    )
     umbral = get_settings().min_confidence
     confianza = extraido.get("confianza", {})
 
@@ -180,9 +185,12 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
 
     faltantes: list[str] = []
     referencia_leida = parsear_referencia(numero)
+    # El talonario se elige por la letra leida; si no hay uno activo con esa
+    # letra, el numero no coincide con nada.
+    esperada = elegir_por_letra(disponibles, referencia_leida[0] if referencia_leida else None)
     numero_coincide = (
         _confiable("numero_talonario")
-        and referencia_leida is not None
+        and esperada is not None
         and referencia_leida == (esperada["letra"], esperada["siguiente_numero"])
     )
     if numero_coincide:
@@ -200,7 +208,8 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str) -> dict:
 
     return {
         "numero_talonario": numero,
-        "numero_esperado": esperada["siguiente_hoja"],
+        "numero_esperado": esperada["siguiente_hoja"] if esperada is not None else unir_hojas_esperadas(disponibles),
+        "hojas_esperadas": [t["siguiente_hoja"] for t in disponibles],
         "destino": destino_texto,
         "transportador": transportador,
         "fecha": fecha,

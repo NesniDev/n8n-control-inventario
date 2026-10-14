@@ -49,11 +49,13 @@ class TalonarioConfigurar(BaseModel):
 
 class HojaAnular(BaseModel):
     """Payload de POST /talonarios-puntos/anular-hoja -- anula exactamente la
-    siguiente hoja pendiente del talonario activo del punto."""
+    siguiente hoja pendiente de un talonario activo del punto. `talonario_id`
+    indica cual; si falta (app vieja) y el punto tiene un unico activo, se usa ese."""
 
     punto_id: UUID
     usuario_id: UUID
     motivo: str
+    talonario_id: UUID | None = None
 
     @field_validator("motivo")
     @classmethod

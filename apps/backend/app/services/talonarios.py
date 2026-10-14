@@ -1,11 +1,12 @@
-"""Talonario por punto: cada punto trabaja con UN talonario activo a la vez (50
-hojas fijas, letra + rango de numeros) y cada traslado consume la "siguiente
+"""Talonario por punto: cada punto trabaja con UN talonario activo por letra (50
+hojas fijas, letra + rango de numeros; p. ej. "A" general y "V" veterinaria en
+paralelo) y cada traslado consume la "siguiente
 hoja" en orden -- ver el flujo de traslados en app/services/traslados_puntos.py.
 
 Siguiente hoja = el menor numero del rango que no uso ningun traslado de ese
 talonario y no esta anulado. Quedan = cuantas hojas del rango siguen asi.
 Todas las escrituras van en transaccion y toman `select ... for update` sobre
-la fila del talonario activo, asi crear un traslado, anular una hoja y cambiar
+la fila del talonario activo de la letra, asi crear un traslado, anular una hoja y cambiar
 de talonario se serializan entre si.
 """
 
@@ -93,46 +94,86 @@ async def _estado(conn, talonario) -> dict:
     }
 
 
-async def obtener_talonario_activo(punto_id: str) -> dict | None:
-    """Talonario activo del punto con su estado, o None si no hay."""
+async def obtener_talonarios_activos(punto_id: str) -> list[dict]:
+    """Talonarios activos del punto (uno por letra) con su estado, ordenados
+    por letra. Lista vacia si no hay ninguno."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        talonario = await conn.fetchrow(
-            "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo'", punto_id
+        filas = await conn.fetch(
+            "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo' order by letra",
+            punto_id,
         )
-        if talonario is None:
-            return None
-        return await _estado(conn, talonario)
+        return [await _estado(conn, fila) for fila in filas]
 
 
-async def hoja_esperada(punto_id: str) -> dict:
-    """Estado del talonario activo del punto, exigiendo que haya uno y que no
-    este agotado. Lanza TalonarioNoDisponible con un mensaje listo para
-    mostrar al usuario. Lectura sin lock (la usa extraer, que no escribe)."""
-    estado = await obtener_talonario_activo(punto_id)
-    if estado is None:
+def elegir_por_letra(talonarios: list[dict], letra: str | None) -> dict | None:
+    """Talonario de `talonarios` cuya letra coincide con `letra` (sin importar
+    mayusculas), o None."""
+    if not letra:
+        return None
+    for t in talonarios:
+        if t["letra"] == letra.upper():
+            return t
+    return None
+
+
+def unir_hojas_esperadas(talonarios: list[dict]) -> str:
+    """Siguientes hojas de los talonarios unidas para mostrar: "A 6305 o V 120"."""
+    return " o ".join(t["siguiente_hoja"] for t in talonarios if t["siguiente_hoja"])
+
+
+async def hojas_esperadas(punto_id: str) -> list[dict]:
+    """Talonarios activos del punto que aun tienen hojas, exigiendo que haya al
+    menos uno. Lanza TalonarioNoDisponible con un mensaje listo para mostrar al
+    usuario. Lectura sin lock (la usa extraer, que no escribe)."""
+    estados = await obtener_talonarios_activos(punto_id)
+    if not estados:
         raise TalonarioNoDisponible("Tu punto no tiene un talonario activo. Configura tu talonario antes de continuar.")
-    if estado["agotado"]:
+    disponibles = [e for e in estados if not e["agotado"]]
+    if not disponibles:
         raise TalonarioNoDisponible("Talonario agotado. Pide un talonario y configúralo.")
-    return estado
+    return disponibles
 
 
 async def validar_y_tomar_hoja(conn, punto_id: str, numero_talonario: str) -> tuple[str, str]:
     """Dentro de la transaccion de crear_traslado: toma el lock del talonario
-    activo del punto, recalcula la siguiente hoja y exige que `numero_talonario`
-    sea esa. Devuelve (talonario_id, referencia canonica "A 6305")."""
+    activo del punto cuya letra es la de `numero_talonario`, recalcula la
+    siguiente hoja y exige que sea esa. Devuelve (talonario_id, referencia
+    canonica "A 6305")."""
+    referencia = parsear_referencia(numero_talonario)
+    filas = await conn.fetch(
+        "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo' order by letra",
+        punto_id,
+    )
+    if not filas:
+        raise TalonarioNoDisponible("Tu punto no tiene un talonario activo. Configura tu talonario antes de continuar.")
+
+    elegido = None
+    if referencia is not None:
+        elegido = next((f for f in filas if f["letra"] == referencia[0]), None)
+    if elegido is None:
+        estados = [await _estado(conn, f) for f in filas]
+        esperadas = unir_hojas_esperadas(estados)
+        if not esperadas:
+            raise TalonarioNoDisponible("Talonario agotado. Pide un talonario y configúralo.")
+        raise TalonarioConflicto(
+            f"Esa hoja no corresponde a un talonario activo del punto. Toma la foto de la hoja {esperadas}."
+        )
+
+    # Lock solo sobre el talonario de esa letra: los de otras letras quedan libres.
+    # Se revalida `estado = 'activo'` ya con el lock: otra persona pudo cerrarlo
+    # (cambio de talonario) entre la lectura de arriba y este punto.
     talonario = await conn.fetchrow(
-        "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo' for update", punto_id
+        "select * from talonarios_punto where id = $1::uuid and estado = 'activo' for update", elegido["id"]
     )
     if talonario is None:
-        raise TalonarioNoDisponible("Tu punto no tiene un talonario activo. Configura tu talonario antes de continuar.")
+        raise TalonarioConflicto("El talonario acaba de cambiar. Revisa el talonario activo y vuelve a intentar.")
     estado = await _estado(conn, talonario)
     if estado["agotado"]:
         raise TalonarioNoDisponible("Talonario agotado. Pide un talonario y configúralo.")
 
     esperada = estado["siguiente_hoja"]
-    referencia = parsear_referencia(numero_talonario)
-    if referencia is None or referencia != (estado["letra"], estado["siguiente_numero"]):
+    if referencia != (estado["letra"], estado["siguiente_numero"]):
         raise TalonarioConflicto(
             f"Esa hoja ya se usó o no es la siguiente del talonario. Toma la foto de la hoja {esperada}."
         )
@@ -140,8 +181,9 @@ async def validar_y_tomar_hoja(conn, punto_id: str, numero_talonario: str) -> tu
 
 
 async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
-    """Configura (o cambia) el talonario activo del punto. Si el activo no se
-    ha agotado, el motivo es obligatorio; las hojas que quedaban sin usar
+    """Configura (o cambia) el talonario activo de esa letra en el punto; los
+    de otras letras no se tocan. Si el activo de la letra no se ha agotado, el
+    motivo es obligatorio; las hojas que quedaban sin usar
     simplemente se dejan de usar."""
     punto_id = str(payload.punto_id)
     usuario_id = str(payload.usuario_id)
@@ -160,8 +202,10 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
     async with pool.acquire() as conn:
         async with conn.transaction():
             activo = await conn.fetchrow(
-                "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo' for update",
+                "select * from talonarios_punto "
+                "where punto_id = $1::uuid and letra = $2 and estado = 'activo' for update",
                 punto_id,
+                payload.letra,
             )
             if activo is not None:
                 anterior_estado = await _estado(conn, activo)
@@ -192,10 +236,11 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
                     usuario_id,
                 )
             except asyncpg.UniqueViolationError as exc:
-                # Indice parcial talonarios_punto_activo_key: otra persona
-                # configuro el talonario del punto al mismo tiempo.
+                # Indice parcial talonarios_punto_activo_letra_key: otra persona
+                # configuro el talonario de esa letra al mismo tiempo.
                 raise TalonarioConflicto(
-                    "Alguien más acaba de configurar el talonario de este punto. Revisa el talonario activo."
+                    "Alguien más acaba de configurar un talonario con esa letra en este punto. "
+                    "Revisa los talonarios activos."
                 ) from exc
             nuevo_estado = await _estado(conn, nuevo)
 
@@ -224,7 +269,9 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
 
 
 async def anular_siguiente_hoja(payload: HojaAnular) -> dict:
-    """Anula exactamente la siguiente hoja pendiente del talonario activo."""
+    """Anula exactamente la siguiente hoja pendiente de un talonario activo del
+    punto. Sin `talonario_id` (app vieja) se usa el unico activo; si hay varios
+    se exige indicar cual."""
     punto_id = str(payload.punto_id)
     usuario_id = str(payload.usuario_id)
     pool = await get_pool()
@@ -237,12 +284,23 @@ async def anular_siguiente_hoja(payload: HojaAnular) -> dict:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            talonario = await conn.fetchrow(
-                "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo' for update",
-                punto_id,
-            )
+            if payload.talonario_id is not None:
+                talonario = await conn.fetchrow(
+                    "select * from talonarios_punto where id = $1::uuid and punto_id = $2::uuid "
+                    "and estado = 'activo' for update",
+                    str(payload.talonario_id),
+                    punto_id,
+                )
+            else:
+                activos = await conn.fetch(
+                    "select * from talonarios_punto where punto_id = $1::uuid and estado = 'activo' for update",
+                    punto_id,
+                )
+                if len(activos) > 1:
+                    raise TalonarioInvalido("Indica de cuál talonario es la hoja que quieres anular")
+                talonario = activos[0] if activos else None
             if talonario is None:
-                raise TalonarioInvalido("Tu punto no tiene un talonario activo")
+                raise TalonarioInvalido("Tu punto no tiene ese talonario activo")
             antes = await _estado(conn, talonario)
             if antes["agotado"]:
                 raise TalonarioInvalido("El talonario está agotado, no hay hoja para anular")

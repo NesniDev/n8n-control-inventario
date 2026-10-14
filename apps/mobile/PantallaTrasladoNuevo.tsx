@@ -14,7 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 
-import { extraerTalonario, fetchTalonarioPunto, subirEvidencia, type Punto, type TalonarioPunto } from './api';
+import { extraerTalonario, fetchTalonariosPunto, subirEvidencia, type Punto, type TalonarioPunto } from './api';
 import { quitarCodigo } from './PantallaEntrada';
 import EvitarTeclado from './EvitarTeclado';
 import { mensajeError } from './errorMessages';
@@ -117,21 +117,26 @@ export default function PantallaTrasladoNuevo() {
   // en cualquiera de los dos casos solo se puede repetir la foto.
   const [errorLectura, setErrorLectura] = useState<string | null>(null);
   const [faltantes, setFaltantes] = useState<string[]>([]);
-  // Talonario activo del punto: de ahi sale la hoja que toca fotografiar.
-  // undefined = todavia no se sabe (no bloquea; el backend valida igual).
-  const [talonario, setTalonario] = useState<TalonarioPunto | null | undefined>(undefined);
+  // Talonarios activos del punto (uno por letra): de ahi salen las hojas que
+  // pueden fotografiarse. undefined = todavia no se sabe (no bloquea; el
+  // backend valida igual).
+  const [talonarios, setTalonarios] = useState<TalonarioPunto[] | undefined>(undefined);
   // Hoja esperada segun la ultima lectura (el backend la devuelve en cada extraccion).
   const [hojaEsperada, setHojaEsperada] = useState<string | null>(null);
 
   useEffect(() => {
     if (!punto) return;
-    fetchTalonarioPunto(punto.id, { forzar: true })
-      .then(setTalonario)
+    fetchTalonariosPunto(punto.id, { forzar: true })
+      .then(setTalonarios)
       .catch(() => undefined);
   }, [punto]);
 
-  const sinTalonario = talonario === null || talonario?.agotado === true;
-  const esperada = hojaEsperada ?? talonario?.siguiente_hoja ?? null;
+  const sinConfigurar = talonarios !== undefined && talonarios.length === 0;
+  const sinTalonario = sinConfigurar || (talonarios !== undefined && talonarios.every((t) => t.agotado));
+  // Siguientes hojas de los talonarios con hojas: ["A 6305", "V 120"].
+  const hojasDisponibles = (talonarios ?? []).flatMap((t) => (t.siguiente_hoja ? [t.siguiente_hoja] : []));
+  // Para el aviso de numero faltante: lo que dijo el backend o, si no, las disponibles unidas.
+  const esperada = hojaEsperada ?? (hojasDisponibles.length > 0 ? hojasDisponibles.join(' o ') : null);
 
   const limpiarLectura = () => {
     actualizarDraft({
@@ -257,17 +262,18 @@ export default function PantallaTrasladoNuevo() {
               miniatura + "Repetir foto" (que vuelve a leer y reemplaza todo). */}
           <View style={styles.tarjeta}>
             <Text style={styles.etiquetaSeccion}>Foto del talonario</Text>
-            {esperada && !sinTalonario ? (
+            {hojasDisponibles.length > 0 && !sinTalonario ? (
               <View style={estilos.hojaEsperada}>
                 <Ionicons name="document-text-outline" size={16} color={ACENTO} />
                 <Text style={estilos.hojaEsperadaTexto}>
-                  Hoja esperada: <Text style={{ color: ACENTO }}>{esperada}</Text>
+                  {hojasDisponibles.length > 1 ? 'Hojas esperadas: ' : 'Hoja esperada: '}
+                  <Text style={{ color: ACENTO }}>{hojasDisponibles.join(' · ')}</Text>
                 </Text>
               </View>
             ) : null}
             {sinTalonario ? (
               <Text style={styles.textoErrorInline}>
-                {talonario === null
+                {sinConfigurar
                   ? 'Tu punto no tiene un talonario activo. Vuelve al inicio y configura tu talonario.'
                   : 'Talonario agotado. Pide un talonario y configúralo desde el inicio.'}
               </Text>
@@ -306,7 +312,9 @@ export default function PantallaTrasladoNuevo() {
                   {errorLectura ?? 'No se pudo leer el talonario con claridad.'}
                 </Text>
                 {faltantes.includes('Número de talonario') && esperada ? (
-                  <Text style={styles.textoErrorInline}>La foto debe ser de la hoja {esperada}.</Text>
+                  <Text style={styles.textoErrorInline}>
+                    La foto debe ser de la hoja {esperada}.
+                  </Text>
                 ) : null}
                 {faltantes.length > 0 ? (
                   <Text style={styles.textoErrorInline}>No se leyó: {faltantes.join(', ')}.</Text>

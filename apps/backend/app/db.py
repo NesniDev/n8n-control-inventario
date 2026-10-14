@@ -456,10 +456,12 @@ create table if not exists talonarios_punto (
     check (numero_final = numero_inicial + 49)
 );
 
--- Un solo talonario activo por punto (indice parcial): es el seguro de base de
--- datos contra dos configuraciones simultaneas.
-create unique index if not exists talonarios_punto_activo_key
-    on talonarios_punto (punto_id) where estado = 'activo';
+-- Un solo talonario activo por punto y letra (indice parcial): es el seguro de
+-- base de datos contra dos configuraciones simultaneas de la misma letra. Un
+-- punto puede llevar a la vez, p. ej., el general "A" y el de veterinaria "V".
+drop index if exists talonarios_punto_activo_key;
+create unique index if not exists talonarios_punto_activo_letra_key
+    on talonarios_punto (punto_id, letra) where estado = 'activo';
 create index if not exists idx_talonarios_punto_punto
     on talonarios_punto (punto_id, created_at desc);
 

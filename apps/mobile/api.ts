@@ -864,6 +864,8 @@ export interface ExtraccionTalonario {
   // Hoja que toca fotografiar ahora ("A 6305"); si el numero leido no coincide,
   // "Número de talonario" viene en `faltantes` y hay que repetir la foto.
   numero_esperado: string;
+  // Siguiente hoja de cada talonario activo disponible (["A 6305", "V 120"]).
+  hojas_esperadas?: string[];
   destino: string;
   transportador: string;
   // ISO YYYY-MM-DD o "" si no se pudo leer.
@@ -899,21 +901,22 @@ export interface TalonarioPunto {
   umbral_aviso: number;
 }
 
-/** Talonario activo del punto, o null si todavia no configuro ninguno. */
-export async function fetchTalonarioPunto(puntoId: string, opciones?: OpcionesCache): Promise<TalonarioPunto | null> {
-  return conCache<TalonarioPunto | null>(
+/** Talonarios activos del punto (uno por letra); lista vacia si todavia no configuro ninguno. */
+export async function fetchTalonariosPunto(puntoId: string, opciones?: OpcionesCache): Promise<TalonarioPunto[]> {
+  return conCache<TalonarioPunto[]>(
     `talonario:${puntoId}`,
     VIGENCIA_CORTA,
     async () => {
       const res = await fetchConTimeout(`${API_BASE_URL}/puntos/${puntoId}/talonario`);
-      const cuerpo = await parsearRespuesta<{ talonario: TalonarioPunto | null }>(res);
-      return cuerpo.talonario;
+      const cuerpo = await parsearRespuesta<{ talonarios?: TalonarioPunto[]; talonario?: TalonarioPunto | null }>(res);
+      // `talonario` lo devuelven los backends anteriores a los talonarios por letra.
+      return cuerpo.talonarios ?? (cuerpo.talonario ? [cuerpo.talonario] : []);
     },
     opciones
   );
 }
 
-/** Configura o cambia el talonario activo; `motivo` es obligatorio si el actual no se agoto. */
+/** Configura o cambia el talonario activo de esa letra; `motivo` es obligatorio si el actual de la letra no se agoto. */
 export async function configurarTalonario(payload: {
   punto_id: string;
   usuario_id: string;
@@ -931,10 +934,11 @@ export async function configurarTalonario(payload: {
   return cuerpo.talonario;
 }
 
-/** Anula la siguiente hoja pendiente del talonario activo (motivo obligatorio). */
+/** Anula la siguiente hoja pendiente de un talonario activo (motivo obligatorio). */
 export async function anularHojaTalonario(payload: {
   punto_id: string;
   usuario_id: string;
+  talonario_id: string;
   motivo: string;
 }): Promise<{ hoja_anulada: string; talonario: TalonarioPunto }> {
   const res = await fetchConTimeout(`${API_BASE_URL}/talonarios-puntos/anular-hoja`, {

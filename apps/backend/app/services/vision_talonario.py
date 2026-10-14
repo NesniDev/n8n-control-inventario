@@ -86,15 +86,23 @@ _TALONARIO_PROMPT = (
 )
 
 
-def _armar_prompt(destinos: list[str]) -> str:
+def _armar_prompt(destinos: list[str], letras: list[str] | None = None) -> str:
     """Agrega al prompt los puntos de destino registrados, para que el modelo
     devuelva uno de ellos (tal cual esta escrito en la lista) en vez de la
-    transcripcion literal de la letra a mano."""
+    transcripcion literal de la letra a mano, y las letras de prefijo de los
+    talonarios activos, para que lea bien la letra del numero (V, no U)."""
+    prompt = _TALONARIO_PROMPT
+    if letras:
+        prompt += (
+            " El numero empieza con una letra de prefijo; los talonarios activos "
+            f"usan: {', '.join(letras)}. Transcríbelo como letra + numero (ej. "
+            f"'{letras[0]} 120')."
+        )
     if not destinos:
-        return _TALONARIO_PROMPT
+        return prompt
     lista = "; ".join(destinos)
     return (
-        f"{_TALONARIO_PROMPT} Los puntos de destino registrados son: {lista}. "
+        f"{prompt} Los puntos de destino registrados son: {lista}. "
         "Si el destino escrito corresponde a uno de ellos (aunque este "
         "abreviado, incompleto o mal escrito), devuelve en destino el nombre "
         "exactamente como aparece en esa lista. Si no corresponde a ninguno, "
@@ -102,11 +110,14 @@ def _armar_prompt(destinos: list[str]) -> str:
     )
 
 
-async def extraer_datos_talonario(evidencia_url: str, destinos: list[str] | None = None) -> dict:
+async def extraer_datos_talonario(
+    evidencia_url: str, destinos: list[str] | None = None, letras: list[str] | None = None
+) -> dict:
     """Lee la foto de un talonario de traslado (encabezado + productos).
 
     `destinos` son los nombres de los puntos validos como destino; se le
     muestran al modelo para que elija entre ellos (ver _armar_prompt).
+    `letras` son los prefijos de los talonarios activos del punto origen.
 
     Devuelve el dict validado contra _TALONARIO_SCHEMA. Lanza ExtraccionFallida
     si no se pudo descargar la foto, el proveedor de IA rehusa la solicitud o
@@ -133,7 +144,7 @@ async def extraer_datos_talonario(evidencia_url: str, destinos: list[str] | None
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{image_b64}"}},
-                        {"type": "text", "text": _armar_prompt(destinos or [])},
+                        {"type": "text", "text": _armar_prompt(destinos or [], letras)},
                     ],
                 }
             ],

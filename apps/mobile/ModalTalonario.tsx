@@ -1,6 +1,6 @@
 // Modales del talonario por punto (ver app/services/talonarios.py en el
-// backend): configurar o cambiar el talonario activo, y anular la siguiente
-// hoja. Se abren desde la tarjeta de talonario de PantallaTrasladoInicio. Mismo
+// backend): configurar o cambiar el talonario activo de una letra (un punto
+// puede llevar varios en paralelo, p. ej. A y V), y anular la siguiente hoja. Se abren desde la tarjeta de talonario de PantallaTrasladoInicio. Mismo
 // patron que ModalProducto: una HojaModal con campos y un boton primario.
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -43,15 +43,19 @@ export function ModalConfigurarTalonario({
   visible,
   puntoId,
   usuarioId,
-  actual,
+  talonarios,
+  letraInicial,
   onCerrar,
   onListo,
 }: {
   visible: boolean;
   puntoId: string;
   usuarioId: string;
-  // Talonario activo (si hay). Si todavia tiene hojas, cambiarlo exige motivo.
-  actual: TalonarioPunto | null;
+  // Talonarios activos del punto. Si el de la letra tecleada todavia tiene
+  // hojas, cambiarlo exige motivo; los de otras letras no se tocan.
+  talonarios: TalonarioPunto[];
+  // Letra que se precarga al abrir (al pulsar "Cambiar" en un talonario).
+  letraInicial?: string;
   onCerrar: () => void;
   onListo: (talonario: TalonarioPunto) => void;
 }) {
@@ -63,13 +67,14 @@ export function ModalConfigurarTalonario({
 
   useEffect(() => {
     if (visible) {
-      setLetra('');
+      setLetra(letraInicial ?? '');
       setNumero('');
       setMotivo('');
       setError(null);
     }
-  }, [visible]);
+  }, [visible, letraInicial]);
 
+  const actual = talonarios.find((t) => t.letra === letra) ?? null;
   const exigeMotivo = actual !== null && !actual.agotado;
   const letraValida = /^[A-Z]{1,3}$/.test(letra);
   const inicial = numero ? Number(numero) : 0;
@@ -97,7 +102,11 @@ export function ModalConfigurarTalonario({
   };
 
   return (
-    <HojaModal visible={visible} titulo={actual ? 'Cambiar talonario' : 'Configura tu talonario'} onCerrar={onCerrar}>
+    <HojaModal
+      visible={visible}
+      titulo={actual ? 'Cambiar talonario' : talonarios.length > 0 ? 'Agregar talonario' : 'Configura tu talonario'}
+      onCerrar={onCerrar}
+    >
       <Campo etiqueta="Prefijo">
         <TextInput
           value={letra}
@@ -108,7 +117,7 @@ export function ModalConfigurarTalonario({
           placeholder="Ej. A"
           placeholderTextColor={NEUTRAL_500}
           style={estilos.input}
-          autoFocus
+          autoFocus={!letraInicial}
         />
       </Campo>
       <Campo etiqueta="Número">
@@ -120,6 +129,7 @@ export function ModalConfigurarTalonario({
           placeholder="Ej. 6301"
           placeholderTextColor={NEUTRAL_500}
           style={estilos.input}
+          autoFocus={!!letraInicial}
         />
       </Campo>
 
@@ -206,7 +216,12 @@ export function ModalAnularHoja({
     setEnviando(true);
     setError(null);
     try {
-      const resultado = await anularHojaTalonario({ punto_id: puntoId, usuario_id: usuarioId, motivo: motivo.trim() });
+      const resultado = await anularHojaTalonario({
+        punto_id: puntoId,
+        usuario_id: usuarioId,
+        talonario_id: talonario!.id,
+        motivo: motivo.trim(),
+      });
       onListo(resultado.talonario);
     } catch (err) {
       setError(mensajeError(err, 'talonario'));

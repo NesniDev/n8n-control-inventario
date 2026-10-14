@@ -14,7 +14,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import {
-  fetchTalonarioPunto,
+  fetchTalonariosPunto,
   fetchTrasladosPunto,
   etiquetaSyscafe, referenciaTraslado,
   type EstadoTraslado,
@@ -170,8 +170,8 @@ export default function PantallaTrasladoInicio() {
   // Solo para bloquear "Nuevo traslado"; la tarjeta para configurarlo vive en
   // la tab Inicio (ver TarjetaTalonario.tsx).
   // undefined = todavia no se sabe (cargando o fallo la consulta, en cuyo caso
-  // no se bloquea nada: el backend valida igual al crear); null = sin talonario.
-  const [talonario, setTalonario] = useState<TalonarioPunto | null | undefined>(undefined);
+  // no se bloquea nada: el backend valida igual al crear); [] = sin talonarios.
+  const [talonarios, setTalonarios] = useState<TalonarioPunto[] | undefined>(undefined);
 
   const [enviados, setEnviados] = useState<Traslado[]>([]);
   const [recibidos, setRecibidos] = useState<Traslado[]>([]);
@@ -189,13 +189,13 @@ export default function PantallaTrasladoInicio() {
     if (!yaCargado.current) setCargando(true);
     setError(null);
     try {
-      const [listaEnviados, listaLlegadas, talonarioActual] = await Promise.all([
+      const [listaEnviados, listaLlegadas, talonariosActuales] = await Promise.all([
         fetchTrasladosPunto({ origenId: punto.id }, { forzar }),
         fetchTrasladosPunto({ destinoId: punto.id }, { forzar }),
         // El talonario cambia con cada traslado creado: siempre fresco al volver aqui.
-        fetchTalonarioPunto(punto.id, { forzar: true }).catch(() => undefined),
+        fetchTalonariosPunto(punto.id, { forzar: true }).catch(() => undefined),
       ]);
-      if (talonarioActual !== undefined) setTalonario(talonarioActual);
+      if (talonariosActuales !== undefined) setTalonarios(talonariosActuales);
       setEnviados(listaEnviados);
       // Lo que llega a este punto se parte en dos: lo que todavia esta en
       // camino va a "Por recibir"; lo ya confirmado, a la pestaña Recibidos.
@@ -225,14 +225,15 @@ export default function PantallaTrasladoInicio() {
     setRefrescando(false);
   };
 
-  // Sin talonario (o agotado) no se puede crear un traslado: se manda a configurarlo
-  // en la tab Inicio.
-  const sinTalonario = talonario === null || talonario?.agotado === true;
+  // Sin talonario (o todos agotados) no se puede crear un traslado: se manda a
+  // configurarlo en la tab Inicio. Basta con que uno tenga hojas disponibles.
+  const sinConfigurar = talonarios !== undefined && talonarios.length === 0;
+  const sinTalonario = sinConfigurar || (talonarios !== undefined && talonarios.every((t) => t.agotado));
   const nuevoTraslado = () => {
     if (sinTalonario) {
       Alert.alert(
-        talonario === null ? 'Configura tu talonario' : 'Talonario agotado',
-        talonario === null
+        sinConfigurar ? 'Configura tu talonario' : 'Talonario agotado',
+        sinConfigurar
           ? 'Antes de crear un traslado debes configurar tu talonario en la pestaña Inicio.'
           : 'Pide un talonario nuevo y configúralo en la pestaña Inicio para seguir creando traslados.',
         [

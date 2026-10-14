@@ -34,7 +34,7 @@ from app.services.talonarios import (
     TalonarioNoDisponible,
     anular_siguiente_hoja,
     configurar_talonario,
-    obtener_talonario_activo,
+    obtener_talonarios_activos,
 )
 from app.services.traslados_puntos import (
     ConsecutivoDuplicado,
@@ -381,11 +381,13 @@ async def extraer_talonario_endpoint(payload: ExtraerTalonario) -> dict:
 
 @router.get("/puntos/{punto_id}/talonario")
 async def obtener_talonario_punto(punto_id: UUID) -> dict:
-    """Talonario activo del punto con la siguiente hoja, cuantas quedan y el
-    rango. Sin talonario activo responde 200 con `{"talonario": null}` (no es
-    un error: es el estado inicial de un punto, la app muestra "Configura tu
-    talonario")."""
-    return {"talonario": await obtener_talonario_activo(str(punto_id))}
+    """Talonarios activos del punto (uno por letra) con la siguiente hoja,
+    cuantas quedan y el rango. Sin talonarios responde 200 con
+    `{"talonarios": [], "talonario": null}` (no es un error: es el estado
+    inicial de un punto, la app muestra "Configura tu talonario").
+    `talonario` (el primero) se mantiene para la app vieja."""
+    talonarios = await obtener_talonarios_activos(str(punto_id))
+    return {"talonarios": talonarios, "talonario": talonarios[0] if talonarios else None}
 
 
 @router.post("/talonarios-puntos/configurar", status_code=201)
