@@ -1,45 +1,49 @@
 @import "tailwindcss";
 
-/* Panel operativo en tema oscuro "Grafito cálido" con acento dorado de la
-   marca de Comercializadora El Imperio. No sigue prefers-color-scheme: es una
-   herramienta interna de sede. Contrastes WCAG medidos en el reporte del PR. */
+/* Panel operativo en tema oscuro "bosque": fondo verde muy oscuro, sin azules, de
+   Comercializadora El Imperio, con tres acentos de marca. El dorado es la acción
+   ("resaltador" de lo pendiente, botón primario y anillo de foco), el azul da
+   estructura (enlaces, navegación, bordes) y el verde oficial #3D8E33 marca lo
+   entregado. No sigue prefers-color-scheme: es una herramienta interna de sede.
+   Contrastes WCAG medidos: todo el texto >= 4.5:1 sobre page, surface y surface-2. */
 @theme {
-  /* Fondos y bordes (grafito cálido, sin azules) */
-  --color-page: #111110;
-  --color-surface: #1a1918;
-  --color-surface-2: #23221f;
-  --color-line: #2e2c29;
-  --color-line-strong: #3a3834;
+  /* Fondos y bordes */
+  --color-page: #0b1a12;
+  --color-surface: #12261b;
+  --color-surface-2: #193225;
+  --color-line: #24402f;
+  --color-line-strong: #335a43;
 
   /* Texto (>= 4.5:1 sobre page, surface y surface-2) */
-  --color-ink: #f5f4f0;
-  --color-soft: #d6d3cd;
-  --color-muted: #a8a29e;
-  --color-subtle: #8f8a84;
+  --color-ink: #f2f7f3;
+  --color-soft: #ccdcd1;
+  --color-muted: #9db4a5;
+  --color-subtle: #86a08f;
 
-  /* Marca: el dorado es el acento; los tonos "azules" de la marca quedaron
-     como piedra cálida para no reintroducir fondos azules. */
-  --color-brand-night: #111110;
-  --color-brand-ink: #1a1918; /* texto sobre dorado */
-  --color-brand-blue: #3a3834;
-  --color-brand-sky: #6b5a1f;
-  --color-brand-gold: #f5c542;
+  /* Marca */
+  --color-brand-night: #06100b; /* el verde más oscuro: velos de modales */
+  --color-brand-ink: #0b1d45; /* texto sobre dorado: 10.2:1 */
+  --color-brand-blue: #1f56b8; /* estructura: bordes, rellenos, barras */
+  --color-brand-sky: #1f56b8;
+  --color-brand-gold: #f5c542; /* acción: botón primario, resaltador y foco */
   --color-gold-hover: #f7d264;
+  --color-gold-fg: #f5c542; /* texto dorado sobre el fondo: >= 8.4:1 */
 
   /* Estados */
-  --color-ok: #3d8e33; /* verde oficial de marca, exacto */
+  --color-ok: #3d8e33; /* verde oficial de marca, exacto (rellenos y bordes) */
   --color-ok-hover: #4aa03f;
-  --color-ok-fg: #6fcf62; /* texto verde sobre oscuro */
-  --color-ok-on: #111110; /* texto sobre fondo ok (4.6:1) */
-  --color-warn: #f59e0b;
-  --color-danger: #ef4444; /* bordes y rellenos suaves */
-  --color-danger-fg: #f87171; /* texto de error (el #ef4444 no llega a 4.5:1 sobre surface-2) */
-  --color-danger-solid: #dc2626;
-  --color-info: #60a5fa; /* solo texto/bordes finos, nunca fondos */
+  --color-ok-fg: #9cf08c; /* verde brillante para texto y tintes: resalta sobre el fondo verde (>= 10:1) */
+  --color-ok-on: #06100b; /* texto sobre fondo ok: 4.7:1 (el blanco solo da 4.1:1) */
+  --color-warn: #fbbf24; /* ámbar legible como texto y como borde/tinte */
+  --color-warn-fill: #f5c542; /* relleno de "pendiente / requiere atención" */
+  --color-danger: #ef5a4e; /* bordes y rellenos suaves */
+  --color-danger-fg: #ff8a80; /* texto de error */
+  --color-danger-solid: #c9302c; /* fondo de botón destructivo (texto blanco: 5.3:1) */
+  --color-info: #8db3f5; /* azul claro: enlaces e información sobre oscuro */
 }
 
 @theme inline {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
@@ -54,7 +58,27 @@ html {
 body {
   background: var(--color-page);
   color: var(--color-ink);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+}
+
+/* Tipografía: una sola familia (Archivo, eje de ancho variable).
+   Escala: 12 / 14 / 16 / 20 / 28 / 44 px. */
+
+/* Cifras grandes e identificadores de documento: ancho condensado, tabular. */
+.cifra {
+  font-variation-settings: "wdth" 72;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+
+/* Título de página: ancho extendido. */
+.titular {
+  font-variation-settings: "wdth" 112;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 /* Anillo de foco visible (oro) para teclado, en todo el panel. */
@@ -91,3 +115,23 @@ select {
     scroll-behavior: auto !important;
   }
 }
+
+/* Logotipo (components/Logo.tsx): entrada unica al montar. Solo opacity y
+   transform; sin bucles. Con movimiento reducido queda estatico. */
+@media (prefers-reduced-motion: no-preference) {
+  .logo-marca {
+    animation: logo-marca-entra 400ms ease-out both;
+  }
+}
+
+@keyframes logo-marca-entra {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+

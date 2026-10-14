@@ -8,7 +8,9 @@
 // abierta a cualquiera que entre a la URL.
 
 import { useEffect, useState } from "react";
-import { Icono } from "@/components/ui";
+import { claseBoton, EncabezadoPagina, Icono } from "@/components/ui";
+import { Logo } from "@/components/Logo";
+import { Folio } from "@/components/entregas/Folio";
 import {
   fetchEmpleados,
   fetchEntregasFaia,
@@ -21,7 +23,7 @@ import {
 } from "@/lib/api";
 
 // Mismo criterio de acceso que aplica el backend en GET /entregas/faia --
-// se repite aca para no pegarle al endpoint con un rol que va a rebotar
+// se repite aqui para no pegarle al endpoint con un rol que va a rebotar
 // igual, y para mostrar "Acceso denegado" en vez de un error de red.
 const ROLES_PERMITIDOS = ["faia_viewer", "supervisor", "admin"];
 
@@ -153,15 +155,13 @@ export default function FaiaPage() {
   if (sesion) {
     if (!ROLES_PERMITIDOS.includes(sesion.rol)) {
       return (
-        <main className="mx-auto flex w-full flex-1 max-w-md flex-col items-center justify-center gap-4 px-6 py-10 text-center">
-          <h1 className="text-xl font-semibold text-danger-fg">Acceso denegado</h1>
+        <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-4 px-4 py-10">
+          <h1 className="titular text-[28px] leading-tight text-danger-fg">Acceso denegado</h1>
           <p className="text-sm text-muted">
-            Tu usuario ({sesion.nombre}) no tiene permiso para ver los documentos FAIA.
+            Tu usuario ({sesion.nombre}) no tiene permiso para ver los documentos FAIA. Pide a un supervisor que te
+            habilite o entra con otro usuario.
           </p>
-          <button
-            onClick={cerrarSesion}
-            className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft hover:bg-surface-2"
-          >
+          <button onClick={cerrarSesion} className={claseBoton("secundario", "self-start")}>
             Volver
           </button>
         </main>
@@ -169,25 +169,24 @@ export default function FaiaPage() {
     }
 
     return (
-      <main className="mx-auto flex w-full flex-1 max-w-5xl flex-col gap-8 px-6 py-10">
-        <header className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">FAIA · solo lectura</p>
-            <h1 className="text-2xl font-semibold text-ink">Documentos FAIA</h1>
-            <p className="text-sm text-muted">
-              Conectado como <span className="text-ink">{sesion.nombre}</span>
-            </p>
-          </div>
-          <button
-            onClick={cerrarSesion}
-            className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft hover:bg-surface-2"
-          >
-            Cerrar sesión
-          </button>
-        </header>
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
+        <EncabezadoPagina
+          titulo="Documentos FAIA"
+          descripcion={
+            <>
+              Consulta las fotos de los documentos marcados FAIA. Conectado como{" "}
+              <span className="font-medium text-ink">{sesion.nombre}</span>.
+            </>
+          }
+          acciones={
+            <button onClick={cerrarSesion} className={claseBoton("secundario")}>
+              Cerrar sesión
+            </button>
+          }
+        />
 
         {errorEntregas ? (
-          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-danger-fg">
+          <div role="alert" className="rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger-fg">
             {errorEntregas}
           </div>
         ) : null}
@@ -197,161 +196,168 @@ export default function FaiaPage() {
         ) : entregas.length === 0 ? (
           <p className="text-sm text-muted">Todavía no hay documentos marcados FAIA.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
             {entregas.map((entrega) => (
-              <a
-                key={entrega.id}
-                href={entrega.evidencia_url}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex flex-col gap-2 rounded-lg border border-line bg-surface p-3 transition hover:border-brand-gold/60"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element -- fotos
-                    vienen de Supabase Storage, no del dominio de Next (mismo
-                    criterio que ModalDetalleEntrega en app/page.tsx). */}
-                <img
-                  src={entrega.evidencia_url}
-                  alt={`${entrega.tipo} ${entrega.indicativo_numero}`}
-                  className="h-40 w-full rounded-md border border-line object-cover"
-                />
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-ink">
-                    {entrega.tipo} {entrega.indicativo_numero}
+              <li key={entrega.id} className="bg-surface">
+                <a
+                  href={entrega.evidencia_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex h-full flex-col gap-3 p-4 transition-colors duration-150 hover:bg-surface-2"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- fotos
+                      vienen de Supabase Storage, no del dominio de Next (mismo
+                      criterio que ModalDetalleEntrega). */}
+                  <img
+                    src={entrega.evidencia_url}
+                    alt={`${entrega.tipo} ${entrega.indicativo_numero}`}
+                    className="h-40 w-full rounded-md border border-line object-cover"
+                  />
+                  <div className="flex flex-col gap-1">
+                    <Folio tipo={entrega.tipo} numero={entrega.indicativo_numero} />
+                    <span className="text-sm text-soft">{entrega.sede_origen_nombre ?? entrega.sede_origen_id}</span>
+                    <span className="text-xs text-muted">Facturado por: {entrega.operador_nombre ?? "—"}</span>
+                    <span className="text-xs text-subtle">
+                      {entrega.capturado_at ? new Date(entrega.capturado_at).toLocaleString() : "—"}
+                    </span>
+                  </div>
+                  <span className="text-xs font-medium text-info group-hover:underline">
+                    Ver foto completa
+                    <Icono nombre="externo" />
+                    <span className="sr-only"> (se abre en una pestaña nueva)</span>
                   </span>
-                  <span className="text-xs text-muted">
-                    {entrega.sede_origen_nombre ?? entrega.sede_origen_id}
-                  </span>
-                  <span className="text-xs text-muted">
-                    Facturado por: {entrega.operador_nombre ?? "—"}
-                  </span>
-                  <span className="text-xs text-subtle">
-                    {entrega.capturado_at ? new Date(entrega.capturado_at).toLocaleString() : "—"}
-                  </span>
-                </div>
-                <span className="text-xs text-brand-gold opacity-0 transition group-hover:opacity-100">
-                  Ver foto completa<Icono nombre="externo" />
-                </span>
-              </a>
+                </a>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </main>
     );
   }
 
   // --- Login: elegir sede -> elegir empleado -> PIN ---
+  const claseFila =
+    "flex min-h-11 items-center justify-between gap-2 rounded-md border border-line-strong bg-surface px-3 py-2 text-left text-sm font-medium text-ink transition-colors duration-150 hover:bg-surface-2";
+  const claseVolver =
+    "inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink";
+
   return (
-    <main className="mx-auto flex w-full flex-1 max-w-md flex-col justify-center gap-6 px-6 py-10">
-      <header className="flex flex-col gap-1 text-center">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">Control logístico · FAIA</p>
-        <h1 className="text-2xl font-semibold text-ink">Acceso a documentos FAIA</h1>
+    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
+      <header className="flex flex-col gap-3">
+        <Logo tamano="grande" animado className="self-center" />
+        <div className="mt-2 flex flex-col gap-1 text-center">
+          <h1 className="titular text-[22px] leading-tight text-ink">Documentos FAIA</h1>
+          <p className="text-sm text-muted">Elige tu sede, tu nombre y escribe tu PIN para ver los documentos.</p>
+        </div>
       </header>
 
-      {paso === "sede" ? (
-        <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-5">
-          <h2 className="text-sm font-medium text-ink">Elegí tu sede</h2>
-          {cargandoSedes ? (
-            <p className="text-sm text-muted">Cargando sedes...</p>
-          ) : errorSedes ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-danger-fg">{errorSedes}</p>
-              <button
-                onClick={cargarSedes}
-                className="self-start rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft hover:bg-surface-2"
-              >
-                Reintentar
+      <div className="rounded-lg border border-line bg-surface p-5">
+        {paso === "sede" ? (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-base font-semibold text-ink">Elige tu sede</h2>
+            {cargandoSedes ? (
+              <p className="text-sm text-muted">Cargando sedes...</p>
+            ) : errorSedes ? (
+              <div role="alert" className="flex flex-col gap-2">
+                <p className="text-sm text-danger-fg">{errorSedes}. Revisa tu conexión e inténtalo de nuevo.</p>
+                <button onClick={cargarSedes} className={claseBoton("secundario", "self-start")}>
+                  Reintentar
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {sedes.map((sede) => (
+                  <button key={sede.id} onClick={() => elegirSede(sede)} className={claseFila}>
+                    {sede.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {paso === "empleado" ? (
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-ink">Elige tu nombre en {sedeElegida?.nombre}</h2>
+              <button onClick={volverASedes} className={claseVolver}>
+                <Icono nombre="izquierda" className="h-3.5 w-3.5" />
+                Cambiar sede
               </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {sedes.map((sede) => (
+            {cargandoEmpleados ? (
+              <p className="text-sm text-muted">Cargando empleados...</p>
+            ) : errorEmpleados ? (
+              <div role="alert" className="flex flex-col gap-2">
+                <p className="text-sm text-danger-fg">{errorEmpleados}. Revisa tu conexión e inténtalo de nuevo.</p>
                 <button
-                  key={sede.id}
-                  onClick={() => elegirSede(sede)}
-                  className="rounded-md border border-line-strong bg-surface px-3 py-3 text-sm font-medium text-ink hover:border-brand-gold/60 hover:bg-surface-2"
+                  onClick={() => sedeElegida && cargarEmpleados(sedeElegida)}
+                  className={claseBoton("secundario", "self-start")}
                 >
-                  {sede.nombre}
+                  Reintentar
                 </button>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
+              </div>
+            ) : empleados.length === 0 ? (
+              <p className="text-sm text-muted">No hay empleados activos en esta sede.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {empleados.map((empleado) => (
+                  <button key={empleado.id} onClick={() => elegirEmpleado(empleado)} className={claseFila}>
+                    {empleado.nombre}
+                    <Icono nombre="derecha" className="h-4 w-4" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
 
-      {paso === "empleado" ? (
-        <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-medium text-ink">¿Quién sos? · {sedeElegida?.nombre}</h2>
-            <button onClick={volverASedes} className="text-xs text-muted hover:text-ink">
-              <Icono nombre="izquierda" className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />Cambiar sede
-            </button>
-          </div>
-          {cargandoEmpleados ? (
-            <p className="text-sm text-muted">Cargando empleados...</p>
-          ) : errorEmpleados ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-danger-fg">{errorEmpleados}</p>
-              <button
-                onClick={() => sedeElegida && cargarEmpleados(sedeElegida)}
-                className="self-start rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft hover:bg-surface-2"
-              >
-                Reintentar
+        {paso === "pin" && empleadoElegido ? (
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-ink">Hola, {empleadoElegido.nombre}</h2>
+              <button onClick={volverAEmpleados} className={claseVolver}>
+                <Icono nombre="izquierda" className="h-3.5 w-3.5" />
+                Cambiar nombre
               </button>
             </div>
-          ) : empleados.length === 0 ? (
-            <p className="text-sm text-muted">No hay empleados activos en esta sede.</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {empleados.map((empleado) => (
-                <button
-                  key={empleado.id}
-                  onClick={() => elegirEmpleado(empleado)}
-                  className="flex items-center justify-between rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink hover:border-brand-gold/60 hover:bg-surface-2"
-                >
-                  {empleado.nombre}
-                  <Icono nombre="derecha" className="h-4 w-4" />
-                </button>
-              ))}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="faia-pin" className="text-sm font-medium text-soft">
+                PIN (4 a 6 dígitos)
+              </label>
+              <input
+                id="faia-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={pin}
+                onChange={(e) => {
+                  setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 6));
+                  setErrorLogin(null);
+                }}
+                maxLength={6}
+                autoFocus
+                placeholder="••••"
+                aria-invalid={errorLogin ? true : undefined}
+                onKeyDown={(e) => e.key === "Enter" && ingresar()}
+                className="min-h-11 rounded-md border border-line-strong bg-surface px-3 text-center text-lg tracking-[0.5em] text-ink"
+              />
             </div>
-          )}
-        </section>
-      ) : null}
-
-      {paso === "pin" && empleadoElegido ? (
-        <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-medium text-ink">Hola, {empleadoElegido.nombre}</h2>
-            <button onClick={volverAEmpleados} className="text-xs text-muted hover:text-ink">
-              <Icono nombre="izquierda" className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />Cambiar
+            {errorLogin ? (
+              <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger-fg">
+                {errorLogin}. Escribe el PIN de nuevo.
+              </p>
+            ) : null}
+            <button
+              onClick={ingresar}
+              disabled={pin.length < 4 || cargandoLogin}
+              className={claseBoton("primario", "min-h-11 w-full")}
+            >
+              {cargandoLogin ? "Entrando..." : "Entrar"}
             </button>
-          </div>
-          <label className="flex flex-col gap-1 text-xs text-muted">
-            PIN
-            <input
-              type="password"
-              inputMode="numeric"
-              value={pin}
-              onChange={(e) => {
-                setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 6));
-                setErrorLogin(null);
-              }}
-              maxLength={6}
-              autoFocus
-              placeholder="••••"
-              onKeyDown={(e) => e.key === "Enter" && ingresar()}
-              className="rounded-md border border-line-strong bg-surface px-3 py-2 text-center text-lg tracking-[0.5em] text-ink"
-            />
-          </label>
-          {errorLogin ? <p className="text-xs text-danger-fg">{errorLogin}</p> : null}
-          <button
-            onClick={ingresar}
-            disabled={pin.length < 4 || cargandoLogin}
-            className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-md bg-brand-gold px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-gold-hover disabled:opacity-50"
-          >
-            {cargandoLogin ? "Ingresando..." : "Ingresar"}
-          </button>
-        </section>
-      ) : null}
+          </section>
+        ) : null}
+      </div>
     </main>
   );
 }

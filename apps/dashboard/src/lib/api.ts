@@ -1,6 +1,6 @@
 // Cliente hacia el backend (ver apps/backend). Los datos se leen por HTTP,
 // pero la revalidacion es instantanea via Supabase Realtime (ver
-// lib/supabase.ts y app/page.tsx) — el polling de 5s de SWR queda como red
+// lib/supabase.ts y lib/useEntregasEnVivo.ts) — el polling de 5s de SWR queda como red
 // de seguridad si el socket de Realtime se corta.
 
 import {
@@ -608,6 +608,19 @@ export const fetchCargaTurnos = (sedeId: string, semanas: number) =>
 // PIN solo viaja hacia el backend (alta y reset); nunca vuelve en las
 // respuestas.
 
+// Error de una llamada de administracion con el codigo HTTP: el 409 de un
+// borrado ("tiene historial") se distingue de un fallo cualquiera para ofrecer
+// desactivar en su lugar.
+export class ErrorAdmin extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ErrorAdmin";
+  }
+}
+
 async function adminFetch<T>(path: string, opciones?: { method?: string; body?: unknown }): Promise<T> {
   const res = await apiFetch(path, {
     method: opciones?.method ?? "GET",
@@ -616,10 +629,14 @@ async function adminFetch<T>(path: string, opciones?: { method?: string; body?: 
     body: opciones?.body !== undefined ? JSON.stringify(opciones.body) : undefined,
   });
   if (!res.ok) {
-    throw new Error(await mensajeDeError(res, "La solicitud falló"));
+    throw new ErrorAdmin(await mensajeDeError(res, "La solicitud falló"), res.status);
   }
   return res.json();
 }
+
+// DELETE de administracion: solo borra registros que nunca se usaron; con
+// historial el backend responde 409 con el motivo (ver borrado_admin.py).
+const eliminarAdmin = (path: string) => adminFetch<{ ok: boolean }>(path, { method: "DELETE" });
 
 export interface SedeAdmin {
   id: string;
@@ -671,6 +688,8 @@ export const actualizarSede = (id: string,
   cambios: { nombre?: string; direccion?: string; activa?: boolean }
 ) => adminFetch<SedeAdmin>(`/sedes/${id}`, { method: "PATCH", body: cambios });
 
+export const eliminarSede = (id: string) => eliminarAdmin(`/sedes/${id}`);
+
 export const fetchEmpleadosAdmin = () =>
   adminFetch<EmpleadoAdmin[]>("/empleados?incluir_inactivos=true");
 export const crearEmpleado = (datos: { nombre: string; sede_id: string; rol: RolEmpleado; pin: string }
@@ -678,6 +697,7 @@ export const crearEmpleado = (datos: { nombre: string; sede_id: string; rol: Rol
 export const actualizarEmpleado = (id: string,
   cambios: { nombre?: string; sede_id?: string; rol?: RolEmpleado; estado?: "activo" | "inactivo" }
 ) => adminFetch<EmpleadoAdmin>(`/empleados/${id}`, { method: "PATCH", body: cambios });
+export const eliminarEmpleado = (id: string) => eliminarAdmin(`/empleados/${id}`);
 export const resetearPinEmpleado = (id: string, pin: string) =>
   adminFetch<{ ok: boolean }>(`/empleados/${id}/pin`, { method: "POST", body: { pin } });
 
@@ -687,6 +707,8 @@ export const crearPunto = (nombre: string) =>
 export const actualizarPunto = (id: string, cambios: { nombre?: string; activo?: boolean }) =>
   adminFetch<PuntoAdmin>(`/puntos/${id}`, { method: "PATCH", body: cambios });
 
+export const eliminarPunto = (id: string) => eliminarAdmin(`/puntos/${id}`);
+
 export const fetchUsuariosPuntoAdmin = (puntoId: string) =>
   adminFetch<UsuarioPuntoAdmin[]>(`/puntos/${puntoId}/usuarios?incluir_inactivos=true`);
 export const crearUsuarioPunto = (puntoId: string, datos: { nombre: string; pin: string }) =>
@@ -694,6 +716,7 @@ export const crearUsuarioPunto = (puntoId: string, datos: { nombre: string; pin:
 export const actualizarUsuarioPunto = (id: string,
   cambios: { nombre?: string; estado?: "activo" | "inactivo" }
 ) => adminFetch<UsuarioPuntoAdmin>(`/puntos/usuarios/${id}`, { method: "PATCH", body: cambios });
+export const eliminarUsuarioPunto = (id: string) => eliminarAdmin(`/puntos/usuarios/${id}`);
 export const resetearPinUsuarioPunto = (id: string, pin: string) =>
   adminFetch<{ ok: boolean }>(`/puntos/usuarios/${id}/pin`, { method: "POST", body: { pin } });
 
@@ -704,8 +727,16 @@ export const crearSupervisor = (datos: { nombre: string; pin: string }) =>
 export const actualizarSupervisor = (id: string,
   cambios: { nombre?: string; estado?: "activo" | "inactivo" }
 ) => adminFetch<SupervisorAdmin>(`/supervisores/${id}`, { method: "PATCH", body: cambios });
+export const eliminarSupervisor = (id: string) => eliminarAdmin(`/supervisores/${id}`);
 export const resetearPinSupervisor = (id: string, pin: string) =>
   adminFetch<{ ok: boolean }>(`/supervisores/${id}/pin`, { method: "POST", body: { pin } });
+
+// DELETE /productos/{id}: quita el producto del catalogo (sin historial que
+// proteger). Si una entrega futura trae el mismo codigo, se vuelve a crear solo.
+export const eliminarProducto = (id: string) => eliminarAdmin(`/productos/${encodeURIComponent(id)}`);
+
+export const eliminarTipoDocumento = (codigo: string) =>
+  eliminarAdmin(`/tipos-documento/${encodeURIComponent(codigo)}`);
 
 export const fetchTiposDocumentoAdmin = () =>
   adminFetch<TipoDocumentoAdmin[]>("/tipos-documento?incluir_inactivos=true");
@@ -765,5 +796,6 @@ export const actualizarUsuarioDashboard = (
   id: string,
   cambios: { nombre?: string; rol?: RolDashboard; area?: AreaDashboard; activo?: boolean }
 ) => adminFetch<UsuarioDashboardAdmin>(`/dashboard/usuarios/${id}`, { method: "PATCH", body: cambios });
+export const eliminarUsuarioDashboard = (id: string) => eliminarAdmin(`/dashboard/usuarios/${id}`);
 export const resetearPasswordUsuarioDashboard = (id: string, password: string) =>
   adminFetch<{ ok: boolean }>(`/dashboard/usuarios/${id}/password`, { method: "POST", body: { password } });

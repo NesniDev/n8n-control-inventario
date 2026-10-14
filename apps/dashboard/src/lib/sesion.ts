@@ -149,10 +149,12 @@ export const ETIQUETA_AREA: Record<AreaDashboard, string> = {
 export const areaEfectiva = (u: UsuarioDashboard | null | undefined): AreaDashboard =>
   !u || u.rol === "admin" ? "todo" : (u.area ?? "todo");
 
-// Paginas que ve cada area (las exclusivas de admin se filtran aparte).
+// Paginas que ve cada area (las exclusivas de admin se filtran aparte). "/" ya
+// no es una pagina: redirige a /entregas, por eso sigue permitida en bodega
+// (la primera ruta de la lista es la pagina inicial).
 const RUTAS_POR_AREA: Record<AreaDashboard, string[] | "todas"> = {
   todo: "todas",
-  bodega: ["/", "/productos", "/ranking"],
+  bodega: ["/entregas", "/", "/productos", "/ranking"],
   traslados: ["/traslados"],
 };
 
@@ -167,5 +169,5 @@ export function rutaPermitida(u: UsuarioDashboard | null | undefined, ruta: stri
 // Primera pagina a la que puede entrar el usuario (destino de la redireccion).
 export function rutaInicial(u: UsuarioDashboard | null | undefined): string {
   const permitidas = RUTAS_POR_AREA[areaEfectiva(u)];
-  return permitidas === "todas" ? "/" : permitidas[0];
+  return permitidas === "todas" ? "/entregas" : permitidas[0];
 }

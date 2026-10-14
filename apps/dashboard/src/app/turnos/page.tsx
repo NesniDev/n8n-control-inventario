@@ -19,20 +19,20 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetchCargaTurnos, fetchSedes, type CeldaCarga } from "@/lib/api";
-import { EncabezadoPagina, EstadoVacio, ErrorConReintento, Icono, TarjetaConHeader } from "@/components/ui";
+import { claseBoton, EncabezadoPagina, EstadoVacio, ErrorConReintento, Icono, Panel, Segmentado } from "@/components/ui";
 import { useSesion } from "@/lib/SesionProvider";
 
-const AZUL_BARRA = "#3987e5";
+const AZUL_BARRA = "var(--color-brand-blue)";
 
 // Niveles de la grilla, de menos a mas. "mucho" = hora pico (la calcula el
 // backend: percentil 90 de las horas con trabajo).
 type Nivel = "nada" | "poco" | "normal" | "mucho";
 
 const NIVELES: { nivel: Nivel; etiqueta: string; color: string }[] = [
-  { nivel: "nada", etiqueta: "Sin trabajo", color: "rgb(38 38 38 / 0.6)" },
-  { nivel: "poco", etiqueta: "Poco", color: "#184f95" },
-  { nivel: "normal", etiqueta: "Normal", color: "#3987e5" },
-  { nivel: "mucho", etiqueta: "Mucho trabajo", color: "#b7d3f6" },
+  { nivel: "nada", etiqueta: "Sin trabajo", color: "var(--color-surface-2)" },
+  { nivel: "poco", etiqueta: "Poco", color: "color-mix(in srgb, var(--color-brand-blue) 45%, var(--color-surface-2))" },
+  { nivel: "normal", etiqueta: "Normal", color: "var(--color-brand-sky)" },
+  { nivel: "mucho", etiqueta: "Mucho trabajo", color: "var(--color-info)" },
 ];
 const COLOR_NIVEL = Object.fromEntries(NIVELES.map((n) => [n.nivel, n.color])) as Record<Nivel, string>;
 const ETIQUETA_NIVEL = Object.fromEntries(NIVELES.map((n) => [n.nivel, n.etiqueta])) as Record<Nivel, string>;
@@ -73,16 +73,14 @@ export default function TurnosPage() {
   const { esAdmin } = useSesion();
   if (!esAdmin) {
     return (
-      <main className="mx-auto flex w-full flex-1 max-w-4xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto flex w-full flex-1 max-w-7xl flex-col items-start gap-4 px-4 py-8 sm:px-6 sm:py-10">
         <EncabezadoPagina titulo="Planificación de turnos" />
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-warn">
+        <div className="rounded-md border border-warn/40 bg-warn-fill/15 px-4 py-3 text-sm text-warn">
           No tienes permiso para ver esta sección. Solo los administradores pueden acceder.
         </div>
-        <Link
-          href="/"
-          className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-soft transition hover:bg-surface-2"
-        >
-          <Icono nombre="izquierda" className="mr-1.5 inline h-3.5 w-3.5 align-text-bottom" />Volver al panel
+        <Link href="/" className={claseBoton("secundario")}>
+          <Icono nombre="izquierda" className="h-3.5 w-3.5" />
+          Volver al panel
         </Link>
       </main>
     );
@@ -145,56 +143,39 @@ function ContenidoTurnos() {
   const nivelDetalle = celdaActiva ? nivelDe(detalle, umbral) : null;
 
   return (
-    <main className="mx-auto flex w-full flex-1 min-w-0 max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+    <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
       <EncabezadoPagina
-        sobretitulo="Control logístico · analítica"
         titulo="Planificación de turnos"
         descripcion={
           <>
-            Te muestra <span className="text-ink">cuándo llega más trabajo a la bodega</span>, según los
-            documentos que se registraron en la app. Úsalo para decidir cuándo poner más gente y cuándo alcanza con
-            menos.
+            Mira <span className="text-ink">cuándo llega más trabajo a la bodega</span>, según los documentos que se
+            registraron en la app, y decide cuándo poner más gente y cuándo alcanza con menos.
           </>
         }
       />
 
       {/* Filtros en una sola fila, con rotulos en palabras. */}
-      <section className="flex flex-wrap items-end gap-4 rounded-xl border border-line bg-surface p-3 sm:p-4">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted">Bodega</span>
-          <select
-            value={sedeId ?? ""}
-            onChange={(e) => setSedeElegida(e.target.value)}
-            className="cursor-pointer rounded-lg border border-line bg-page px-3 py-2 text-sm text-ink"
-          >
-            {(sedes ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </label>
+      <section aria-label="Filtros" className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted">Mirar las últimas</span>
-          <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-page p-1">
-            {VENTANAS.map((opcion) => (
-              <button
-                key={opcion.valor}
-                onClick={() => setSemanas(opcion.valor)}
-                aria-pressed={semanas === opcion.valor}
-                className={`cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${
-                  semanas === opcion.valor
-                    ? "bg-brand-gold text-brand-ink"
-                    : "text-muted hover:bg-surface-2 hover:text-ink"
-                }`}
-              >
-                {opcion.etiqueta}
-              </button>
-            ))}
-          </div>
+          <span className="text-xs font-medium text-muted">Bodega</span>
+          <Segmentado
+            etiqueta="Bodega"
+            valor={sedeId}
+            onCambiar={setSedeElegida}
+            opciones={(sedes ?? []).map((s) => ({ valor: s.id, etiqueta: s.nombre }))}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted">Mirar las últimas</span>
+          <Segmentado
+            etiqueta="Semanas a mirar"
+            valor={String(semanas)}
+            onCambiar={(v) => setSemanas(Number(v))}
+            opciones={VENTANAS.map((v) => ({ valor: String(v.valor), etiqueta: v.etiqueta }))}
+          />
         </div>
         {/* Espacio siempre reservado: el aviso aparece al llegar los datos sin empujar el resto de la página. */}
-        <div className="flex min-h-10 min-w-64 flex-1 items-center" aria-live="polite">
+        <div className="flex min-h-11 min-w-64 flex-1 items-center" aria-live="polite">
           {historialCorto ? (
             <p className="flex items-start gap-2 text-xs leading-relaxed text-warn">
               <IconoAviso />
@@ -216,7 +197,7 @@ function ContenidoTurnos() {
       ) : null}
 
       {/* 1. Resumen en frases -- lo primero que hay que entender. */}
-      <TarjetaConHeader titulo="En resumen" subtitulo={`Lo más importante de ${nombreSede}, en pocas palabras.`}>
+      <Panel titulo="En resumen" subtitulo={`Lo más importante de ${nombreSede}, en pocas palabras.`}>
         {cargando ? (
           <div className="flex flex-col gap-3" aria-busy>
             {/* 4 lineas con el alto de leading-relaxed (text-sm): igual que las 4 frases cargadas. */}
@@ -264,15 +245,15 @@ function ContenidoTurnos() {
             </FraseResumen>
           </ul>
         )}
-      </TarjetaConHeader>
+      </Panel>
 
       {/* 2. Que dia -- barras, lo mas facil de leer. */}
-      <TarjetaConHeader
+      <Panel
         titulo="¿Qué día hay más trabajo?"
         subtitulo="Documentos registrados en promedio cada semana, por día."
       >
         {cargando ? (
-          <div className="h-[188px] animate-pulse rounded-lg bg-surface-2/60" aria-busy />
+          <div className="h-[188px] animate-pulse rounded-md bg-surface-2" aria-busy />
         ) : sinDatos ? (
           <EstadoVacio titulo="Sin datos en este período" />
         ) : (
@@ -286,7 +267,7 @@ function ContenidoTurnos() {
                   <span className={`text-sm ${destacado ? "font-semibold text-ink" : "text-muted"}`}>
                     {dia}
                   </span>
-                  <div className="h-3 w-full overflow-hidden rounded-full bg-surface-2/80">
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-surface-2">
                     {total > 0 ? (
                       <div
                         className="h-full rounded-full transition-[width] duration-500"
@@ -302,10 +283,10 @@ function ContenidoTurnos() {
             })}
           </ol>
         )}
-      </TarjetaConHeader>
+      </Panel>
 
       {/* 3. A que hora -- grilla dia x hora con niveles con nombre. */}
-      <TarjetaConHeader
+      <Panel
         titulo="¿A qué hora?"
         subtitulo="Cada cuadrito es un día a una hora. Toca o pasa el mouse por uno para ver el detalle."
         // min-w-0: la grilla (min-w-max) se desplaza dentro de la tarjeta en
@@ -314,7 +295,7 @@ function ContenidoTurnos() {
       >
         {/* key distinta: React no reutiliza el nodo del esqueleto (el navegador lo contaria como salto). */}
         {cargando ? (
-          <div key="esqueleto-hora" className="h-[23.5rem] animate-pulse rounded-lg bg-surface-2/60" aria-busy />
+          <div key="esqueleto-hora" className="h-[23.5rem] animate-pulse rounded-md bg-surface-2" aria-busy />
         ) : sinDatos ? (
           <EstadoVacio titulo="Sin datos en este período" />
         ) : (
@@ -324,7 +305,7 @@ function ContenidoTurnos() {
               {NIVELES.map((n) => (
                 <li key={n.nivel} className="flex items-center gap-2">
                   <span
-                    className={`h-4 w-4 rounded-[4px] ${n.nivel === "mucho" ? "ring-2 ring-inset ring-ink" : ""}`}
+                    className={`h-4 w-4 rounded-[4px] ${n.nivel === "mucho" ? "ring-2 ring-inset ring-brand-gold" : ""}`}
                     style={{ backgroundColor: n.color }}
                     aria-hidden
                   />
@@ -334,16 +315,16 @@ function ContenidoTurnos() {
             </ul>
 
             {/* Linea de detalle -- el dato exacto del cuadrito elegido. */}
-            <p className="min-h-6 rounded-lg bg-page/60 px-3 py-1.5 text-sm text-soft" aria-live="polite">
+            <p className="min-h-6 rounded-md bg-surface-2 px-3 py-2 text-sm text-soft" aria-live="polite">
               {celdaActiva && nivelDetalle ? (
                 <>
                   <span className="font-medium text-ink">
                     {DIAS_TITULO[celdaActiva.dia]} de {rangoHora(celdaActiva.hora)}
                   </span>
-                  {" · "}
+                  {": "}
                   {nivelDetalle === "nada"
-                    ? "no se registra trabajo"
-                    : `${ETIQUETA_NIVEL[nivelDetalle]}: en promedio ${documentos(detalle!.promedio)} por semana`}
+                    ? "no se registra trabajo."
+                    : `${ETIQUETA_NIVEL[nivelDetalle].toLowerCase()}, en promedio ${documentos(detalle!.promedio)} por semana.`}
                 </>
               ) : (
                 <span className="text-muted">Elige un cuadrito para ver cuánto trabajo hay.</span>
@@ -358,7 +339,7 @@ function ContenidoTurnos() {
               >
                 <span />
                 {horas.map((h) => (
-                  <span key={h} className="pb-1 text-center text-[11px] tabular-nums text-muted">
+                  <span key={h} className="pb-1 text-center text-xs tabular-nums text-muted">
                     {hora(h)}
                   </span>
                 ))}
@@ -379,8 +360,8 @@ function ContenidoTurnos() {
                           onMouseEnter={() => setCeldaActiva({ dia: d, hora: h })}
                           onFocus={() => setCeldaActiva({ dia: d, hora: h })}
                           onClick={() => setCeldaActiva({ dia: d, hora: h })}
-                          className={`h-9 cursor-pointer rounded-[4px] transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-gold ${
-                            nivel === "mucho" ? "ring-2 ring-inset ring-ink" : ""
+                          className={`h-9 cursor-pointer rounded-[4px] transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-gold ${
+                            nivel === "mucho" ? "ring-2 ring-inset ring-brand-gold" : ""
                           } ${activa ? "outline outline-2 outline-offset-1 outline-brand-gold" : ""}`}
                           style={{ backgroundColor: COLOR_NIVEL[nivel] }}
                         />
@@ -392,25 +373,25 @@ function ContenidoTurnos() {
             </div>
           </div>
         )}
-      </TarjetaConHeader>
+      </Panel>
 
       {/* 4. Lista accionable -- que hacer con todo lo anterior. */}
-      <TarjetaConHeader
+      <Panel
         titulo="Horarios para reforzar"
         subtitulo="Los momentos con mucho trabajo. Ahí conviene tener más gente disponible."
-        pildora={data ? `${bloques.length} ${bloques.length === 1 ? "horario" : "horarios"}` : undefined}
+        conteo={data ? `${bloques.length} ${bloques.length === 1 ? "horario" : "horarios"}` : undefined}
       >
         {cargando ? (
-          <div key="esqueleto-horarios" className="h-32 animate-pulse rounded-lg bg-surface-2/60" aria-busy />
+          <div key="esqueleto-horarios" className="h-32 animate-pulse rounded-md bg-surface-2" aria-busy />
         ) : bloques.length === 0 ? (
           <EstadoVacio titulo="No hay horarios que se destaquen en este período" />
         ) : (
           <div key="lista-horarios" className="flex flex-col gap-3">
-            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <ul className="flex flex-col divide-y divide-line rounded-md border border-line">
               {bloques.map((b) => (
                 <li
                   key={`${b.dia_indice}-${b.hora_inicio}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-line bg-page/50 px-4 py-3"
+                  className="flex min-h-11 items-center justify-between gap-3 px-4 py-3"
                 >
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium text-ink">
@@ -422,8 +403,8 @@ function ContenidoTurnos() {
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-col items-end">
-                    <span className="text-lg font-semibold tabular-nums text-ink">{b.personal_sugerido}</span>
-                    <span className="text-[11px] text-muted">
+                    <span className="cifra text-[28px] text-ink">{b.personal_sugerido}</span>
+                    <span className="text-xs text-muted">
                       {b.personal_sugerido === 1 ? "persona sugerida" : "personas sugeridas"}
                     </span>
                   </div>
@@ -437,11 +418,11 @@ function ContenidoTurnos() {
             </p>
           </div>
         )}
-      </TarjetaConHeader>
+      </Panel>
 
       {/* Explicacion del calculo, plegada para no estorbar. */}
-      <details className="group rounded-xl border border-line bg-surface px-4 py-3 text-sm text-muted sm:px-5">
-        <summary className="cursor-pointer list-none font-medium text-ink marker:hidden">
+      <details className="group rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted sm:px-5">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center font-medium text-ink marker:hidden">
           <span className="inline-block transition-transform duration-200 group-open:rotate-90">›</span> ¿Cómo se
           calcula?
         </summary>
@@ -468,7 +449,7 @@ function ContenidoTurnos() {
 function FraseResumen({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-3">
-      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3987e5]" aria-hidden />
+      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-sky" aria-hidden />
       <span>{children}</span>
     </li>
   );

@@ -1,33 +1,43 @@
 "use client";
 
 // Piezas de presentacion compartidas entre las pantallas del dashboard --
-// tema oscuro "Grafito cálido" con acento dorado (tokens definidos en globals.css:
-// surface, line, muted, brand-gold, ok, etc.). Sin logica de negocio: solo
-// reciben datos ya resueltos por cada pagina.
+// tema claro "papel de guía" (tokens definidos en globals.css: surface, line,
+// muted, brand-gold, ok, etc.). El dorado es solo relleno (accion primaria y
+// señales de atencion); el texto con sentido dorado usa gold-fg. Tipografia Archivo: .cifra para numeros grandes
+// y .titular para el titulo de pagina. Radios: contenedores rounded-lg,
+// controles rounded-md, pildoras rounded-full. Sin sombras. Sin logica de
+// negocio: solo reciben datos ya resueltos por cada pagina.
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-// Indicador KPI -- barra fina de color arriba, rotulo en mayusculas chicas,
-// valor grande tabular y detalle. Mismas props que antes.
+// Indicador KPI -- celda con rotulo en minusculas, cifra grande condensada
+// (.cifra) y detalle, sin barra de color. Mismas props que antes; `acento` se
+// acepta por compatibilidad pero ya no se pinta (el color no es la unica pista).
 export function Indicador({
   etiqueta,
   valor,
   unidad,
   detalle,
-  acento,
   cargando,
+  plano = false,
 }: {
   etiqueta: string;
   valor: string;
   unidad?: string;
   detalle?: string;
-  acento: string;
+  acento?: string;
   cargando: boolean;
+  // plano: sin borde ni radio propios, para colgar de un tablero con reglas
+  // (contenedor con `gap-px bg-line`).
+  plano?: boolean;
 }) {
   return (
-    <div className="relative flex flex-col gap-1.5 overflow-hidden rounded-xl border border-line bg-surface p-4 pt-5 transition-colors duration-150 hover:border-line-strong">
-      <span className="absolute inset-x-0 top-0 h-[3px]" style={{ backgroundColor: acento }} aria-hidden />
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">{etiqueta}</span>
+    <div
+      className={`flex flex-col gap-1.5 bg-surface p-4 ${
+        plano ? "" : "rounded-lg border border-line transition-colors duration-150 hover:border-line-strong"
+      }`}
+    >
+      <span className="text-sm font-medium text-muted">{etiqueta}</span>
       {cargando ? (
         <div className="flex flex-col gap-2 pt-1">
           <div className="h-7 w-24 animate-pulse rounded bg-surface-2" />
@@ -36,7 +46,7 @@ export function Indicador({
       ) : (
         <>
           <p className="flex items-baseline gap-1.5">
-            <span className="text-4xl font-semibold leading-none tabular-nums tracking-tight text-ink">{valor}</span>
+            <span className="cifra text-[44px] text-ink">{valor}</span>
             {unidad ? <span className="text-xs text-muted">{unidad}</span> : null}
           </p>
           <p className="truncate text-xs text-muted" title={detalle}>
@@ -58,11 +68,11 @@ export function ErrorConReintento({
   onReintentar: () => void;
 }) {
   return (
-    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger-fg">
       <span>{mensaje}</span>
       <button
         onClick={onReintentar}
-        className="min-h-10 cursor-pointer rounded-md border border-red-400/40 px-3 py-1 text-xs font-medium text-red-200 transition-colors duration-150 hover:bg-red-500/20"
+        className="min-h-11 cursor-pointer rounded-md border border-danger/40 px-3 py-1 text-xs font-medium text-danger-fg transition-colors duration-150 hover:bg-danger/15"
       >
         Reintentar
       </button>
@@ -86,46 +96,84 @@ export function SkeletonLinea({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded bg-surface-2 ${className}`} />;
 }
 
-// Cascaron de tarjeta -- header con titulo (+ punto de color opcional),
-// subtitulo y pildora de conteo, mas el contenido libre abajo. Mismo patron
-// que las tarjetas de ranking/page.tsx (Más vendidos / Menos vendidos).
-export function TarjetaConHeader({
+// Panel con reglas -- una sola superficie con encabezado separado por una
+// linea (en vez de una tarjeta suelta por bloque). El contenido va debajo,
+// sin relleno propio salvo `conRelleno`, para que tablas y listas lleguen al
+// borde. `id` permite enlazarlo desde una navegacion interna.
+export function Panel({
+  id,
   titulo,
   subtitulo,
-  colorTitulo,
-  pildora,
+  conteo,
+  acciones,
+  conRelleno = true,
   children,
   className = "",
 }: {
+  id?: string;
   titulo: ReactNode;
-  subtitulo?: string;
-  colorTitulo?: string;
-  pildora?: string;
+  subtitulo?: ReactNode;
+  conteo?: string;
+  acciones?: ReactNode;
+  conRelleno?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section
-      className={`flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 sm:p-5 ${className}`}
+      id={id}
+      aria-labelledby={id ? `${id}-titulo` : undefined}
+      className={`scroll-mt-20 overflow-hidden rounded-lg border border-line bg-surface ${className}`}
     >
-      <header className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-soft">
-            {colorTitulo ? (
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colorTitulo }} aria-hidden />
-            ) : null}
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h2 id={id ? `${id}-titulo` : undefined} className="text-base font-semibold text-ink">
             {titulo}
+            {conteo ? <span className="ml-2 text-sm font-normal tabular-nums text-muted">{conteo}</span> : null}
           </h2>
           {subtitulo ? <p className="text-xs text-muted">{subtitulo}</p> : null}
         </div>
-        {pildora ? (
-          <span className="rounded-full border border-line px-2 py-0.5 text-[11px] tabular-nums text-muted">
-            {pildora}
-          </span>
-        ) : null}
+        {acciones ? <div className="flex flex-wrap items-center gap-2">{acciones}</div> : null}
       </header>
-      {children}
+      <div className={conRelleno ? "p-4 sm:p-5" : ""}>{children}</div>
     </section>
+  );
+}
+
+// Control segmentado -- grupo de botones con aria-pressed para elegir una
+// opcion entre pocas (periodo, semana, sede). Las opciones con `deshabilitada`
+// no se pueden elegir. Cada segmento mide al menos 44px de alto.
+export function Segmentado<T extends string>({
+  etiqueta,
+  opciones,
+  valor,
+  onCambiar,
+}: {
+  etiqueta: string;
+  opciones: ReadonlyArray<{ valor: T; etiqueta: string; deshabilitada?: boolean }>;
+  valor: T | null;
+  onCambiar: (valor: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={etiqueta} className="inline-flex flex-wrap gap-1 rounded-md border border-line-strong bg-surface-2 p-1">
+      {opciones.map((opcion) => {
+        const activa = opcion.valor === valor;
+        return (
+          <button
+            key={opcion.valor}
+            type="button"
+            onClick={() => onCambiar(opcion.valor)}
+            aria-pressed={activa}
+            disabled={opcion.deshabilitada}
+            className={`min-h-9 rounded px-3 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+              activa ? "bg-brand-blue text-white" : "text-soft hover:bg-surface hover:text-ink"
+            }`}
+          >
+            {opcion.etiqueta}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -139,12 +187,12 @@ export type VarianteBoton = "primario" | "secundario" | "fantasma" | "peligro";
 // tambien a <Link> o <a> sin envolver en <button>.
 export function claseBoton(variante: VarianteBoton = "secundario", extra = ""): string {
   const base =
-    "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50";
   const variantes: Record<VarianteBoton, string> = {
     primario: "bg-brand-gold text-brand-ink hover:bg-gold-hover font-semibold",
-    secundario: "border border-line-strong bg-surface-2 text-soft hover:border-muted hover:text-ink",
+    secundario: "border border-line-strong bg-surface-2 text-ink hover:bg-line",
     fantasma: "text-muted hover:bg-surface-2 hover:text-ink",
-    peligro: "bg-danger-solid text-white font-semibold hover:bg-red-700",
+    peligro: "bg-danger-solid text-white font-semibold hover:brightness-90",
   };
   return `${base} ${variantes[variante]} ${extra}`.trim();
 }
@@ -161,8 +209,8 @@ export function Boton({
 export type TonoPildora = "ok" | "warn" | "error" | "info" | "neutro";
 
 const TONOS_PILDORA: Record<TonoPildora, string> = {
-  ok: "border-ok/50 bg-ok/15 text-ok-fg",
-  warn: "border-warn/40 bg-warn/10 text-warn",
+  ok: "border-ok-fg/40 bg-ok-fg/10 text-ok-fg",
+  warn: "border-warn/40 bg-warn-fill/20 text-warn",
   error: "border-danger/40 bg-danger/10 text-danger-fg",
   info: "border-info/40 bg-info/10 text-info",
   neutro: "border-line-strong bg-surface-2 text-soft",
@@ -181,15 +229,16 @@ export function Pildora({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${TONOS_PILDORA[tono]} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${TONOS_PILDORA[tono]} ${className}`}
     >
       {children}
     </span>
   );
 }
 
-// Encabezado de pagina: sobretitulo + titulo + descripcion, con una zona de
-// acciones opcional a la derecha.
+// Encabezado de pagina: sobretitulo (texto chico en minusculas, sin dorado) +
+// titulo (.titular a 28px) + descripcion, con una zona de acciones opcional a
+// la derecha.
 export function EncabezadoPagina({
   sobretitulo,
   titulo,
@@ -205,9 +254,9 @@ export function EncabezadoPagina({
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-5">
       <div className="flex min-w-0 max-w-2xl flex-col gap-1">
         {sobretitulo ? (
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-gold">{sobretitulo}</p>
+          <p className="text-sm text-muted">{sobretitulo}</p>
         ) : null}
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{titulo}</h1>
+        <h1 className="titular text-[28px] leading-tight text-ink">{titulo}</h1>
         {descripcion ? <p className="text-sm leading-relaxed text-muted">{descripcion}</p> : null}
       </div>
       {acciones ? <div className="flex flex-wrap items-center gap-2">{acciones}</div> : null}
@@ -230,6 +279,15 @@ const RUTAS_ICONO = {
   descarga: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
   izquierda: "m12 19-7-7 7-7M19 12H5",
   derecha: "M5 12h14M12 5l7 7-7 7",
+  factura:
+    "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8",
+  camion:
+    "M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14M17 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM9 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+  remision:
+    "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1ZM12 11h4M12 16h4M8 11h.01M8 16h.01",
+  revisar:
+    "M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
+  devolucion: "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11",
   usuarioAdmin:
     "M5 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0M10 15H6a4 4 0 0 0-4 4v2M15 15a3 3 0 1 0 6 0a3 3 0 1 0-6 0M21.7 16.4l-.9-.3M15.2 13.9l-.9-.3M16.6 18.7l.3-.9M19.1 12.2l.3-.9M19.6 18.7l-.4-1M16.8 12.3l-.4-1M14.3 16.6l1-.4M20.7 13.8l1-.4",
 } as const;

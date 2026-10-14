@@ -6,18 +6,18 @@
 // lectura, sin edicion.
 //
 // Forma: ranking de magnitudes -> barras horizontales ordenadas, una serie
-// (un color) por tarjeta, valor escrito al lado de cada barra (el dato nunca
+// (un color) por columna, valor escrito al lado de cada barra (el dato nunca
 // depende solo del color). Colores validados con el validador de la skill
-// dataviz sobre la superficie oscura del panel: esmeralda #059669 y cielo
-// #0284c7 (banda de luminosidad oscura, contraste >= 3:1, separacion CVD).
+// dataviz sobre la superficie clara del panel: verde de marca (ok, 4.1:1 sobre
+// blanco) y azul cielo de marca (6.8:1); ambos >= 3:1 como elemento grafico.
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { fetchRankingProductos, fetchSedes, type RankingProductoItem } from "@/lib/api";
-import { EncabezadoPagina, Indicador } from "@/components/ui";
+import { EncabezadoPagina, ErrorConReintento, Indicador, Segmentado } from "@/components/ui";
 
-const COLOR_MAS = "#059669";
-const COLOR_MENOS = "#0284c7";
+const COLOR_MAS = "var(--color-ok)";
+const COLOR_MENOS = "var(--color-brand-sky)";
 
 function fechaISO(fecha: Date): string {
   const anio = fecha.getFullYear();
@@ -131,137 +131,126 @@ export default function RankingPage() {
   const menosMovido = menosVendidos[0];
 
   return (
-    <main className="mx-auto flex w-full flex-1 max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
       <EncabezadoPagina
-        sobretitulo="Control logístico · analítica"
         titulo="Ranking de productos"
-        descripcion="Más y menos vendidos en el período elegido, según lo confirmado en las entregas."
+        descripcion="Mira qué productos salieron más y cuáles menos en el período que elijas, según lo confirmado en las entregas."
       />
 
       {/* Filtros en una sola fila arriba de los datos. */}
-      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-page p-1">
-            {(
-              [
-                { valor: "hoy", etiqueta: "Hoy" },
-                { valor: "semana", etiqueta: "Últimos 7 días" },
-                { valor: "mes", etiqueta: "Últimos 30 días" },
-              ] as const
-            ).map((opcion) => (
-              <button
-                key={opcion.valor}
-                onClick={() => elegirPeriodo(opcion.valor)}
-                aria-pressed={periodo === opcion.valor}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  periodo === opcion.valor
-                    ? "bg-brand-gold text-brand-ink"
-                    : "text-muted hover:bg-surface-2 hover:text-ink"
-                }`}
-              >
-                {opcion.etiqueta}
-              </button>
-            ))}
+      <section aria-label="Filtros" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <Segmentado
+            etiqueta="Período"
+            valor={periodo === "custom" ? null : periodo}
+            onCambiar={elegirPeriodo}
+            opciones={[
+              { valor: "hoy", etiqueta: "Hoy" },
+              { valor: "semana", etiqueta: "Últimos 7 días" },
+              { valor: "mes", etiqueta: "Últimos 30 días" },
+            ]}
+          />
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="ranking-desde" className="text-xs font-medium text-muted">
+              Desde
+            </label>
+            <input
+              id="ranking-desde"
+              type="date"
+              value={desde}
+              onChange={(e) => cambiarDesde(e.target.value)}
+              max={hasta || undefined}
+              className="min-h-11 rounded-md border border-line-strong bg-surface px-2 text-sm text-ink"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="ranking-hasta" className="text-xs font-medium text-muted">
+              Hasta
+            </label>
+            <input
+              id="ranking-hasta"
+              type="date"
+              value={hasta}
+              onChange={(e) => cambiarHasta(e.target.value)}
+              min={desde || undefined}
+              className="min-h-11 rounded-md border border-line-strong bg-surface px-2 text-sm text-ink"
+            />
           </div>
 
-          <div className="flex flex-wrap items-center gap-1 rounded-lg border border-line bg-page px-2 py-1">
-            <label className="flex flex-col items-start">
-              <span className="text-[10px] leading-none text-muted">Desde</span>
-              <input
-                type="date"
-                value={desde}
-                onChange={(e) => cambiarDesde(e.target.value)}
-                max={hasta || undefined}
-                className="rounded bg-transparent px-1 py-1 text-xs text-ink [color-scheme:dark]"
-              />
+          <div className="flex flex-col gap-1">
+            <label htmlFor="ranking-sede" className="text-xs font-medium text-muted">
+              Sede
             </label>
-            <span className="px-1 text-xs text-subtle">–</span>
-            <label className="flex flex-col items-start">
-              <span className="text-[10px] leading-none text-muted">Hasta</span>
-              <input
-                type="date"
-                value={hasta}
-                onChange={(e) => cambiarHasta(e.target.value)}
-                min={desde || undefined}
-                className="rounded bg-transparent px-1 py-1 text-xs text-ink [color-scheme:dark]"
-              />
-            </label>
+            <select
+              id="ranking-sede"
+              value={sedeId}
+              onChange={(e) => setSedeId(e.target.value)}
+              className="min-h-11 rounded-md border border-line-strong bg-surface px-3 text-sm text-ink"
+            >
+              <option value="todas">Todas las sedes</option>
+              {(sedes ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </select>
           </div>
-
-          <select
-            value={sedeId}
-            onChange={(e) => setSedeId(e.target.value)}
-            className="rounded-lg border border-line bg-page px-3 py-2 text-xs text-ink"
-          >
-            <option value="todas">Todas las sedes</option>
-            {(sedes ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
         </div>
-        <p className="text-xs text-muted">
-          Mostrando <span className="font-medium text-soft">{textoRango}</span> ·{" "}
+        <p className="text-sm text-muted" aria-live="polite">
+          Mostrando <span className="font-medium text-soft">{textoRango}</span> en{" "}
           <span className="font-medium text-soft">{nombreSede}</span>
           {isLoading && ranking ? <span className="ml-2 text-subtle">actualizando…</span> : null}
         </p>
       </section>
 
-      {error ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          <span>No se pudo cargar el ranking. Revisa la conexión con el servidor.</span>
-          <button
-            onClick={() => mutate()}
-            className="rounded-md border border-red-400/40 px-3 py-1 text-xs font-medium text-red-200 hover:bg-red-500/20"
-          >
-            Reintentar
-          </button>
-        </div>
-      ) : null}
+      {error ? <ErrorConReintento mensaje="No se pudo cargar el ranking. Revisa la conexión con el servidor." onReintentar={() => mutate()} /> : null}
 
-      {/* Indicadores de cabecera -- el dato suelto no necesita grafico. */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Indicador
-          etiqueta="Producto más vendido"
-          valor={lider ? formatoNumero.format(lider.cantidad_total) : "—"}
-          unidad={lider ? "unidades" : undefined}
-          detalle={lider?.nombre ?? "Sin datos en este período"}
-          acento={COLOR_MAS}
-          cargando={isLoading && !ranking}
-        />
-        <Indicador
-          etiqueta={`Unidades en el top ${masVendidos.length || 15}`}
-          valor={masVendidos.length ? formatoNumero.format(unidadesTop) : "—"}
-          unidad={masVendidos.length ? "unidades" : undefined}
-          detalle={
-            masVendidos.length
-              ? `${masVendidos.length} ${masVendidos.length === 1 ? "producto" : "productos"} con más salida`
-              : "Sin datos en este período"
-          }
-          acento={COLOR_MAS}
-          cargando={isLoading && !ranking}
-        />
-        <Indicador
-          etiqueta="Producto con menos salida"
-          valor={menosMovido ? formatoNumero.format(menosMovido.cantidad_total) : "—"}
-          unidad={menosMovido ? "unidades" : undefined}
-          detalle={menosMovido?.nombre ?? "Sin datos en este período"}
-          acento={COLOR_MENOS}
-          cargando={isLoading && !ranking}
-        />
+      {/* Indicadores de cabecera en un solo tablero con reglas -- el dato suelto
+          no necesita grafico. */}
+      <section aria-label="Resumen" className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
+          <Indicador
+            plano
+            etiqueta="Producto más vendido"
+            valor={lider ? formatoNumero.format(lider.cantidad_total) : "—"}
+            unidad={lider ? "unidades" : undefined}
+            detalle={lider?.nombre ?? "Sin datos en este período"}
+            cargando={isLoading && !ranking}
+          />
+          <Indicador
+            plano
+            etiqueta={`Unidades en el top ${masVendidos.length || 15}`}
+            valor={masVendidos.length ? formatoNumero.format(unidadesTop) : "—"}
+            unidad={masVendidos.length ? "unidades" : undefined}
+            detalle={
+              masVendidos.length
+                ? `${masVendidos.length} ${masVendidos.length === 1 ? "producto" : "productos"} con más salida`
+                : "Sin datos en este período"
+            }
+            cargando={isLoading && !ranking}
+          />
+          <Indicador
+            plano
+            etiqueta="Producto con menos salida"
+            valor={menosMovido ? formatoNumero.format(menosMovido.cantidad_total) : "—"}
+            unidad={menosMovido ? "unidades" : undefined}
+            detalle={menosMovido?.nombre ?? "Sin datos en este período"}
+            cargando={isLoading && !ranking}
+          />
+        </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <RankingCard
+      {/* Dos columnas separadas por una regla dentro de una sola superficie. */}
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-line bg-line lg:grid-cols-2">
+        <ColumnaRanking
           titulo="Más vendidos"
           subtitulo="Ordenados por unidades entregadas"
           items={ranking?.mas_vendidos}
           cargando={isLoading && !ranking}
           color={COLOR_MAS}
-          podio
         />
-        <RankingCard
+        <ColumnaRanking
           titulo="Menos vendidos"
           subtitulo="Productos con menor salida en el período"
           items={ranking?.menos_vendidos}
@@ -273,38 +262,36 @@ export default function RankingPage() {
   );
 }
 
-function RankingCard({
+function ColumnaRanking({
   titulo,
   subtitulo,
   items,
   cargando,
   color,
-  podio = false,
 }: {
   titulo: string;
   subtitulo: string;
   items: RankingProductoItem[] | undefined;
   cargando: boolean;
   color: string;
-  podio?: boolean;
 }) {
-  // Escala propia de cada tarjeta: la barra mas larga es el mayor valor de
+  // Escala propia de cada columna: la barra mas larga es el mayor valor de
   // ESTA lista (en "menos vendidos" los valores son chicos y con la escala de
   // "mas vendidos" las barras serian invisibles).
   const maximo = Math.max(1, ...(items ?? []).map((item) => item.cantidad_total));
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 sm:p-5">
+    <section className="flex flex-col gap-4 bg-surface p-4 sm:p-5">
       <header className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
             <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} aria-hidden />
             {titulo}
           </h2>
           <p className="text-xs text-muted">{subtitulo}</p>
         </div>
         {items && items.length > 0 ? (
-          <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">
+          <span className="text-xs tabular-nums text-muted">
             {items.length} {items.length === 1 ? "producto" : "productos"}
           </span>
         ) : null}
@@ -325,42 +312,34 @@ function RankingCard({
           <p className="text-xs text-subtle">Prueba con un rango de fechas más amplio u otra sede.</p>
         </div>
       ) : (
-        <ol className="flex flex-col gap-1">
+        <ol className="flex flex-col divide-y divide-line">
           {items.map((item, indice) => {
             const ancho = Math.max(2, (item.cantidad_total / maximo) * 100);
             const puesto = indice + 1;
-            const esPodio = podio && puesto <= 3;
             return (
               <li
                 key={item.codigo ?? item.nombre}
                 title={`${item.nombre}: ${formatoNumero.format(item.cantidad_total)} unidades en ${item.entregas_count} ${
                   item.entregas_count === 1 ? "entrega" : "entregas"
                 }`}
-                className="group flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-surface-2/60"
+                className="flex min-h-11 items-center gap-3 py-2.5"
               >
-                <span
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ${
-                    esPodio ? "bg-brand-gold text-brand-ink" : "text-muted"
-                  }`}
-                >
-                  {puesto}
-                </span>
+                {/* El puesto es una secuencia real: va en cifra apagada. */}
+                <span className="cifra w-7 shrink-0 text-right text-[20px] text-muted">{puesto}</span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="truncate text-sm text-ink">{item.nombre}</span>
-                    <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">
-                      {formatoNumero.format(item.cantidad_total)}
-                    </span>
+                    <span className="cifra shrink-0 text-[20px] text-ink">{formatoNumero.format(item.cantidad_total)}</span>
                   </div>
                   {/* Barra: pista tenue + relleno con extremos redondeados. */}
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2/80">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
                     <div
                       className="h-full rounded-full transition-[width] duration-500"
                       style={{ width: `${ancho}%`, backgroundColor: color }}
                     />
                   </div>
-                  <div className="flex justify-between gap-3 text-[11px] text-muted">
-                    <span className="font-mono">{item.codigo ?? "sin código"}</span>
+                  <div className="flex justify-between gap-3 text-xs text-muted">
+                    <span className="tabular-nums">{item.codigo ?? "sin código"}</span>
                     <span>
                       {item.entregas_count} {item.entregas_count === 1 ? "entrega" : "entregas"}
                     </span>
