@@ -16,8 +16,10 @@ from app.models.usuario_dashboard import (
     UsuarioDashboardActualizar,
     UsuarioDashboardCrear,
 )
+from app.services import borrado_admin
 from app.services import usuarios_dashboard as servicio
 from app.services.permisos_dashboard import requiere_rol, usuario_dashboard
+from app.services.usuarios import RegistroNoEncontrado
 
 router = APIRouter(tags=["dashboard-auth"])
 
@@ -77,6 +79,21 @@ async def actualizar_usuario(
         raise HTTPException(status_code=404, detail="Usuario no encontrado") from exc
     except servicio.ReglaAdmin as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/dashboard/usuarios/{usuario_id}")
+async def eliminar_usuario(usuario_id: UUID, admin: dict = Depends(requiere_rol("admin"))) -> dict:
+    """Borra el usuario solo si nunca se uso; con historial responde 409 (se
+    desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_usuario_dashboard(admin, str(usuario_id))
+    except servicio.UsuarioNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado") from exc
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado") from exc
+    except (borrado_admin.TieneHistorial, borrado_admin.ReglaBorrado) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/dashboard/usuarios/{usuario_id}/password")

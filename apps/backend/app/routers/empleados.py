@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.db import get_pool
 from app.models.empleado import EmpleadoActualizar, EmpleadoCreate, PinNuevo
+from app.services import borrado_admin
 from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.usuarios import (
     DatoInvalido,
@@ -72,6 +73,19 @@ async def actualizar_empleado(empleado_id: UUID, payload: EmpleadoActualizar) ->
         raise HTTPException(status_code=404, detail="Empleado no encontrado") from exc
     except DatoInvalido as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/{empleado_id}", dependencies=[Depends(requiere_admin)])
+async def eliminar_empleado(empleado_id: UUID) -> dict:
+    """Borra el empleado solo si nunca se uso; con historial responde 409 (se
+    desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_empleado(str(empleado_id))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado") from exc
+    except borrado_admin.TieneHistorial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/{empleado_id}/pin", dependencies=[Depends(requiere_admin)])

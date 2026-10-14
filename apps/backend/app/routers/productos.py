@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import get_pool
 from app.models.producto import ProductoActualizar, ProductoCreate
+from app.services import productos as servicio_productos
 from app.services.permisos_dashboard import requiere_supervisor_area
+from app.services.usuarios import RegistroNoEncontrado
 
 router = APIRouter(prefix="/productos", tags=["productos"])
 
@@ -74,3 +76,14 @@ async def actualizar_producto(producto_id: str, cambios: ProductoActualizar) -> 
     if row is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
     return _con_id(row)
+
+
+@router.delete("/{producto_id}", dependencies=[Depends(requiere_supervisor_area("todo", "bodega"))])
+async def eliminar_producto(producto_id: str) -> dict:
+    """Quita el producto del catalogo (sin historial que proteger: no hay FKs).
+    Si una entrega futura trae el mismo codigo, se vuelve a crear solo."""
+    try:
+        await servicio_productos.eliminar_producto(producto_id)
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.") from exc
+    return {"ok": True}

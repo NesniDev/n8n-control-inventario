@@ -7,6 +7,7 @@ borra: un tipo se desactiva y deja de aparecer en el prompt.
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.models.tipo_documento import TipoDocumentoActualizar, TipoDocumentoCrear, normalizar_codigo
+from app.services import borrado_admin
 from app.services import tipos_documento as servicio
 from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.usuarios import DatoInvalido, RegistroNoEncontrado
@@ -41,3 +42,18 @@ async def actualizar_tipo_documento(codigo: str, payload: TipoDocumentoActualiza
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RegistroNoEncontrado as exc:
         raise HTTPException(status_code=404, detail="Tipo de documento no encontrado") from exc
+
+
+@router.delete("/{codigo}", dependencies=[Depends(requiere_admin)])
+async def eliminar_tipo_documento(codigo: str) -> dict:
+    """Borra el tipo solo si ningun documento lo uso; con historial responde
+    409 (se desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_tipo_documento(normalizar_codigo(codigo))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Tipo de documento no encontrado") from exc
+    except borrado_admin.TieneHistorial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}

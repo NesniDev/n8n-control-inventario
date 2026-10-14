@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.db import get_pool
 from app.models.sede import SedeActualizar, SedeCreate
+from app.services import borrado_admin
 from app.services.permisos_dashboard import autorizar_admin, requiere_admin
 from app.services.usuarios import DatoInvalido, RegistroNoEncontrado, actualizar_fila, crear_fila, serializar
 
@@ -47,3 +48,16 @@ async def actualizar_sede(sede_id: UUID, payload: SedeActualizar) -> dict:
         raise HTTPException(status_code=404, detail="Sede no encontrada") from exc
     except DatoInvalido as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/{sede_id}", dependencies=[Depends(requiere_admin)])
+async def eliminar_sede(sede_id: UUID) -> dict:
+    """Borra la sede solo si nunca se uso; con historial responde 409 (se
+    desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_sede(str(sede_id))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Sede no encontrada") from exc
+    except borrado_admin.TieneHistorial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}

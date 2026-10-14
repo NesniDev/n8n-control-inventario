@@ -25,6 +25,7 @@ from app.models.traslado_punto import (
     TrasladoPuntoCrear,
     normalizar_numero_syscafe,
 )
+from app.services import borrado_admin
 from app.services.permisos_dashboard import ActorDashboard, autorizar_admin, requiere_admin, requiere_supervisor_area
 from app.services.auth_pin import generar_sal, hashear_pin, verificar_pin
 from app.services.talonarios import (
@@ -169,6 +170,19 @@ async def actualizar_usuario_punto(usuario_id: UUID, payload: UsuarioPuntoActual
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.delete("/puntos/usuarios/{usuario_id}", dependencies=[Depends(requiere_admin)])
+async def eliminar_usuario_punto(usuario_id: UUID) -> dict:
+    """Borra el usuario de punto solo si nunca se uso; con historial responde 409 (se
+    desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_usuario_punto(str(usuario_id))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Usuario de punto no encontrado") from exc
+    except borrado_admin.TieneHistorial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}
+
+
 @router.post("/puntos/usuarios/{usuario_id}/pin", dependencies=[Depends(requiere_admin)])
 async def resetear_pin_usuario_punto(usuario_id: UUID, payload: PinNuevo) -> dict:
     try:
@@ -186,6 +200,19 @@ async def actualizar_punto(punto_id: UUID, payload: PuntoActualizar) -> dict:
         raise HTTPException(status_code=404, detail="Punto no encontrado") from exc
     except DatoInvalido as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/puntos/{punto_id}", dependencies=[Depends(requiere_admin)])
+async def eliminar_punto(punto_id: UUID) -> dict:
+    """Borra el punto solo si nunca se uso; con historial responde 409 (se
+    desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_punto(str(punto_id))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Punto no encontrado") from exc
+    except borrado_admin.TieneHistorial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/puntos/auth/pin")
@@ -262,6 +289,19 @@ async def actualizar_supervisor(supervisor_id: UUID, payload: SupervisorActualiz
         raise HTTPException(status_code=404, detail="Supervisor no encontrado") from exc
     except DatoInvalido as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/supervisores/{supervisor_id}", dependencies=[Depends(requiere_admin)])
+async def eliminar_supervisor(supervisor_id: UUID) -> dict:
+    """Borra el supervisor solo si nunca se uso; con historial responde 409 (se
+    desactiva en su lugar). Ver app/services/borrado_admin.py."""
+    try:
+        await borrado_admin.eliminar_supervisor(str(supervisor_id))
+    except RegistroNoEncontrado as exc:
+        raise HTTPException(status_code=404, detail="Supervisor no encontrado") from exc
+    except borrado_admin.TieneHistorial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/supervisores/{supervisor_id}/pin", dependencies=[Depends(requiere_admin)])

@@ -2,6 +2,9 @@ import re
 
 import asyncpg
 
+from app.db import get_pool
+from app.services.usuarios import RegistroNoEncontrado, registrar_cambio
+
 # Las descripciones de item vienen tal como las lee la IA de vision del
 # documento (columna DETALLE) -- por convencion del negocio suelen arrancar
 # con el codigo interno del producto seguido del nombre (ej.
@@ -40,3 +43,17 @@ async def sincronizar_producto(conn: asyncpg.Connection, descripcion: str) -> No
         codigo,
         nombre,
     )
+
+
+async def eliminar_producto(producto_id: str) -> None:
+    """Borra un producto del catalogo. No hay FKs hacia `productos` (entrega_items
+    guarda la descripcion tal cual), asi que el historial no se afecta. OJO: el
+    catalogo se autocompleta (`sincronizar_producto`), por lo que si una entrega
+    futura trae el mismo codigo el producto se vuelve a crear solo. Deja el
+    evento `admin_cambio` ("eliminado") con codigo y nombre; `logs` no se toca.
+    """
+    pool = await get_pool()
+    fila = await pool.fetchrow("delete from productos where id = $1::uuid returning codigo, nombre", producto_id)
+    if fila is None:
+        raise RegistroNoEncontrado()
+    await registrar_cambio("productos", producto_id, "eliminado", {"codigo": fila["codigo"], "nombre": fila["nombre"]})

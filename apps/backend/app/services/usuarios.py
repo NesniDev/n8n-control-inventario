@@ -46,6 +46,7 @@ _ENTIDAD_LOG = {
     "usuarios_punto": "usuario_punto",
     "supervisores": "supervisor",
     "tipos_documento": "tipo_documento",
+    "productos": "producto",
 }
 
 _CAMPOS_UUID = ("id", "punto_id")
