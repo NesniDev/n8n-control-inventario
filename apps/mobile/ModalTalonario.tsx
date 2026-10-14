@@ -28,13 +28,20 @@ const HOJAS = 50;
 // Empresas con talonario propio: cada una usa siempre la misma letra, asi el
 // operador elige la empresa y no teclea el prefijo.
 export const EMPRESAS_TALONARIO = [
-  { letra: 'A', nombre: 'Comercializadora El Imperio' },
-  { letra: 'V', nombre: 'Agroveterinaria La Rebaja' },
+  { letra: 'A', nombre: 'Comercializadora El Imperio', corto: 'El Imperio' },
+  { letra: 'V', nombre: 'Agroveterinaria La Rebaja', corto: 'La Rebaja' },
 ] as const;
 
 /** Nombre de la empresa de un talonario por su letra, o null si la letra no es de ninguna. */
 export function empresaTalonario(letra: string): string | null {
   return EMPRESAS_TALONARIO.find((e) => e.letra === letra)?.nombre ?? null;
+}
+
+/** Letra de la hoja de un traslado ("V 120" -> "V"); null en los traslados
+ *  anteriores al talonario por punto (sin talonario_id). */
+export function letraTraslado(t: { numero_talonario?: string | null; talonario_id?: string | null }): string | null {
+  if (!t.numero_talonario || !t.talonario_id) return null;
+  return /^\s*([A-Za-z]{1,3})/.exec(t.numero_talonario)?.[1].toUpperCase() ?? null;
 }
 
 /** "A 6301–6350" -- rango corto para la tarjeta de inicio. */
@@ -77,13 +84,21 @@ export function ModalConfigurarTalonario({
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Empresas que se ofrecen: al cambiar, solo la del talonario elegido; al
+  // agregar, solo las que todavia no tienen talonario activo en el punto.
+  const opciones = letraInicial
+    ? EMPRESAS_TALONARIO.filter((e) => e.letra === letraInicial)
+    : EMPRESAS_TALONARIO.filter((e) => !talonarios.some((t) => t.letra === e.letra));
+
   useEffect(() => {
     if (visible) {
-      setLetra(letraInicial ?? '');
+      // Con una sola opcion se deja elegida de una vez.
+      setLetra(letraInicial ?? (opciones.length === 1 ? opciones[0].letra : ''));
       setNumero('');
       setMotivo('');
       setError(null);
     }
+    // opciones se deriva de talonarios/letraInicial; basta con reiniciar al abrir.
   }, [visible, letraInicial]);
 
   const actual = talonarios.find((t) => t.letra === letra) ?? null;
@@ -121,7 +136,7 @@ export function ModalConfigurarTalonario({
     >
       <Campo etiqueta="Empresa">
         <View style={styles.chipsEnvoltorio}>
-          {EMPRESAS_TALONARIO.map((empresa) => {
+          {opciones.map((empresa) => {
             const activa = empresa.letra === letra;
             return (
               <Pressable

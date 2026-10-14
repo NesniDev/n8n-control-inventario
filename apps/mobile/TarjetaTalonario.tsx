@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { fetchTalonariosPunto, type TalonarioPunto } from './api';
-import { empresaTalonario, ModalAnularHoja, ModalConfigurarTalonario, rangoCorto } from './ModalTalonario';
+import { EMPRESAS_TALONARIO, empresaTalonario, ModalAnularHoja, ModalConfigurarTalonario, rangoCorto } from './ModalTalonario';
 import { FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, TEXTO_PRIMARIO } from './tema';
 import { MARCA } from './vidrio';
 
@@ -186,16 +186,19 @@ export default function TarjetaTalonario({
           );
         })}
 
-        {/* Otro talonario en paralelo (p. ej. el de veterinaria "V"). */}
-        <Pressable
-          onPress={() => setConfigurando('')}
-          accessibilityRole="button"
-          accessibilityLabel="Agregar talonario"
-          style={({ pressed }) => [estilos.agregar, pressed && estilos.presionado]}
-        >
-          <Ionicons name="add-circle-outline" size={16} color={MARCA.oro} />
-          <Text style={estilos.agregarTexto}>Agregar talonario</Text>
-        </Pressable>
+        {/* Otro talonario en paralelo (p. ej. el de veterinaria "V"); se
+            oculta cuando todas las empresas ya tienen el suyo. */}
+        {EMPRESAS_TALONARIO.some((e) => !talonarios.some((t) => t.letra === e.letra)) ? (
+          <Pressable
+            onPress={() => setConfigurando('')}
+            accessibilityRole="button"
+            accessibilityLabel="Agregar talonario"
+            style={({ pressed }) => [estilos.agregar, pressed && estilos.presionado]}
+          >
+            <Ionicons name="add-circle-outline" size={16} color={MARCA.oro} />
+            <Text style={estilos.agregarTexto}>Agregar talonario</Text>
+          </Pressable>
+        ) : null}
       </View>
       {modales}
     </>

@@ -22,6 +22,7 @@ import {
   type Traslado,
 } from './api';
 import { mensajeError } from './errorMessages';
+import { EMPRESAS_TALONARIO, letraTraslado } from './ModalTalonario';
 import { ESTADO_TRASLADO } from './PantallaTrasladoDetalle';
 import { HeaderTraslado, useTraslado } from './TrasladoContext';
 import { formatearFechaLarga, haceCuanto } from './SelectorFecha';
@@ -180,6 +181,9 @@ export default function PantallaTrasladoInicio() {
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pestana, setPestana] = useState<Pestana>('enviados');
+  // Letra de la empresa del talonario ("A", "V") para ver solo sus traslados;
+  // '' = todas. Aplica a Enviados y a Recibidos.
+  const [empresa, setEmpresa] = useState('');
 
   const yaCargado = useRef(false);
   const cargar = useCallback(async (forzar = false) => {
@@ -249,7 +253,10 @@ export default function PantallaTrasladoInicio() {
     navigation.navigate('NuevoTraslado');
   };
 
-  const lista = ordenar(pestana === 'enviados' ? enviados : recibidos);
+  const deEmpresa = (t: Traslado) => !empresa || letraTraslado(t) === empresa;
+  const enviadosVisibles = enviados.filter(deEmpresa);
+  const recibidosVisibles = recibidos.filter(deEmpresa);
+  const lista = ordenar(pestana === 'enviados' ? enviadosVisibles : recibidosVisibles);
   const resumen = (Object.keys(PRIORIDAD) as EstadoTraslado[])
     .map((estado) => ({ estado, n: lista.filter((t) => t.estado === estado).length }))
     .filter(({ n }) => n > 0);
@@ -295,7 +302,7 @@ export default function PantallaTrasladoInicio() {
         <View style={estilos.pestanas}>
           {(['enviados', 'recibidos'] as Pestana[]).map((p) => {
             const activa = pestana === p;
-            const total = p === 'enviados' ? enviados.length : recibidos.length;
+            const total = p === 'enviados' ? enviadosVisibles.length : recibidosVisibles.length;
             return (
               <Pressable key={p} onPress={() => setPestana(p)} style={[estilos.pestana, activa && estilos.pestanaActiva]}>
                 <Ionicons
@@ -309,6 +316,25 @@ export default function PantallaTrasladoInicio() {
                 <View style={[estilos.pestanaConteo, activa && estilos.pestanaConteoActivo]}>
                   <Text style={[estilos.pestanaConteoTexto, activa && { color: TEXTO_SOBRE_ACENTO }]}>{total}</Text>
                 </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Filtro por empresa del talonario (los traslados antiguos, sin
+            talonario por punto, solo salen en "Todas"). */}
+        <View style={styles.chipsEnvoltorio}>
+          {[{ letra: '', corto: 'Todas' }, ...EMPRESAS_TALONARIO].map((e) => {
+            const activa = empresa === e.letra;
+            return (
+              <Pressable
+                key={e.letra || 'todas'}
+                onPress={() => setEmpresa(e.letra)}
+                style={[styles.chipSede, activa && styles.chipSedeActiva]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: activa }}
+              >
+                <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>{e.corto}</Text>
               </Pressable>
             );
           })}
