@@ -1,0 +1,156 @@
+"use client";
+
+// Caja pequeña para registrar el numero Syscafe de un traslado: se abre encima
+// de la celda "Pendiente" de la fila, con solo dos campos -- prefijo (NBR) e
+// indicativo (945) -- que se guardan como "NBR-945". Enter guarda; Escape, un
+// clic afuera, el scroll o un cambio de tamaño la cierran.
+
+import { useEffect, useRef, useState, type KeyboardEvent as EventoTeclado } from "react";
+import { toast } from "sonner";
+import { asignarSyscafeDashboard, type FilaTrasladoSyscafe } from "@/lib/api";
+import { Icono } from "@/components/ui";
+import { referencia } from "./compartido";
+
+// Ultimo prefijo guardado en esta pestaña: casi siempre se repite, asi que la
+// siguiente caja ya lo trae puesto.
+let ultimoPrefijo = "";
+
+const ANCHO_CAJA = 300;
+
+// "NBR-945" -> ["NBR", "945"]; si no tiene ese formato, todo va al prefijo.
+function separar(numero: string | null): [string, string] {
+  if (!numero) return [ultimoPrefijo, ""];
+  const m = /^([A-Z]+)-?(\d+)$/.exec(numero.trim());
+  return m ? [m[1], m[2]] : [numero, ""];
+}
+
+export function CajaSyscafe({
+  fila,
+  ancla,
+  onCerrar,
+  onGuardado,
+}: {
+  fila: FilaTrasladoSyscafe;
+  // Rectangulo de la celda sobre la que se abre la caja.
+  ancla: DOMRect;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [inicialPrefijo, inicialIndicativo] = separar(fila.numero_syscafe);
+  const [prefijo, setPrefijo] = useState(inicialPrefijo);
+  const [indicativo, setIndicativo] = useState(inicialIndicativo);
+  const [guardando, setGuardando] = useState(false);
+  const caja = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const alTecla = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") onCerrar();
+    };
+    const alPulsar = (ev: PointerEvent) => {
+      if (!caja.current?.contains(ev.target as Node)) onCerrar();
+    };
+    document.addEventListener("keydown", alTecla);
+    document.addEventListener("pointerdown", alPulsar);
+    window.addEventListener("resize", onCerrar);
+    window.addEventListener("scroll", onCerrar, true);
+    return () => {
+      document.removeEventListener("keydown", alTecla);
+      document.removeEventListener("pointerdown", alPulsar);
+      window.removeEventListener("resize", onCerrar);
+      window.removeEventListener("scroll", onCerrar, true);
+    };
+  }, [onCerrar]);
+
+  const numero = prefijo && indicativo ? `${prefijo}-${indicativo}` : "";
+  const valido = numero !== "" && numero !== fila.numero_syscafe;
+
+  const guardar = async (nuevo: string | null) => {
+    setGuardando(true);
+    try {
+      await asignarSyscafeDashboard(fila.id, nuevo);
+      if (nuevo) ultimoPrefijo = prefijo;
+      toast.success(nuevo ? `Syscafe ${nuevo} guardado en ${referencia(fila)}` : "Número Syscafe borrado");
+      onGuardado();
+      onCerrar();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo guardar el número Syscafe");
+      setGuardando(false);
+    }
+  };
+
+  const alEnter = (ev: EventoTeclado<HTMLInputElement>) => {
+    if (ev.key === "Enter" && valido && !guardando) {
+      ev.preventDefault();
+      guardar(numero);
+    }
+  };
+
+  // Encima de la celda, sin salirse de la pantalla por la derecha.
+  const left = Math.max(8, Math.min(ancla.left, window.innerWidth - ANCHO_CAJA - 8));
+  const top = Math.max(8, ancla.top + ancla.height / 2 - 34);
+  const claseCampo =
+    "cifra h-10 rounded-md border border-line-strong bg-surface px-2 text-base uppercase tracking-wide text-ink focus:border-brand-gold focus:outline-none";
+
+  return (
+    <div
+      ref={caja}
+      role="dialog"
+      aria-label={`Número Syscafe del traslado ${referencia(fila)}`}
+      style={{ left, top, width: ANCHO_CAJA }}
+      className="fixed z-50 flex flex-col gap-1.5 rounded-lg border border-brand-gold/50 bg-surface p-2.5 shadow-lg shadow-brand-night/30"
+    >
+      <span className="text-[11px] font-medium text-muted">
+        Syscafe · <span className="cifra text-soft">{referencia(fila)}</span>
+      </span>
+      <div className="flex items-center gap-1.5">
+        {/* Con el prefijo ya puesto (el ultimo usado) se arranca en el indicativo. */}
+        <input
+          autoFocus={!inicialPrefijo}
+          value={prefijo}
+          onChange={(e) => setPrefijo(e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 6))}
+          onKeyDown={alEnter}
+          placeholder="NBR"
+          aria-label="Prefijo"
+          autoComplete="off"
+          className={`${claseCampo} w-20`}
+        />
+        <span aria-hidden className="text-muted">
+          –
+        </span>
+        <input
+          autoFocus={!!inicialPrefijo}
+          value={indicativo}
+          onChange={(e) => setIndicativo(e.target.value.replace(/\D/g, "").slice(0, 8))}
+          onKeyDown={alEnter}
+          placeholder="945"
+          inputMode="numeric"
+          aria-label="Indicativo"
+          autoComplete="off"
+          className={`${claseCampo} min-w-0 flex-1`}
+        />
+        <button
+          type="button"
+          onClick={() => guardar(numero)}
+          disabled={!valido || guardando}
+          title="Guardar"
+          aria-label="Guardar número Syscafe"
+          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md bg-brand-gold text-brand-ink transition-colors duration-150 hover:bg-gold-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Icono nombre="check" className="h-4.5 w-4.5" />
+        </button>
+        {fila.numero_syscafe ? (
+          <button
+            type="button"
+            onClick={() => guardar(null)}
+            disabled={guardando}
+            title="Borrar número"
+            aria-label="Borrar número Syscafe"
+            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-danger transition-colors duration-150 hover:bg-surface-2 disabled:opacity-50"
+          >
+            <Icono nombre="basura" className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}

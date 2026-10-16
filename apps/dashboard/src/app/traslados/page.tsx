@@ -5,10 +5,10 @@
 // marcados con una regla dorada a la izquierda), filtros por punto/estado/fechas,
 // detalle en modal al hacer clic en una fila y feed de "Actividad reciente".
 // Mismo lenguaje visual que Hoy y Entregas. admin/supervisor registran o
-// corrigen el Syscafe en un modal propio (ModalSyscafe, con "Guardar y siguiente"
-// para ir por los pendientes) o desde el detalle; consulta lo ve en solo lectura.
+// corrigen el Syscafe en una caja pequeña que se abre encima de la celda
+// (CajaSyscafe: prefijo + indicativo) o desde el detalle; consulta lo ve en solo lectura.
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   fetchActividadTraslados,
@@ -40,7 +40,7 @@ import {
 } from "@/components/traslados/compartido";
 import { ModalAnulada } from "@/components/traslados/ModalAnulada";
 import { ModalDetalleTraslado } from "@/components/traslados/ModalDetalleTraslado";
-import { ModalSyscafe } from "@/components/traslados/ModalSyscafe";
+import { CajaSyscafe } from "@/components/traslados/CajaSyscafe";
 
 // Texto sin tildes ni mayusculas, para comparar busquedas.
 const normalizar = (t: string) => t.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
@@ -105,8 +105,9 @@ export default function TrasladosPage() {
     mutate: recargarActividad,
   } = useSWR("traslados-actividad", () => fetchActividadTraslados(50), { refreshInterval: 5000 });
 
-  // Traslado con el modal de Syscafe abierto.
-  const [syscafeFila, setSyscafeFila] = useState<FilaTrasladoSyscafe | null>(null);
+  // Traslado con la caja de Syscafe abierta y la celda sobre la que se abre.
+  const [syscafe, setSyscafe] = useState<{ fila: FilaTrasladoSyscafe; ancla: DOMRect } | null>(null);
+  const cerrarSyscafe = useCallback(() => setSyscafe(null), []);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [anuladaDetalle, setAnuladaDetalle] = useState<FilaTrasladoSyscafe | null>(null);
 
@@ -128,20 +129,6 @@ export default function TrasladosPage() {
     });
   }, [porEstado, busquedaDiferida]);
   const textoBuscado = busquedaDiferida.trim();
-
-  // Pendientes de Syscafe en la vista actual (mismo orden de la tabla): de aqui
-  // salen el "siguiente" del modal y cuantos quedan.
-  const pendientesVista = useMemo(
-    () => visibles.filter((f) => f.tipo !== "anulada" && !f.numero_syscafe),
-    [visibles],
-  );
-  const siguientePendiente = (actual: FilaTrasladoSyscafe): FilaTrasladoSyscafe | null => {
-    const resto = pendientesVista.filter((f) => f.id !== actual.id);
-    if (resto.length === 0) return null;
-    // El que viene despues en la tabla; si era el ultimo, vuelve al primero.
-    const indice = visibles.findIndex((f) => f.id === actual.id);
-    return resto.find((f) => visibles.findIndex((v) => v.id === f.id) > indice) ?? resto[0];
-  };
 
   const abrirFila = (fila: FilaTrasladoSyscafe) => {
     if (fila.tipo === "anulada") setAnuladaDetalle(fila);
@@ -407,7 +394,10 @@ export default function TrasladosPage() {
                             {puedeAsignar ? (
                               <button
                                 type="button"
-                                onClick={() => setSyscafeFila(fila)}
+                                onClick={(e) => {
+                                  const celda = e.currentTarget.closest("td") ?? e.currentTarget;
+                                  setSyscafe({ fila, ancla: celda.getBoundingClientRect() });
+                                }}
                                 title={fila.numero_syscafe ? "Editar número Syscafe" : "Registrar número Syscafe"}
                                 aria-label={`${fila.numero_syscafe ? "Editar" : "Registrar"} número Syscafe de ${referencia(fila)}`}
                                 className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-md transition-colors duration-150 ${
@@ -482,18 +472,16 @@ export default function TrasladosPage() {
         />
       ) : null}
 
-      {syscafeFila ? (
-        <ModalSyscafe
-          key={syscafeFila.id}
-          fila={syscafeFila}
-          siguiente={siguientePendiente(syscafeFila)}
-          pendientesRestantes={pendientesVista.filter((f) => f.id !== syscafeFila.id).length}
-          onCerrar={() => setSyscafeFila(null)}
+      {syscafe ? (
+        <CajaSyscafe
+          key={syscafe.fila.id}
+          fila={syscafe.fila}
+          ancla={syscafe.ancla}
+          onCerrar={cerrarSyscafe}
           onGuardado={() => {
             recargar();
             recargarActividad();
           }}
-          onSiguiente={setSyscafeFila}
         />
       ) : null}
 
