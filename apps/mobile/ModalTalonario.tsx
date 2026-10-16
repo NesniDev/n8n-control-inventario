@@ -3,12 +3,13 @@
 // puede llevar varios en paralelo, p. ej. A y V), y anular la siguiente hoja. Se abren desde la tarjeta de talonario de PantallaTrasladoInicio. Mismo
 // patron que ModalProducto: una HojaModal con campos y un boton primario.
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { anularHojaTalonario, configurarTalonario, type TalonarioPunto } from './api';
 import { mensajeError } from './errorMessages';
 import HojaModal from './HojaModal';
+import { MARCA } from './vidrio';
 import {
   ACENTO,
   ContenidoBoton,
@@ -28,10 +29,38 @@ const HOJAS = 50;
 
 // Empresas con talonario propio: cada una usa siempre la misma letra, asi el
 // operador elige la empresa y no teclea el prefijo.
+// `color` identifica a la empresa en tarjetas y selectores (insignia con la
+// letra); `sobreColor` es el texto que contrasta encima de ese color.
 export const EMPRESAS_TALONARIO = [
-  { letra: 'A', nombre: 'Comercializadora El Imperio', corto: 'El Imperio' },
-  { letra: 'V', nombre: 'Agroveterinaria La Rebaja', corto: 'La Rebaja' },
+  { letra: 'A', nombre: 'Comercializadora El Imperio', corto: 'El Imperio', color: MARCA.oro, sobreColor: MARCA.tinta },
+  { letra: 'V', nombre: 'Agroveterinaria La Rebaja', corto: 'La Rebaja', color: MARCA.verde, sobreColor: '#ffffff' },
 ] as const;
+
+/** Datos de la empresa de una letra (nombre, color), o null si la letra no es de ninguna. */
+export function datosEmpresa(letra: string) {
+  return EMPRESAS_TALONARIO.find((e) => e.letra === letra) ?? null;
+}
+
+/** Insignia redonda con la letra del talonario, en el color de su empresa. */
+export function InsigniaEmpresa({ letra, tamano = 40 }: { letra: string; tamano?: number }) {
+  const empresa = datosEmpresa(letra);
+  return (
+    <View
+      style={{
+        width: tamano,
+        height: tamano,
+        borderRadius: tamano / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: empresa?.color ?? NEUTRAL_700,
+      }}
+    >
+      <Text style={{ color: empresa?.sobreColor ?? TEXTO_PRIMARIO, fontSize: tamano * 0.45, fontFamily: FUENTE_DISPLAY }}>
+        {letra}
+      </Text>
+    </View>
+  );
+}
 
 /** Nombre de la empresa de un talonario por su letra, o null si la letra no es de ninguna. */
 export function empresaTalonario(letra: string): string | null {
@@ -149,81 +178,128 @@ export function ModalConfigurarTalonario({
       titulo={actual ? 'Cambiar talonario' : talonarios.length > 0 ? 'Agregar talonario' : 'Configura tu talonario'}
       onCerrar={onCerrar}
     >
-      <Campo etiqueta="Empresa">
-        <View style={styles.chipsEnvoltorio}>
+      <ScrollView
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={{ gap: 14 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+      {/* 1. Empresa: tarjetas grandes con la insignia de su letra. */}
+      <Campo etiqueta={letraInicial ? 'Empresa' : 'Elige la empresa'}>
+        <View style={{ gap: 8 }}>
           {opciones.map((empresa) => {
             const activa = empresa.letra === letra;
             return (
               <Pressable
                 key={empresa.letra}
                 onPress={() => setLetra(empresa.letra)}
-                style={[styles.chipSede, activa && styles.chipSedeActiva]}
+                disabled={!!letraInicial}
+                style={({ pressed }) => [estilos.empresa, activa && estilos.empresaActiva, pressed && { opacity: 0.8 }]}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: activa }}
+                accessibilityLabel={`${empresa.nombre}, talonario ${empresa.letra}`}
               >
-                <Text style={[styles.chipSedeTexto, activa && styles.chipSedeTextoActivo]}>
-                  {empresa.nombre} ({empresa.letra})
-                </Text>
+                <InsigniaEmpresa letra={empresa.letra} tamano={34} />
+                <View style={{ flex: 1 }}>
+                  <Text style={estilos.empresaNombre}>{empresa.nombre}</Text>
+                  <Text style={estilos.empresaDetalle}>Hojas {empresa.letra} 0000</Text>
+                </View>
+                <Ionicons
+                  name={activa ? 'radio-button-on' : 'radio-button-off'}
+                  size={22}
+                  color={activa ? ACENTO : NEUTRAL_500}
+                />
               </Pressable>
             );
           })}
         </View>
       </Campo>
+
+      {/* 2. Primera hoja, con la letra fija delante del numero. */}
       <Campo etiqueta="Primera hoja del talonario">
-        <TextInput
-          value={numero}
-          onChangeText={(v) => setNumero(v.replace(/[^0-9]/g, '').slice(0, 7))}
-          keyboardType="number-pad"
-          maxLength={7}
-          placeholder="Ej. 6301"
-          placeholderTextColor={NEUTRAL_500}
-          style={estilos.input}
-          autoFocus={!!letraInicial && letraValida}
-        />
+        <View style={[estilos.campoNumero, !letraValida && { opacity: 0.5 }]}>
+          <Text style={estilos.prefijo}>{letra || '—'}</Text>
+          <TextInput
+            value={numero}
+            onChangeText={(v) => setNumero(v.replace(/[^0-9]/g, '').slice(0, 7))}
+            keyboardType="number-pad"
+            maxLength={7}
+            placeholder="Ej. 6301"
+            placeholderTextColor={NEUTRAL_500}
+            style={estilos.inputNumero}
+            editable={letraValida}
+            autoFocus={!!letraInicial && letraValida}
+            accessibilityLabel="Primera hoja del talonario"
+          />
+        </View>
+        <Text style={estilos.ayuda}>El número impreso en la primera hoja. El talonario trae {HOJAS} hojas.</Text>
       </Campo>
 
-      {/* Talonario que ya se venia usando antes de registrarlo en la app. */}
+      {/* 3. Talonario que ya se venia usando antes de registrarlo en la app
+          (solo el primero de cada empresa en el punto). */}
       {puedeEnUso ? (
-      <Pressable
-        onPress={() => setEnUso((v) => !v)}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: enUso }}
-        style={estilos.opcion}
-      >
-        <Ionicons name={enUso ? 'checkbox' : 'square-outline'} size={22} color={enUso ? ACENTO : NEUTRAL_500} />
-        <Text style={estilos.opcionTexto}>Este talonario ya está en uso (ya se gastaron algunas hojas)</Text>
-      </Pressable>
+        <Pressable
+          onPress={() => setEnUso((v) => !v)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: enUso }}
+          style={[estilos.enUso, enUso && estilos.enUsoActivo]}
+        >
+          <Ionicons name={enUso ? 'checkbox' : 'square-outline'} size={22} color={enUso ? ACENTO : NEUTRAL_500} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={estilos.enUsoTitulo}>Este talonario ya está en uso</Text>
+            <Text style={estilos.ayuda}>Márcalo si ya se gastaron algunas hojas antes de registrarlo.</Text>
+          </View>
+        </Pressable>
       ) : null}
 
       {puedeEnUso && enUso ? (
         <Campo etiqueta="Siguiente hoja por usar">
-          <TextInput
-            value={siguiente}
-            onChangeText={(v) => setSiguiente(v.replace(/[^0-9]/g, '').slice(0, 7))}
-            keyboardType="number-pad"
-            maxLength={7}
-            placeholder={numeroValido ? `Entre ${inicial} y ${final}` : 'Ej. 6335'}
-            placeholderTextColor={NEUTRAL_500}
-            style={estilos.input}
-          />
+          <View style={[estilos.campoNumero, numeroValido && !!siguiente && !siguienteValido && estilos.campoError]}>
+            <Text style={estilos.prefijo}>{letra || '—'}</Text>
+            <TextInput
+              value={siguiente}
+              onChangeText={(v) => setSiguiente(v.replace(/[^0-9]/g, '').slice(0, 7))}
+              keyboardType="number-pad"
+              maxLength={7}
+              placeholder={numeroValido ? `Entre ${inicial} y ${final}` : 'Ej. 6335'}
+              placeholderTextColor={NEUTRAL_500}
+              style={estilos.inputNumero}
+              accessibilityLabel="Siguiente hoja por usar"
+            />
+          </View>
           {numeroValido && siguiente && !siguienteValido ? (
             <Text style={styles.textoErrorInline}>
-              Debe ser una hoja entre {inicial} y {final}.
+              Debe ser una hoja entre {letra} {inicial} y {letra} {final}.
             </Text>
           ) : null}
         </Campo>
       ) : null}
 
+      {/* Resumen de lo que va a quedar registrado. */}
       {letraValida && numeroValido && siguienteValido && (!(puedeEnUso && enUso) || siguiente) ? (
         <View style={estilos.vista}>
-          <Text style={estilos.vistaEtiqueta}>El talonario va de</Text>
-          <Text style={estilos.vistaRango}>
-            {letra} {inicial} – {letra} {final}
-          </Text>
-          <Text style={estilos.vistaEtiqueta}>
-            {puedeEnUso && enUso
+          <View style={estilos.vistaFila}>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={estilos.vistaEtiqueta}>Desde</Text>
+              <Text style={estilos.vistaRango}>
+                {letra} {inicial}
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={18} color={NEUTRAL_500} />
+            <View style={{ alignItems: 'center' }}>
+              <Text style={estilos.vistaEtiqueta}>Hasta</Text>
+              <Text style={estilos.vistaRango}>
+                {letra} {final}
+              </Text>
+            </View>
+          </View>
+          <View style={estilos.vistaBarra}>
+            <View style={[estilos.vistaBarraUsada, { width: `${((desde - inicial) / HOJAS) * 100}%` }]} />
+          </View>
+          <Text style={estilos.vistaPie}>
+            {desde > inicial
               ? `Se empieza en la hoja ${letra} ${desde} · quedan ${final - desde + 1} de ${HOJAS}`
-              : `(${HOJAS} hojas)`}
+              : `${HOJAS} hojas disponibles`}
           </Text>
         </View>
       ) : null}
@@ -263,6 +339,7 @@ export function ModalConfigurarTalonario({
           <ContenidoBoton color={TEXTO_SOBRE_ACENTO} icono="checkmark-outline" texto="Guardar talonario" />
         )}
       </Pressable>
+      </ScrollView>
     </HojaModal>
   );
 }
@@ -367,16 +444,78 @@ const estilos = StyleSheet.create({
     fontSize: 16,
   },
   vista: {
-    alignItems: 'center',
-    gap: 2,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(245,197,66,0.08)',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(245,197,66,0.07)',
     borderWidth: 1,
-    borderColor: ACENTO,
+    borderColor: 'rgba(245,197,66,0.45)',
   },
-  opcion: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
-  opcionTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY },
-  vistaEtiqueta: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
+  vistaFila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  vistaEtiqueta: { color: NEUTRAL_500, fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
   vistaRango: { color: ACENTO, fontSize: 20, fontFamily: FUENTE_DISPLAY, letterSpacing: 0.5 },
+  vistaBarra: { height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.10)' },
+  vistaBarraUsada: { height: 6, backgroundColor: NEUTRAL_500 },
+  vistaPie: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, textAlign: 'center' },
+  ayuda: { color: NEUTRAL_500, fontSize: 12.5, fontFamily: FUENTE_BODY },
+  empresa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+  },
+  empresaActiva: { borderColor: ACENTO, backgroundColor: 'rgba(245,197,66,0.08)' },
+  empresaNombre: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
+  empresaDetalle: { color: NEUTRAL_500, fontSize: 12.5, fontFamily: FUENTE_BODY },
+  campoNumero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 50,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+    overflow: 'hidden',
+  },
+  campoError: { borderColor: '#f87171' },
+  prefijo: {
+    minWidth: 48,
+    alignSelf: 'stretch',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    paddingTop: 13,
+    color: ACENTO,
+    fontSize: 18,
+    fontFamily: FUENTE_DISPLAY,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRightWidth: 1,
+    borderRightColor: NEUTRAL_700,
+  },
+  inputNumero: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: TEXTO_PRIMARIO,
+    fontFamily: FUENTE_DISPLAY,
+    fontSize: 18,
+    letterSpacing: 0.5,
+  },
+  enUso: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+  },
+  enUsoActivo: { borderColor: ACENTO, backgroundColor: 'rgba(245,197,66,0.06)' },
+  enUsoTitulo: { color: TEXTO_PRIMARIO, fontSize: 14.5, fontFamily: FUENTE_BODY_SEMI },
 });

@@ -1,8 +1,8 @@
 // Tarjeta de los talonarios activos del punto (uno por letra, p. ej. A general
-// y V veterinaria en paralelo): rango, siguiente hoja y cuantas quedan, con
-// avisos cuando quedan pocas o ya se agoto. Sin talonario invita a
-// configurarlo. Se muestra en la tab Inicio (solo sesiones de punto); la tab
-// Traslados solo consulta los talonarios para bloquear "Nuevo traslado".
+// y V veterinaria en paralelo): empresa, siguiente hoja, cuantas quedan y una
+// barra de uso, con avisos cuando quedan pocas o ya se agoto. Sin talonario
+// invita a configurarlo. Se muestra en la tab Inicio (solo sesiones de punto);
+// la tab Traslados solo consulta los talonarios para bloquear "Nuevo traslado".
 // Carga su propio dato (siempre fresco al volver a la pantalla) y trae los
 // modales de configurar y anular hoja.
 import { useCallback, useState } from 'react';
@@ -11,14 +11,124 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { fetchTalonariosPunto, type TalonarioPunto } from './api';
-import { EMPRESAS_TALONARIO, empresaTalonario, ModalAnularHoja, ModalConfigurarTalonario, rangoCorto } from './ModalTalonario';
-import { FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, TEXTO_PRIMARIO } from './tema';
+import {
+  datosEmpresa,
+  EMPRESAS_TALONARIO,
+  InsigniaEmpresa,
+  ModalAnularHoja,
+  ModalConfigurarTalonario,
+  rangoCorto,
+} from './ModalTalonario';
+import { FUENTE_BODY, FUENTE_BODY_SEMI, FUENTE_DISPLAY, NEUTRAL_400, NEUTRAL_500, TEXTO_PRIMARIO } from './tema';
 import { MARCA } from './vidrio';
 
 // Mismas superficies que las tarjetas de Inicio (PantallaInicio.tsx).
 const SUPERFICIE = '#0f2350';
 const BORDE_SUPERFICIE = 'rgba(255,255,255,0.08)';
 const ROJO = '#f87171';
+
+// Estado del talonario: color + texto + icono (el color nunca va solo).
+function estadoDe(t: TalonarioPunto) {
+  if (t.agotado) return { texto: 'Agotado', icono: 'alert-circle' as const, color: ROJO };
+  if (t.quedan <= t.umbral_aviso) return { texto: 'Pocas hojas', icono: 'warning' as const, color: MARCA.oro };
+  return { texto: 'Activo', icono: 'checkmark-circle' as const, color: '#4ade80' };
+}
+
+function FilaTalonario({
+  talonario,
+  onAnular,
+  onCambiar,
+}: {
+  talonario: TalonarioPunto;
+  onAnular: () => void;
+  onCambiar: () => void;
+}) {
+  const empresa = datosEmpresa(talonario.letra);
+  const estado = estadoDe(talonario);
+  const total = talonario.numero_final - talonario.numero_inicial + 1;
+  const usadas = total - talonario.quedan;
+  const alerta = estado.texto !== 'Activo';
+
+  return (
+    <View style={[estilos.tarjeta, estilos.tarjetaActiva, alerta && { borderColor: `${estado.color}73` }]}>
+      {/* Encabezado: quien es (empresa + letra) y en que estado esta. */}
+      <View style={estilos.encabezado}>
+        <InsigniaEmpresa letra={talonario.letra} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={estilos.empresa} numberOfLines={1}>
+            {empresa?.nombre ?? 'Talonario'}
+          </Text>
+          <Text style={estilos.rango}>Hojas {rangoCorto(talonario)}</Text>
+        </View>
+        <View style={[estilos.estado, { backgroundColor: `${estado.color}1f` }]}>
+          <Ionicons name={estado.icono} size={13} color={estado.color} />
+          <Text style={[estilos.estadoTexto, { color: estado.color }]}>{estado.texto}</Text>
+        </View>
+      </View>
+
+      {/* Dato principal: la hoja que toca fotografiar ahora. */}
+      <View style={estilos.siguiente}>
+        <View style={{ flex: 1 }}>
+          <Text style={estilos.etiqueta}>Siguiente hoja</Text>
+          <Text style={[estilos.hoja, talonario.agotado && { color: ROJO }]}>
+            {talonario.agotado ? 'Sin hojas' : talonario.siguiente_hoja}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={estilos.etiqueta}>Quedan</Text>
+          <Text style={[estilos.quedan, alerta && { color: estado.color }]}>
+            {talonario.quedan}
+            <Text style={estilos.quedanTotal}> / {total}</Text>
+          </Text>
+        </View>
+      </View>
+
+      <View style={{ gap: 6 }}>
+        <View style={estilos.barraFondo}>
+          <View
+            style={[
+              estilos.barraRelleno,
+              { width: `${(usadas / total) * 100}%`, backgroundColor: alerta ? estado.color : empresa?.color ?? MARCA.oro },
+            ]}
+          />
+        </View>
+        <Text style={[estilos.ayuda, alerta && { color: estado.color, fontFamily: FUENTE_BODY_SEMI }]}>
+          {talonario.agotado
+            ? 'Pide un talonario nuevo y cámbialo para seguir creando traslados.'
+            : alerta
+              ? 'Quedan pocas hojas: pide un talonario nuevo.'
+              : `${usadas} de ${total} hojas usadas`}
+        </Text>
+      </View>
+
+      {/* Acciones de 44 px de alto como minimo. */}
+      <View style={estilos.acciones}>
+        {talonario.agotado ? null : (
+          <Pressable
+            onPress={onAnular}
+            accessibilityRole="button"
+            accessibilityLabel={`Anular la hoja ${talonario.siguiente_hoja}`}
+            style={({ pressed }) => [estilos.accion, pressed && estilos.presionado]}
+          >
+            <Ionicons name="close-circle-outline" size={17} color={TEXTO_PRIMARIO} />
+            <Text style={estilos.accionTexto}>Anular hoja</Text>
+          </Pressable>
+        )}
+        <Pressable
+          onPress={onCambiar}
+          accessibilityRole="button"
+          accessibilityLabel={`Cambiar talonario de ${empresa?.nombre ?? talonario.letra}`}
+          style={({ pressed }) => [estilos.accion, talonario.agotado && estilos.accionPrimaria, pressed && estilos.presionado]}
+        >
+          <Ionicons name="swap-horizontal-outline" size={17} color={talonario.agotado ? MARCA.tinta : TEXTO_PRIMARIO} />
+          <Text style={[estilos.accionTexto, talonario.agotado && { color: MARCA.tinta }]}>
+            {talonario.agotado ? 'Cambiar talonario' : 'Cambiar'}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
 
 export default function TarjetaTalonario({
   puntoId,
@@ -91,26 +201,38 @@ export default function TarjetaTalonario({
 
   if (talonarios === undefined) return null;
 
+  // Empresas que todavia no tienen talonario activo en el punto.
+  const faltantes = EMPRESAS_TALONARIO.filter((e) => !talonarios.some((t) => t.letra === e.letra));
+
   if (talonarios.length === 0) {
-    // Sin talonario: fila compacta tocable, como las de Pendientes/soporte.
+    // Sin talonario: tarjeta que invita a configurarlo, con las empresas posibles.
     return (
       <>
         <Pressable
           onPress={() => setConfigurando('')}
           accessibilityRole="button"
           accessibilityLabel="Configura tu talonario. Necesario para crear traslados."
-          style={({ pressed }) => [estilos.tarjeta, estilos.filaVacia, pressed && estilos.presionado]}
+          style={({ pressed }) => [estilos.tarjeta, estilos.vacia, pressed && estilos.presionado]}
         >
-          <View style={[estilos.icono, { backgroundColor: MARCA.oro }]}>
-            <Ionicons name="receipt-outline" size={20} color={MARCA.tinta} />
+          <View style={estilos.encabezado}>
+            <View style={estilos.iconoVacio}>
+              <Ionicons name="receipt-outline" size={20} color={MARCA.tinta} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={estilos.empresa}>Configura tu talonario</Text>
+              <Text style={estilos.ayuda}>Necesario para crear traslados</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={MARCA.oro} />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={estilos.titulo}>Configura tu talonario</Text>
-            <Text style={estilos.subtitulo}>Necesario para crear traslados</Text>
-          </View>
-          <View style={estilos.pastillaAccion}>
-            <Text style={estilos.pastillaAccionTexto}>Configurar</Text>
-            <Ionicons name="chevron-forward" size={14} color={MARCA.tinta} />
+          <View style={estilos.empresasVacia}>
+            {EMPRESAS_TALONARIO.map((e) => (
+              <View key={e.letra} style={estilos.empresaVacia}>
+                <InsigniaEmpresa letra={e.letra} tamano={22} />
+                <Text style={estilos.empresaVaciaTexto} numberOfLines={1}>
+                  {e.corto}
+                </Text>
+              </View>
+            ))}
           </View>
         </Pressable>
         {modales}
@@ -121,82 +243,34 @@ export default function TarjetaTalonario({
   return (
     <>
       <View style={{ gap: 10 }}>
-        {talonarios.map((talonario) => {
-          const total = talonario.numero_final - talonario.numero_inicial + 1;
-          const usadas = total - talonario.quedan;
-          const pocas = !talonario.agotado && talonario.quedan <= talonario.umbral_aviso;
-          const colorEstado = talonario.agotado ? ROJO : pocas ? MARCA.oro : MARCA.verde;
+        {talonarios.map((talonario) => (
+          <FilaTalonario
+            key={talonario.id}
+            talonario={talonario}
+            onAnular={() => setAnulando(talonario)}
+            onCambiar={() => setConfigurando(talonario.letra)}
+          />
+        ))}
 
-          return (
-            <View
-              key={talonario.id}
-              style={[estilos.tarjeta, estilos.tarjetaActiva, (talonario.agotado || pocas) && { borderColor: `${colorEstado}73` }]}
-            >
-              <View style={estilos.encabezado}>
-                <View style={[estilos.icono, { backgroundColor: 'rgba(245,197,66,0.14)' }]}>
-                  <Ionicons name="receipt-outline" size={20} color={MARCA.oro} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={estilos.etiqueta}>{empresaTalonario(talonario.letra) ?? 'Talonario'}</Text>
-                  <Text style={estilos.titulo}>{rangoCorto(talonario)}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={estilos.etiqueta}>Siguiente hoja</Text>
-                  <Text style={[estilos.hoja, talonario.agotado && { color: ROJO }]}>
-                    {talonario.agotado ? 'Agotado' : talonario.siguiente_hoja}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Hojas usadas del talonario. */}
-              <View style={estilos.barraFondo}>
-                <View style={[estilos.barraRelleno, { width: `${(usadas / total) * 100}%`, backgroundColor: colorEstado }]} />
-              </View>
-
-              <View style={estilos.pie}>
-                <Text style={[estilos.subtitulo, { flex: 1 }, (talonario.agotado || pocas) && { color: colorEstado, fontFamily: FUENTE_BODY_SEMI }]}>
-                  {talonario.agotado
-                    ? 'Pide un talonario y configúralo'
-                    : pocas
-                      ? `Pide un talonario · quedan ${talonario.quedan}`
-                      : `Quedan ${talonario.quedan} ${talonario.quedan === 1 ? 'hoja' : 'hojas'}`}
-                </Text>
-                {talonario.agotado ? null : (
-                  <Pressable
-                    onPress={() => setAnulando(talonario)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Anular hoja del talonario ${talonario.letra}`}
-                    style={({ pressed }) => [estilos.chip, pressed && estilos.presionado]}
-                  >
-                    <Ionicons name="close-circle-outline" size={15} color={TEXTO_PRIMARIO} />
-                    <Text style={estilos.chipTexto}>Anular</Text>
-                  </Pressable>
-                )}
-                <Pressable
-                  onPress={() => setConfigurando(talonario.letra)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Cambiar talonario ${talonario.letra}`}
-                  style={({ pressed }) => [estilos.chip, talonario.agotado && estilos.chipPrimario, pressed && estilos.presionado]}
-                >
-                  <Ionicons name="swap-horizontal-outline" size={15} color={talonario.agotado ? MARCA.tinta : TEXTO_PRIMARIO} />
-                  <Text style={[estilos.chipTexto, talonario.agotado && { color: MARCA.tinta }]}>Cambiar</Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        })}
-
-        {/* Otro talonario en paralelo (p. ej. el de veterinaria "V"); se
-            oculta cuando todas las empresas ya tienen el suyo. */}
-        {EMPRESAS_TALONARIO.some((e) => !talonarios.some((t) => t.letra === e.letra)) ? (
+        {/* Otro talonario en paralelo; se oculta cuando todas las empresas ya
+            tienen el suyo, y nombra a la que falta si es una sola. */}
+        {faltantes.length > 0 ? (
           <Pressable
             onPress={() => setConfigurando('')}
             accessibilityRole="button"
-            accessibilityLabel="Agregar talonario"
+            accessibilityLabel={
+              faltantes.length === 1 ? `Agregar talonario de ${faltantes[0].nombre}` : 'Agregar talonario'
+            }
             style={({ pressed }) => [estilos.agregar, pressed && estilos.presionado]}
           >
-            <Ionicons name="add-circle-outline" size={16} color={MARCA.oro} />
-            <Text style={estilos.agregarTexto}>Agregar talonario</Text>
+            {faltantes.length === 1 ? (
+              <InsigniaEmpresa letra={faltantes[0].letra} tamano={22} />
+            ) : (
+              <Ionicons name="add-circle-outline" size={20} color={MARCA.oro} />
+            )}
+            <Text style={estilos.agregarTexto}>
+              {faltantes.length === 1 ? `Agregar talonario de ${faltantes[0].corto}` : 'Agregar talonario'}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -212,56 +286,79 @@ const estilos = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDE_SUPERFICIE,
   },
-  filaVacia: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderColor: 'rgba(245,197,66,0.45)',
-  },
-  tarjetaActiva: { gap: 12, padding: 14 },
+  tarjetaActiva: { gap: 14, padding: 16 },
   presionado: { opacity: 0.75 },
-  icono: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   encabezado: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  etiqueta: { color: NEUTRAL_400, fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
-  titulo: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
-  subtitulo: { color: NEUTRAL_400, fontSize: 13.5, fontFamily: FUENTE_BODY },
-  hoja: { color: MARCA.oro, fontSize: 22, fontFamily: FUENTE_DISPLAY, lineHeight: 26 },
-  pastillaAccion: {
+  empresa: { color: TEXTO_PRIMARIO, fontSize: 15.5, fontFamily: FUENTE_BODY_SEMI },
+  rango: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY },
+  estado: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingLeft: 12,
-    paddingRight: 8,
-    paddingVertical: 7,
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: MARCA.oro,
   },
-  pastillaAccionTexto: { color: MARCA.tinta, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  barraFondo: { height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)' },
-  barraRelleno: { height: 6, borderRadius: 3 },
-  pie: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chip: {
+  estadoTexto: { fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
+  siguiente: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'flex-end',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  chipPrimario: { backgroundColor: MARCA.oro },
-  chipTexto: { color: TEXTO_PRIMARIO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  agregar: {
+  etiqueta: { color: NEUTRAL_500, fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
+  hoja: { color: MARCA.oro, fontSize: 26, fontFamily: FUENTE_DISPLAY, lineHeight: 32 },
+  quedan: { color: TEXTO_PRIMARIO, fontSize: 22, fontFamily: FUENTE_DISPLAY, lineHeight: 28, fontVariant: ['tabular-nums'] },
+  quedanTotal: { color: NEUTRAL_500, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
+  ayuda: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY },
+  barraFondo: { height: 8, borderRadius: 4, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.08)' },
+  barraRelleno: { height: 8, borderRadius: 4 },
+  acciones: { flexDirection: 'row', gap: 8 },
+  accion: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 9,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  accionPrimaria: { backgroundColor: MARCA.oro },
+  accionTexto: { color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
+  vacia: { gap: 12, padding: 16, borderColor: 'rgba(245,197,66,0.45)' },
+  iconoVacio: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MARCA.oro,
+  },
+  empresasVacia: { flexDirection: 'row', gap: 8 },
+  empresaVacia: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  empresaVaciaTexto: { flexShrink: 1, color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  agregar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 48,
     borderRadius: 14,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: 'rgba(245,197,66,0.45)',
   },
-  agregarTexto: { color: MARCA.oro, fontSize: 13.5, fontFamily: FUENTE_BODY_SEMI },
+  agregarTexto: { color: MARCA.oro, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
 });
