@@ -1,11 +1,11 @@
 // Pantalla de entrada de la tab Traslados, post-login: dos caminos posibles
 // (crear un traslado nuevo, o ir a la bandeja de lo que llega a este punto)
 // y el historial del punto en dos pestañas -- Enviados (salieron de aca) y
-// Recibidos (llegaron aca y ya se confirmaron). Sin filtros por estado: el
-// estado ya se ve en cada tarjeta (franja + etiqueta de color), en su lugar
-// hay una linea de resumen y la lista va ordenada con lo que pide atencion
-// primero. Tocar una tarjeta abre DetalleTraslado.
-import { useCallback, useRef, useState } from 'react';
+// Recibidos (llegaron aca y ya se confirmaron). Debajo, filtros en chips por
+// empresa del talonario y por estado, cada uno con su conteo; la lista va
+// ordenada con lo que pide atencion primero. Tocar una tarjeta abre
+// DetalleTraslado.
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -57,12 +57,49 @@ function ordenar(lista: Traslado[]): Traslado[] {
   );
 }
 
-// Texto de cada estado en la linea de resumen (plural segun cantidad).
-const RESUMEN_ESTADO: Record<EstadoTraslado, [string, string]> = {
-  recibido_con_novedad: ['con novedad', 'con novedad'],
-  en_transito: ['en tránsito', 'en tránsito'],
-  recibido: ['recibido completo', 'recibidos completos'],
-};
+// Chip de filtro: pastilla con un indicador (letra, punto o icono), texto y
+// conteo. 36 px visibles + hitSlop para llegar a 44 px de area tactil.
+function ChipFiltro({
+  activo,
+  onPress,
+  color,
+  indicador,
+  texto,
+  n,
+  etiquetaAccesible,
+}: {
+  activo: boolean;
+  onPress: () => void;
+  color: string;
+  indicador: ReactNode;
+  texto: string;
+  n: number;
+  etiquetaAccesible: string;
+}) {
+  const vacio = n === 0 && !activo;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={vacio}
+      hitSlop={{ top: 4, bottom: 4 }}
+      style={({ pressed }) => [
+        estilos.chip,
+        activo && { borderColor: color, backgroundColor: `${color}22` },
+        vacio && { opacity: 0.4 },
+        pressed && { opacity: 0.75 },
+      ]}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: activo, disabled: vacio }}
+      accessibilityLabel={`${etiquetaAccesible}, ${n} traslados`}
+    >
+      {indicador}
+      <Text style={[estilos.chipTexto, activo && estilos.chipTextoActivo]} numberOfLines={1}>
+        {texto}
+      </Text>
+      <Text style={[estilos.chipConteo, activo && { color }]}>{n}</Text>
+    </Pressable>
+  );
+}
 
 function TarjetaTraslado({
   traslado,
@@ -184,6 +221,8 @@ export default function PantallaTrasladoInicio() {
   // Letra de la empresa del talonario ("A", "V") para ver solo sus traslados;
   // '' = todas. Aplica a Enviados y a Recibidos.
   const [empresa, setEmpresa] = useState('');
+  // Estado del traslado a mostrar; '' = todos.
+  const [estado, setEstado] = useState<EstadoTraslado | ''>('');
 
   const yaCargado = useRef(false);
   const cargar = useCallback(async (forzar = false) => {
@@ -254,12 +293,20 @@ export default function PantallaTrasladoInicio() {
   };
 
   const deEmpresa = (t: Traslado) => !empresa || letraTraslado(t) === empresa;
-  const enviadosVisibles = enviados.filter(deEmpresa);
-  const recibidosVisibles = recibidos.filter(deEmpresa);
+  const deEstado = (t: Traslado) => !estado || t.estado === estado;
+  const visible = (t: Traslado) => deEmpresa(t) && deEstado(t);
+  const enviadosVisibles = enviados.filter(visible);
+  const recibidosVisibles = recibidos.filter(visible);
   const lista = ordenar(pestana === 'enviados' ? enviadosVisibles : recibidosVisibles);
-  const resumen = (Object.keys(PRIORIDAD) as EstadoTraslado[])
-    .map((estado) => ({ estado, n: lista.filter((t) => t.estado === estado).length }))
-    .filter(({ n }) => n > 0);
+  // Conteos cruzados: cada grupo de chips cuenta respetando el otro filtro.
+  const base = pestana === 'enviados' ? enviados : recibidos;
+  const porEstado = base.filter(deEmpresa);
+  const porEmpresa = base.filter(deEstado);
+  const hayFiltro = empresa !== '' || estado !== '';
+  const limpiarFiltros = () => {
+    setEmpresa('');
+    setEstado('');
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -321,66 +368,108 @@ export default function PantallaTrasladoInicio() {
           })}
         </View>
 
-        {/* Filtro por empresa del talonario (los traslados antiguos, sin
-            talonario por punto, solo salen en "Todas"). */}
-        {/* Control secundario: mas discreto que las pestañas de arriba, con la
-            letra del talonario y cuantos traslados tiene cada opcion en la
-            pestaña actual. */}
-        <View style={estilos.empresas} accessibilityRole="radiogroup">
-          {[{ letra: '', corto: 'Todas', color: ACENTO, claro: ACENTO, sobreColor: TEXTO_SOBRE_ACENTO }, ...EMPRESAS_TALONARIO].map((e) => {
-            const activa = empresa === e.letra;
-            // Cada empresa con su color; "Todas" con el acento dorado.
-            const base = pestana === 'enviados' ? enviados : recibidos;
-            const n = e.letra ? base.filter((t) => letraTraslado(t) === e.letra).length : base.length;
-            return (
+        {/* Filtros: empresa del talonario (los traslados antiguos, sin
+            talonario por punto, solo salen en "Todas") y estado. */}
+        <View style={estilos.filtros}>
+          <View style={estilos.filtrosCabecera}>
+            <Text style={estilos.filtrosTitulo}>
+              {lista.length} {lista.length === 1 ? 'traslado' : 'traslados'}
+            </Text>
+            {hayFiltro ? (
               <Pressable
-                key={e.letra || 'todas'}
-                onPress={() => setEmpresa(e.letra)}
-                style={({ pressed }) => [
-                  estilos.empresa,
-                  // "Todas" ocupa solo lo necesario: deja mas ancho a los nombres.
-                  !e.letra && { flex: 0, paddingHorizontal: 12 },
-                  activa && { borderColor: e.claro, backgroundColor: `${e.color}24` },
-                  pressed && { opacity: 0.8 },
-                ]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: activa }}
-                accessibilityLabel={`${e.letra ? e.corto : 'Todas las empresas'}, ${n} traslados`}
+                onPress={limpiarFiltros}
+                hitSlop={12}
+                style={({ pressed }) => [estilos.limpiar, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Quitar los filtros"
               >
-                <View style={[estilos.empresaLetra, (activa || e.letra !== '') && { backgroundColor: e.color }]}>
-                  {e.letra ? (
-                    <Text style={[estilos.empresaLetraTexto, { color: e.sobreColor }]}>{e.letra}</Text>
-                  ) : (
-                    <Ionicons name="layers-outline" size={12} color={activa ? e.sobreColor : NEUTRAL_400} />
-                  )}
-                </View>
-                <Text style={[estilos.empresaTexto, activa && estilos.empresaTextoActiva]} numberOfLines={1}>
-                  {e.corto}
-                </Text>
-                <Text style={[estilos.empresaConteo, activa && { color: e.claro }]}>{n}</Text>
+                <Ionicons name="close-circle" size={15} color={ACENTO} />
+                <Text style={estilos.limpiarTexto}>Quitar filtros</Text>
               </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Resumen solo informativo -- mismos colores que las tarjetas. */}
-        {resumen.length > 0 ? (
-          <View style={estilos.resumen}>
-            {resumen.map(({ estado, n }) => (
-              <View key={estado} style={estilos.resumenItem}>
-                <View style={[estilos.punto, { backgroundColor: ESTADO_TRASLADO[estado].color }]} />
-                <Text style={estilos.resumenTexto}>
-                  {n} {RESUMEN_ESTADO[estado][n === 1 ? 0 : 1]}
-                </Text>
-              </View>
-            ))}
+            ) : null}
           </View>
-        ) : null}
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={estilos.chips}
+            accessibilityRole="radiogroup"
+          >
+            <ChipFiltro
+              activo={empresa === ''}
+              onPress={() => setEmpresa('')}
+              color={ACENTO}
+              indicador={<Ionicons name="layers-outline" size={14} color={empresa === '' ? ACENTO : NEUTRAL_400} />}
+              texto="Todas"
+              n={porEmpresa.length}
+              etiquetaAccesible="Todas las empresas"
+            />
+            {EMPRESAS_TALONARIO.map((e) => (
+              <ChipFiltro
+                key={e.letra}
+                activo={empresa === e.letra}
+                onPress={() => setEmpresa(empresa === e.letra ? '' : e.letra)}
+                color={e.claro}
+                indicador={
+                  <View style={[estilos.chipLetra, { backgroundColor: e.color }]}>
+                    <Text style={[estilos.chipLetraTexto, { color: e.sobreColor }]}>{e.letra}</Text>
+                  </View>
+                }
+                texto={e.corto}
+                n={porEmpresa.filter((t) => letraTraslado(t) === e.letra).length}
+                etiquetaAccesible={e.nombre}
+              />
+            ))}
+          </ScrollView>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={estilos.chips}
+            accessibilityRole="radiogroup"
+          >
+            <ChipFiltro
+              activo={estado === ''}
+              onPress={() => setEstado('')}
+              color={ACENTO}
+              indicador={<Ionicons name="list-outline" size={14} color={estado === '' ? ACENTO : NEUTRAL_400} />}
+              texto="Todos"
+              n={porEstado.length}
+              etiquetaAccesible="Todos los estados"
+            />
+            {(Object.keys(PRIORIDAD) as EstadoTraslado[]).map((e) => (
+              <ChipFiltro
+                key={e}
+                activo={estado === e}
+                onPress={() => setEstado(estado === e ? '' : e)}
+                color={ESTADO_TRASLADO[e].color}
+                indicador={<View style={[estilos.punto, { backgroundColor: ESTADO_TRASLADO[e].color }]} />}
+                texto={ESTADO_TRASLADO[e].texto}
+                n={porEstado.filter((t) => t.estado === e).length}
+                etiquetaAccesible={ESTADO_TRASLADO[e].texto}
+              />
+            ))}
+          </ScrollView>
+        </View>
 
         {cargando && lista.length === 0 ? (
           <ActivityIndicator color={ACENTO} />
         ) : error ? (
           <Text style={styles.textoErrorInline}>{error}</Text>
+        ) : lista.length === 0 && hayFiltro && base.length > 0 ? (
+          <View style={estilos.vacio}>
+            <Ionicons name="funnel-outline" size={30} color={NEUTRAL_500} />
+            <Text style={estilos.vacioTitulo}>Ningún traslado con estos filtros</Text>
+            <Pressable
+              onPress={limpiarFiltros}
+              hitSlop={8}
+              style={({ pressed }) => [estilos.limpiar, estilos.limpiarGrande, pressed && { opacity: 0.7 }]}
+              accessibilityRole="button"
+            >
+              <Ionicons name="close-circle" size={16} color={ACENTO} />
+              <Text style={estilos.limpiarTexto}>Quitar filtros</Text>
+            </Pressable>
+          </View>
         ) : lista.length === 0 ? (
           <View style={estilos.vacio}>
             <Ionicons
@@ -439,35 +528,37 @@ const estilos = StyleSheet.create({
   pestanaConteo: { minWidth: 22, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 10, backgroundColor: NEUTRAL_800 },
   pestanaConteoActivo: { backgroundColor: ACENTO },
   pestanaConteoTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, textAlign: 'center' },
-  empresas: { flexDirection: 'row', gap: 6 },
-  empresa: {
-    flex: 1,
+  filtros: { gap: 8 },
+  filtrosCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24, paddingHorizontal: 2 },
+  filtrosTitulo: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
+  limpiar: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  limpiarGrande: {
+    marginTop: 6,
+    paddingHorizontal: 14,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(245,197,66,0.45)',
+  },
+  limpiarTexto: { color: ACENTO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  chips: { gap: 6, paddingRight: 4 },
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    minHeight: 40,
-    paddingHorizontal: 6,
-    borderRadius: 12,
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_850,
   },
-  empresaLetra: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: NEUTRAL_800,
-  },
-  empresaLetraTexto: { color: NEUTRAL_400, fontSize: 11, fontFamily: FUENTE_DISPLAY },
-  empresaTexto: { flexShrink: 1, color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  empresaTextoActiva: { color: TEXTO_PRIMARIO },
-  empresaConteo: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, fontVariant: ['tabular-nums'] },
-  resumen: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 4 },
-  resumenItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  chipTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
+  chipTextoActivo: { color: TEXTO_PRIMARIO },
+  chipConteo: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, fontVariant: ['tabular-nums'] },
+  chipLetra: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  chipLetraTexto: { fontSize: 10.5, fontFamily: FUENTE_DISPLAY },
   punto: { width: 8, height: 8, borderRadius: 4 },
-  resumenTexto: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
   tarjeta: { flexDirection: 'row', padding: 0, overflow: 'hidden' },
   franja: { width: 5 },
   contenido: { flex: 1, padding: 16, gap: 10 },
