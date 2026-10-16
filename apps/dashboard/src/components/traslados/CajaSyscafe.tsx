@@ -88,7 +88,7 @@ export function CajaSyscafe({
 
   // Encima de la celda, sin salirse de la pantalla por la derecha.
   const left = Math.max(8, Math.min(ancla.left, window.innerWidth - ANCHO_CAJA - 8));
-  const top = Math.max(8, ancla.top + ancla.height / 2 - 26);
+  const top = Math.max(8, ancla.top + ancla.height / 2 - 21);
   const claseCampo =
     "cifra h-8 rounded border border-line-strong bg-surface px-1.5 text-sm uppercase tracking-wide text-ink focus:border-brand-gold focus:outline-none";
 
@@ -98,11 +98,8 @@ export function CajaSyscafe({
       role="dialog"
       aria-label={`Número Syscafe del traslado ${referencia(fila)}`}
       style={{ left, top }}
-      className="fixed z-50 flex flex-col gap-1 rounded-md border border-brand-gold/50 bg-surface p-1.5 shadow-lg shadow-brand-night/30"
+      className="fixed z-50 flex rounded-md border border-brand-gold/50 bg-surface p-1.5 shadow-lg shadow-brand-night/30"
     >
-      <span className="px-0.5 text-[10px] font-medium text-muted">
-        Syscafe · <span className="cifra text-soft">{referencia(fila)}</span>
-      </span>
       <div className="flex items-center gap-1">
         {/* Con el prefijo ya puesto (el ultimo usado) se arranca en el indicativo. */}
         <input
