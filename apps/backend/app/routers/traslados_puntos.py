@@ -372,7 +372,7 @@ async def extraer_talonario_endpoint(payload: ExtraerTalonario) -> dict:
     rutas GET /traslados-puntos/{traslado_id}; igual se declara antes de las
     rutas con path param por consistencia con /novedades."""
     try:
-        return await extraer_talonario(payload.foto_url, payload.punto_origen_id)
+        return await extraer_talonario(payload.foto_url, payload.punto_origen_id, payload.letra)
     except TalonarioNoDisponible as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ExtraccionFallida as exc:

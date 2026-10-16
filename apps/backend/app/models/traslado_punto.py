@@ -35,6 +35,9 @@ class ExtraerTalonario(BaseModel):
 
     foto_url: str
     punto_origen_id: str
+    # Letra del talonario que el operador eligio antes de la foto ("A", "V").
+    # Opcional para la app vieja: sin ella se acepta cualquier talonario activo.
+    letra: str | None = None
 
 
 class TrasladoPuntoCrear(BaseModel):
