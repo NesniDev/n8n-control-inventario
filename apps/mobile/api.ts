@@ -922,6 +922,8 @@ export async function configurarTalonario(payload: {
   usuario_id: string;
   letra: string;
   numero_inicial: number;
+  // Talonario que ya venia en uso: siguiente hoja por usar. Sin el, desde la primera.
+  numero_siguiente?: number;
   motivo?: string;
 }): Promise<TalonarioPunto> {
   const res = await fetchConTimeout(`${API_BASE_URL}/talonarios-puntos/configurar`, {

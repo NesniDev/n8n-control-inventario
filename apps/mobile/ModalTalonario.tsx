@@ -4,6 +4,7 @@
 // patron que ModalProducto: una HojaModal con campos y un boton primario.
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { anularHojaTalonario, configurarTalonario, type TalonarioPunto } from './api';
 import { mensajeError } from './errorMessages';
@@ -81,6 +82,10 @@ export function ModalConfigurarTalonario({
   const [letra, setLetra] = useState('');
   const [numero, setNumero] = useState('');
   const [motivo, setMotivo] = useState('');
+  // Talonario que ya venia en uso (p. ej. 1-50 y van en la 35): se registra
+  // desde la siguiente hoja por usar en vez de desde la primera.
+  const [enUso, setEnUso] = useState(false);
+  const [siguiente, setSiguiente] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,6 +101,8 @@ export function ModalConfigurarTalonario({
       setLetra(letraInicial ?? (opciones.length === 1 ? opciones[0].letra : ''));
       setNumero('');
       setMotivo('');
+      setEnUso(false);
+      setSiguiente('');
       setError(null);
     }
     // opciones se deriva de talonarios/letraInicial; basta con reiniciar al abrir.
@@ -106,7 +113,14 @@ export function ModalConfigurarTalonario({
   const letraValida = EMPRESAS_TALONARIO.some((e) => e.letra === letra);
   const inicial = numero ? Number(numero) : 0;
   const numeroValido = /^\d{1,7}$/.test(numero) && inicial > 0 && inicial + HOJAS - 1 <= 9999999;
-  const valido = letraValida && numeroValido && (!exigeMotivo || motivo.trim() !== '');
+  const final = inicial + HOJAS - 1;
+  // "Ya en uso" solo para el primer talonario de la empresa en el punto: al
+  // cambiar uno existente, el nuevo empieza en su primera hoja (el backend
+  // tambien lo valida, incluso si el anterior ya se habia cerrado).
+  const puedeEnUso = actual === null;
+  const desde = puedeEnUso && enUso && siguiente ? Number(siguiente) : inicial;
+  const siguienteValido = !puedeEnUso || !enUso || (numeroValido && /^\d{1,7}$/.test(siguiente) && desde >= inicial && desde <= final);
+  const valido = letraValida && numeroValido && siguienteValido && (!exigeMotivo || motivo.trim() !== '');
 
   const guardar = async () => {
     if (!valido || enviando) return;
@@ -118,6 +132,7 @@ export function ModalConfigurarTalonario({
         usuario_id: usuarioId,
         letra,
         numero_inicial: inicial,
+        numero_siguiente: puedeEnUso && enUso ? desde : undefined,
         motivo: exigeMotivo ? motivo.trim() : undefined,
       });
       onListo(nuevo);
@@ -154,7 +169,7 @@ export function ModalConfigurarTalonario({
           })}
         </View>
       </Campo>
-      <Campo etiqueta="Número">
+      <Campo etiqueta="Primera hoja del talonario">
         <TextInput
           value={numero}
           onChangeText={(v) => setNumero(v.replace(/[^0-9]/g, '').slice(0, 7))}
@@ -167,13 +182,49 @@ export function ModalConfigurarTalonario({
         />
       </Campo>
 
-      {letraValida && numeroValido ? (
+      {/* Talonario que ya se venia usando antes de registrarlo en la app. */}
+      {puedeEnUso ? (
+      <Pressable
+        onPress={() => setEnUso((v) => !v)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: enUso }}
+        style={estilos.opcion}
+      >
+        <Ionicons name={enUso ? 'checkbox' : 'square-outline'} size={22} color={enUso ? ACENTO : NEUTRAL_500} />
+        <Text style={estilos.opcionTexto}>Este talonario ya está en uso (ya se gastaron algunas hojas)</Text>
+      </Pressable>
+      ) : null}
+
+      {puedeEnUso && enUso ? (
+        <Campo etiqueta="Siguiente hoja por usar">
+          <TextInput
+            value={siguiente}
+            onChangeText={(v) => setSiguiente(v.replace(/[^0-9]/g, '').slice(0, 7))}
+            keyboardType="number-pad"
+            maxLength={7}
+            placeholder={numeroValido ? `Entre ${inicial} y ${final}` : 'Ej. 6335'}
+            placeholderTextColor={NEUTRAL_500}
+            style={estilos.input}
+          />
+          {numeroValido && siguiente && !siguienteValido ? (
+            <Text style={styles.textoErrorInline}>
+              Debe ser una hoja entre {inicial} y {final}.
+            </Text>
+          ) : null}
+        </Campo>
+      ) : null}
+
+      {letraValida && numeroValido && siguienteValido && (!(puedeEnUso && enUso) || siguiente) ? (
         <View style={estilos.vista}>
           <Text style={estilos.vistaEtiqueta}>El talonario va de</Text>
           <Text style={estilos.vistaRango}>
-            {letra} {inicial} – {letra} {inicial + HOJAS - 1}
+            {letra} {inicial} – {letra} {final}
           </Text>
-          <Text style={estilos.vistaEtiqueta}>({HOJAS} hojas)</Text>
+          <Text style={estilos.vistaEtiqueta}>
+            {puedeEnUso && enUso
+              ? `Se empieza en la hoja ${letra} ${desde} · quedan ${final - desde + 1} de ${HOJAS}`
+              : `(${HOJAS} hojas)`}
+          </Text>
         </View>
       ) : null}
 
@@ -324,6 +375,8 @@ const estilos = StyleSheet.create({
     borderWidth: 1,
     borderColor: ACENTO,
   },
+  opcion: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
+  opcionTexto: { flex: 1, color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY },
   vistaEtiqueta: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
   vistaRango: { color: ACENTO, fontSize: 20, fontFamily: FUENTE_DISPLAY, letterSpacing: 0.5 },
 });
