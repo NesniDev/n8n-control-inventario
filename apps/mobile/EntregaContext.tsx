@@ -3,8 +3,9 @@
 // solo componente gigante (PantallaCaptura, en App.tsx). Lo genuinamente
 // cross-fase queda aca; lo que solo usa una pantalla se quedo local a esa
 // pantalla (ver cada Pantalla*.tsx).
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { Alert, Image, Pressable, Modal, PanResponder, Text, View } from 'react-native';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { Alert, Pressable, Text, View } from 'react-native';
+import VisorFotoZoom from './VisorFotoZoom';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NavigationHelpers } from '@react-navigation/native';
@@ -14,7 +15,7 @@ import type { NavigationHelpers } from '@react-navigation/native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { cancelarEntrega, type Empleado, type Flujo, type ItemEntrega, type Sede } from './api';
-import { ACENTO, estilosVisorZoom, NEUTRAL_500, styles, TEXTO_PRIMARIO, useEstiloTabBar, type EstadoFinal } from './tema';
+import { ACENTO, NEUTRAL_500, styles, useEstiloTabBar, type EstadoFinal } from './tema';
 // Type-only -- se borra en compilacion, no genera dependencia circular en
 // runtime (Navegacion.tsx importa EntregaProvider mas abajo, pero solo el
 // componente, no este tipo).
@@ -94,123 +95,6 @@ export const formatearIdentificador = (tipo: string, indicativoNumero: string): 
   if (!tipo || !indicativoNumero) return null;
   return `${tipo}-${indicativoNumero}`;
 };
-
-// Visor a pantalla completa para revisar una foto ya tomada (evidencia o
-// traslado) con zoom -- pellizcar con dos dedos para acercar/alejar, arrastrar
-// con un dedo para moverse dentro de la imagen ampliada, doble toque para
-// alternar entre 1x y 2.5x. Sin dependencias nuevas: PanResponder + touches
-// crudos, nada de gesture-handler/reanimated (evita otro build nativo).
-// No exportado -- solo lo usa EntregaProvider para el overlay compartido
-// (Captura y Confirmando disparan fotoAmpliada via el context, no renderizan
-// este componente ellas mismas).
-function VisorFotoZoom({ uri, onCerrar }: { uri: string; onCerrar: () => void }) {
-  const [escala, setEscala] = useState(1);
-  const [desplazamiento, setDesplazamiento] = useState({ x: 0, y: 0 });
-
-  // Todo lo que sigue es estado "de gesto en curso", no de React -- se lee y
-  // escribe dentro de los callbacks del PanResponder, no dispara renders.
-  const escalaAlIniciarPinch = useRef(1);
-  const distanciaAlIniciarPinch = useRef<number | null>(null);
-  const ultimoToqueUnico = useRef<{ x: number; y: number } | null>(null);
-  const inicioToqueSimple = useRef<{ x: number; y: number; tiempo: number } | null>(null);
-  const ultimoTapSimple = useRef(0);
-
-  const distanciaEntreToques = (toques: { pageX: number; pageY: number }[]) =>
-    Math.hypot(toques[0].pageX - toques[1].pageX, toques[0].pageY - toques[1].pageY);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const toques = evt.nativeEvent.touches;
-        if (toques.length === 1) {
-          inicioToqueSimple.current = { x: toques[0].pageX, y: toques[0].pageY, tiempo: Date.now() };
-        }
-      },
-      onPanResponderMove: (evt) => {
-        const toques = evt.nativeEvent.touches;
-        if (toques.length === 2) {
-          ultimoToqueUnico.current = null;
-          const distanciaActual = distanciaEntreToques(toques);
-          if (distanciaAlIniciarPinch.current == null) {
-            // Primer frame con dos dedos -- fija el punto de partida en vez
-            // de saltar de golpe a la escala que daria el primer delta.
-            distanciaAlIniciarPinch.current = distanciaActual;
-            escalaAlIniciarPinch.current = escala;
-          } else {
-            const factor = distanciaActual / distanciaAlIniciarPinch.current;
-            setEscala(Math.min(Math.max(escalaAlIniciarPinch.current * factor, 1), 5));
-          }
-        } else if (toques.length === 1) {
-          distanciaAlIniciarPinch.current = null;
-          const toque = toques[0];
-          if (escala > 1 && ultimoToqueUnico.current) {
-            setDesplazamiento((prev) => ({
-              x: prev.x + (toque.pageX - ultimoToqueUnico.current!.x),
-              y: prev.y + (toque.pageY - ultimoToqueUnico.current!.y),
-            }));
-          }
-          ultimoToqueUnico.current = { x: toque.pageX, y: toque.pageY };
-        }
-      },
-      onPanResponderRelease: (evt) => {
-        distanciaAlIniciarPinch.current = null;
-        ultimoToqueUnico.current = null;
-
-        const inicio = inicioToqueSimple.current;
-        inicioToqueSimple.current = null;
-        if (!inicio) return;
-
-        const fin = evt.nativeEvent.changedTouches[0];
-        const movimiento = fin ? Math.hypot(fin.pageX - inicio.x, fin.pageY - inicio.y) : 0;
-        const duracion = Date.now() - inicio.tiempo;
-        if (movimiento > 10 || duracion > 250) return; // fue arrastre, no tap
-
-        const ahora = Date.now();
-        if (ahora - ultimoTapSimple.current < 300) {
-          // Doble toque: alterna entre 1x (reset) y 2.5x centrado.
-          ultimoTapSimple.current = 0;
-          if (escala > 1) {
-            setEscala(1);
-            setDesplazamiento({ x: 0, y: 0 });
-          } else {
-            setEscala(2.5);
-          }
-        } else {
-          ultimoTapSimple.current = ahora;
-        }
-      },
-    })
-  ).current;
-
-  return (
-    <Modal visible animationType="fade" onRequestClose={onCerrar} statusBarTranslucent>
-      <View style={estilosVisorZoom.fondo}>
-        <Pressable style={estilosVisorZoom.botonCerrar} onPress={onCerrar} hitSlop={14}>
-          <Ionicons name="close" size={26} color={TEXTO_PRIMARIO} />
-        </Pressable>
-        <View style={estilosVisorZoom.area} {...panResponder.panHandlers}>
-          <Image
-            source={{ uri }}
-            resizeMode="contain"
-            style={[
-              estilosVisorZoom.imagen,
-              {
-                transform: [
-                  { translateX: desplazamiento.x },
-                  { translateY: desplazamiento.y },
-                  { scale: escala },
-                ],
-              },
-            ]}
-          />
-        </View>
-        <Text style={estilosVisorZoom.ayuda}>Pellizcá para zoom · doble toque para acercar/alejar</Text>
-      </View>
-    </Modal>
-  );
-}
 
 export interface EntregaContextValue {
   // Tab desde la que corre esta sesion ('despacho' | 'remision') -- cada tab

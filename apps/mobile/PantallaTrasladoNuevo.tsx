@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
 import { extraerTalonario, fetchTalonariosPunto, subirEvidencia, type Punto, type TalonarioPunto } from './api';
 import { quitarCodigo } from './PantallaEntrada';
@@ -21,6 +22,7 @@ import { mensajeError } from './errorMessages';
 import CampoFirma from './CampoFirma';
 import { comprimirParaEnvio } from './EntregaContext';
 import HojaModal from './HojaModal';
+import VisorFotoZoom from './VisorFotoZoom';
 import { datosEmpresa, EMPRESAS_TALONARIO, InsigniaEmpresa } from './ModalTalonario';
 import ModalProducto, { productoValido } from './ModalProducto';
 import { formatearFechaCorta, formatearFechaLarga } from './SelectorFecha';
@@ -115,6 +117,15 @@ export default function PantallaTrasladoNuevo() {
   // de Storage guardada en el borrador.
   const [fotoUri, setFotoUri] = useState<string | null>(null);
   const [leyendo, setLeyendo] = useState(false);
+  // Visor a pantalla completa de la foto (zoom y giro) abierto.
+  const [fotoAbierta, setFotoAbierta] = useState(false);
+  // Giro de la foto en grados (solo de la vista: la imagen leida no cambia) y
+  // ancho de la miniatura, para que girada de lado siga entrando completa.
+  const [giroFoto, setGiroFoto] = useState(0);
+  // Foto tomada o elegida que todavia no se envio a leer: se revisa (girar,
+  // ampliar) y se manda con "Enviar foto". null = no hay foto en espera.
+  const [fotoPendiente, setFotoPendiente] = useState<string | null>(null);
+  const [anchoMiniatura, setAnchoMiniatura] = useState(0);
   // Error de la lectura (red, IA) y lista de campos que no se pudieron leer:
   // en cualquiera de los dos casos solo se puede repetir la foto.
   const [errorLectura, setErrorLectura] = useState<string | null>(null);
@@ -123,13 +134,9 @@ export default function PantallaTrasladoNuevo() {
   // pueden fotografiarse. undefined = todavia no se sabe (no bloquea; el
   // backend valida igual).
   const [talonarios, setTalonarios] = useState<TalonarioPunto[] | undefined>(undefined);
-  // Hoja esperada segun la ultima lectura (el backend la devuelve en cada extraccion).
-  const [hojaEsperada, setHojaEsperada] = useState<string | null>(null);
   // Empresa (letra del talonario) elegida antes de la foto; si se vuelve a
   // esta pantalla con una lectura hecha, sale de la hoja ya leida.
   const [letra, setLetra] = useState(() => /^\s*([A-Za-z]{1,3})/.exec(draft.numeroTalonario)?.[1].toUpperCase() ?? '');
-  // Letra que la IA leyo en la ultima foto (para avisar si es de otra empresa).
-  const [letraLeida, setLetraLeida] = useState<string | null>(null);
 
   useEffect(() => {
     if (!punto) return;
@@ -142,8 +149,6 @@ export default function PantallaTrasladoNuevo() {
   const sinTalonario = sinConfigurar || (talonarios !== undefined && talonarios.every((t) => t.agotado));
   // Talonario de la empresa elegida (solo si tiene hojas).
   const elegido = (talonarios ?? []).find((t) => t.letra === letra && !t.agotado) ?? null;
-  // Para el aviso de numero faltante: lo que dijo el backend o, si no, la del elegido.
-  const esperada = hojaEsperada ?? elegido?.siguiente_hoja ?? null;
 
   // Con un solo talonario con hojas no hay nada que elegir: se marca solo.
   useEffect(() => {
@@ -174,10 +179,9 @@ export default function PantallaTrasladoNuevo() {
     try {
       const uri = await comprimirParaEnvio(uriOriginal);
       setFotoUri(uri);
+      setGiroFoto(0);
       const { url } = await subirEvidencia(uri);
       const lectura = await extraerTalonario(url, punto.id, letra);
-      setHojaEsperada(lectura.numero_esperado ?? null);
-      setLetraLeida(lectura.letra_leida ?? null);
       if (lectura.faltantes.length > 0 || !lectura.punto_destino) {
         setFaltantes(lectura.faltantes.length > 0 ? lectura.faltantes : ['Destino']);
         return;
@@ -191,7 +195,7 @@ export default function PantallaTrasladoNuevo() {
         items: lectura.items.map((item) => ({
           ...nuevoItemDraft(),
           cantidad: String(item.cantidad),
-          producto: item.producto,
+          producto: item.producto.toUpperCase(),
           marca: item.marca,
           presentacion: item.presentacion,
           fechaVencimiento: item.fecha_vencimiento,
@@ -210,17 +214,36 @@ export default function PantallaTrasladoNuevo() {
     if (nueva === letra || leyendo) return;
     setLetra(nueva);
     setFotoUri(null);
+    setFotoPendiente(null);
     setErrorLectura(null);
     setFaltantes([]);
-    setHojaEsperada(null);
-    setLetraLeida(null);
     limpiarLectura();
   };
 
+  // La foto nueva queda en espera para revisarla; lo leido antes se descarta.
   const usarResultado = async (resultado: ImagePicker.ImagePickerResult) => {
     if (!resultado.canceled && resultado.assets[0]) {
-      await procesarFoto(resultado.assets[0].uri);
+      const uri = resultado.assets[0].uri;
+      setFotoPendiente(uri);
+      setFotoUri(uri);
+      setGiroFoto(0);
+      setErrorLectura(null);
+      setFaltantes([]);
+      limpiarLectura();
     }
+  };
+
+  // Envia la foto en espera a leer, ya girada como se ve en pantalla (el giro
+  // se aplica al archivo para que la IA la reciba derecha).
+  const enviarFoto = async () => {
+    if (!fotoPendiente) return;
+    let uri = fotoPendiente;
+    if (giroFoto !== 0) {
+      const girada = await manipulateAsync(uri, [{ rotate: giroFoto }], { compress: 1, format: SaveFormat.JPEG });
+      uri = girada.uri;
+    }
+    setFotoPendiente(null);
+    await procesarFoto(uri);
   };
 
   const tomarFoto = async () => {
@@ -270,8 +293,6 @@ export default function PantallaTrasladoNuevo() {
   // Mientras se cargan los talonarios no se bloquea (el backend valida igual).
   const puedeFotografiar = talonarios === undefined || elegido !== null;
   const hayProblema = errorLectura !== null || faltantes.length > 0;
-  // La foto era de otra empresa (letra leida distinta de la elegida).
-  const empresaLeida = letraLeida && letraLeida !== letra ? datosEmpresa(letraLeida) : null;
   const empresaElegida = datosEmpresa(letra);
 
   return (
@@ -356,7 +377,49 @@ export default function PantallaTrasladoNuevo() {
               </Text>
             ) : null}
             {hayFoto ? (
-              <Image source={{ uri: fotoUri ?? draft.fotoTalonarioUrl }} style={estilos.miniatura} resizeMode="cover" />
+              <View style={estilos.miniatura} onLayout={(e) => setAnchoMiniatura(e.nativeEvent.layout.width)}>
+                <Pressable
+                  onPress={() => setFotoAbierta(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver la foto en grande"
+                  style={({ pressed }) => [estilos.miniaturaToque, pressed && { opacity: 0.85 }]}
+                >
+                  <Image
+                    source={{ uri: fotoUri ?? draft.fotoTalonarioUrl }}
+                    resizeMode="contain"
+                    style={[
+                      // De lado se cambian ancho y alto para que, girada, entre completa.
+                      giroFoto % 180 !== 0
+                        ? { width: ALTO_MINIATURA, height: anchoMiniatura }
+                        : { width: anchoMiniatura, height: ALTO_MINIATURA },
+                      { transform: [{ rotate: `${giroFoto}deg` }] },
+                    ]}
+                  />
+                </Pressable>
+                {/* Acciones sobre la foto: girar y ampliar, una al lado de la otra. */}
+                <View style={estilos.accionesFoto}>
+                  <Pressable
+                    onPress={() => setGiroFoto((g) => (g + 90) % 360)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel="Girar la foto"
+                    style={({ pressed }) => [estilos.accionFoto, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="refresh-outline" size={15} color={TEXTO_PRIMARIO} />
+                    <Text style={estilos.accionFotoTexto}>Girar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setFotoAbierta(true)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ampliar la foto"
+                    style={({ pressed }) => [estilos.accionFoto, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="expand-outline" size={15} color={TEXTO_PRIMARIO} />
+                    <Text style={estilos.accionFotoTexto}>Ampliar</Text>
+                  </Pressable>
+                </View>
+              </View>
             ) : null}
             {leyendo ? (
               <View style={estilos.leyendo}>
@@ -364,6 +427,21 @@ export default function PantallaTrasladoNuevo() {
                 <Text style={styles.previewSubtexto}>Leyendo el talonario...</Text>
               </View>
             ) : sinTalonario ? null : (
+              <>
+              {fotoPendiente ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.previewSubtexto}>
+                    Revisa que la hoja se vea completa y derecha (puedes girarla). Luego envíala para leerla.
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.boton, styles.botonPrimario, pressed && styles.botonPresionado]}
+                    onPress={enviarFoto}
+                    accessibilityRole="button"
+                  >
+                    <ContenidoBoton icono="send-outline" texto="Enviar foto" color={TEXTO_SOBRE_ACENTO} />
+                  </Pressable>
+                </View>
+              ) : null}
               <View style={estilos.filaBotones}>
                 <Pressable
                   style={({ pressed }) => [
@@ -394,27 +472,14 @@ export default function PantallaTrasladoNuevo() {
                   <ContenidoBoton icono="images-outline" texto="Galería" color={NEUTRAL_400} />
                 </Pressable>
               </View>
+              </>
             )}
+            {/* Un solo aviso, corto: el detalle de que fallo no le sirve al operador. */}
             {hayProblema && !leyendo ? (
-              <View style={{ gap: 4 }}>
-                <Text style={styles.textoErrorInline}>
-                  {errorLectura ?? 'No se pudo leer el talonario con claridad.'}
-                </Text>
-                {faltantes.includes('Número de talonario') && empresaLeida && empresaElegida ? (
-                  <Text style={styles.textoErrorInline}>
-                    La foto es de una hoja de {empresaLeida.corto} ({empresaLeida.letra}), pero elegiste{' '}
-                    {empresaElegida.corto}. Cambia la empresa o fotografía la hoja {esperada}.
-                  </Text>
-                ) : faltantes.includes('Número de talonario') && esperada ? (
-                  <Text style={styles.textoErrorInline}>
-                    La foto debe ser de la hoja {esperada}.
-                  </Text>
-                ) : null}
-                {faltantes.length > 0 ? (
-                  <Text style={styles.textoErrorInline}>No se leyó: {faltantes.join(', ')}.</Text>
-                ) : null}
-                <Text style={styles.previewSubtexto}>
-                  Toma la foto otra vez con buena luz y el talonario completo dentro del encuadre.
+              <View style={estilos.avisoLectura}>
+                <Ionicons name="alert-circle-outline" size={18} color="#f87171" />
+                <Text style={estilos.avisoLecturaTexto}>
+                  {errorLectura ?? 'No se pudo leer el talonario. Toma la foto otra vez.'}
                 </Text>
               </View>
             ) : null}
@@ -605,9 +670,19 @@ export default function PantallaTrasladoNuevo() {
         onGuardar={guardarItem}
         onCerrar={() => setProductoEditado(undefined)}
       />
+      {fotoAbierta && (fotoUri ?? draft.fotoTalonarioUrl) ? (
+        <VisorFotoZoom
+          uri={(fotoUri ?? draft.fotoTalonarioUrl)!}
+          giro={giroFoto}
+          onCerrar={() => setFotoAbierta(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
+
+// Alto de la miniatura de la foto del talonario.
+const ALTO_MINIATURA = 180;
 
 const estilos = StyleSheet.create({
   hojaEsperada: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -717,7 +792,28 @@ const estilos = StyleSheet.create({
   chipDetalleTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, flexShrink: 1 },
   botonQuitar: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   cantidadEtiqueta: { color: NEUTRAL_500, fontSize: 10, fontFamily: FUENTE_BODY_SEMI, marginTop: -2 },
-  miniatura: { width: '100%', height: 180, borderRadius: 12 },
+  miniatura: { width: '100%', height: ALTO_MINIATURA, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000000' },
+  miniaturaToque: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  avisoLectura: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(248,113,113,0.10)',
+  },
+  avisoLecturaTexto: { flex: 1, color: '#fca5a5', fontSize: 13.5, fontFamily: FUENTE_BODY_SEMI },
+  accionesFoto: { position: 'absolute', right: 8, bottom: 8, flexDirection: 'row', gap: 6 },
+  accionFoto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    height: 30,
+    borderRadius: 999,
+    backgroundColor: 'rgba(8,22,51,0.82)',
+  },
+  accionFotoTexto: { color: TEXTO_PRIMARIO, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
   leyendo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   filaBotones: { flexDirection: 'row', gap: 10 },
   tarjetaProducto: { flexDirection: 'row', alignItems: 'center', gap: 12 },

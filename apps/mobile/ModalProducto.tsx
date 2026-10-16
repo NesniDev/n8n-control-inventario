@@ -56,8 +56,9 @@ export default function ModalProducto({
         <Campo etiqueta="Nombre del producto">
           <TextInput
             value={item.producto}
-            onChangeText={(v) => cambiar({ producto: v })}
-            placeholder="Ej. Standard 70"
+            onChangeText={(v) => cambiar({ producto: v.toUpperCase() })}
+            autoCapitalize="characters"
+            placeholder="Ej. STANDARD 70"
             placeholderTextColor={NEUTRAL_500}
             style={estilos.input}
           />
@@ -120,7 +121,7 @@ export default function ModalProducto({
             onGuardar({
               ...item,
               cantidad: item.cantidad.trim(),
-              producto: item.producto.trim(),
+              producto: item.producto.trim().toUpperCase(),
               marca: item.marca.trim(),
               presentacion: item.presentacion.trim(),
             });
