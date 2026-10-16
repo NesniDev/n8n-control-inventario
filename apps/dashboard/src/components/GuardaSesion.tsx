@@ -84,6 +84,30 @@ const ENLACES_ANALISIS: EnlaceNav[] = [
 
 const esActiva = (pathname: string, href: string) => pathname.startsWith(href);
 
+// Enlace con su permiso ya resuelto para el usuario de la sesion.
+type EnlaceConPermiso = EnlaceNav & { bloqueado: boolean };
+
+const AVISO_BLOQUEADO = "Tu cuenta no tiene acceso a esta sección";
+
+// Candado de las secciones sin permiso (el texto atenuado y el aviso
+// acompañan: el icono no va solo).
+function Candado() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className="h-3.5 w-3.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 11V7a5 5 0 0 1 10 0v4M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z" />
+    </svg>
+  );
+}
+
 // Clases comunes de los items de primer nivel: ocupan todo el alto de la barra y
 // la marca de activo es una linea de 2px azul en el borde inferior (sin pildora).
 // El anillo de foco va hacia adentro (offset negativo) para que el overflow del
@@ -103,7 +127,7 @@ const ANCHO_PANEL_ANALISIS = 192; // w-48
 // overflow-x-auto para el scroll horizontal en movil, y eso recortaria (o
 // agregaria scroll vertical a) cualquier hijo absoluto. El header ya no tiene
 // backdrop-filter, asi que `fixed` se calcula contra el viewport.
-function MenuAnalisis({ enlaces }: { enlaces: EnlaceNav[] }) {
+function MenuAnalisis({ enlaces }: { enlaces: EnlaceConPermiso[] }) {
   const pathname = usePathname();
   const idPanel = useId();
   // Se guarda la ruta en la que se abrio: el menu se cierra solo al navegar
@@ -210,19 +234,34 @@ function MenuAnalisis({ enlaces }: { enlaces: EnlaceNav[] }) {
           style={{ left: pos.left, top: pos.top, width: ANCHO_PANEL_ANALISIS }}
           className="fixed z-50 flex flex-col rounded-lg border border-line bg-surface py-1 shadow-lg shadow-brand-night/10"
         >
-          {enlaces.map((e) => (
-            <Link
-              key={e.href}
-              href={e.href}
-              role="menuitem"
-              aria-current={esActiva(pathname, e.href) ? "page" : undefined}
-              className={`flex min-h-11 items-center border-l-2 px-3 text-sm font-medium transition-colors duration-150 hover:bg-surface-2 ${
-                esActiva(pathname, e.href) ? "border-brand-blue text-ink" : "border-transparent text-soft"
-              }`}
-            >
-              {e.etiqueta}
-            </Link>
-          ))}
+          {enlaces.map((e) =>
+            e.bloqueado ? (
+              <span
+                key={e.href}
+                role="menuitem"
+                aria-disabled="true"
+                tabIndex={-1}
+                title={AVISO_BLOQUEADO}
+                className="flex min-h-11 cursor-not-allowed items-center justify-between gap-2 border-l-2 border-transparent px-3 text-sm font-medium text-subtle"
+              >
+                {e.etiqueta}
+                <Candado />
+                <span className="sr-only">, sin acceso</span>
+              </span>
+            ) : (
+              <Link
+                key={e.href}
+                href={e.href}
+                role="menuitem"
+                aria-current={esActiva(pathname, e.href) ? "page" : undefined}
+                className={`flex min-h-11 items-center border-l-2 px-3 text-sm font-medium transition-colors duration-150 hover:bg-surface-2 ${
+                  esActiva(pathname, e.href) ? "border-brand-blue text-ink" : "border-transparent text-soft"
+                }`}
+              >
+                {e.etiqueta}
+              </Link>
+            ),
+          )}
         </div>
       ) : null}
     </li>
@@ -252,11 +291,24 @@ function BarraUsuario() {
   }, []);
   if (!usuario) return null;
 
-  // Misma regla de antes: oculta lo que el usuario no puede abrir.
-  const visible = (e: EnlaceNav) => (!e.soloAdmin || esAdmin) && rutaPermitida(usuario, e.href);
-  const enlacesAnalisis = ENLACES_ANALISIS.filter(visible);
+  // Todas las secciones se muestran: las que el usuario no puede abrir quedan
+  // bloqueadas (con candado y sin enlace) en lugar de desaparecer del menu.
+  const permitido = (e: EnlaceNav) => (!e.soloAdmin || esAdmin) && rutaPermitida(usuario, e.href);
+  const enlacesAnalisis = ENLACES_ANALISIS.map((e) => ({ ...e, bloqueado: !permitido(e) }));
   const enlaceSimple = (e: EnlaceNav) =>
-    visible(e) ? (
+    !permitido(e) ? (
+      <li key={e.href} className="flex">
+        <span
+          aria-disabled="true"
+          title={AVISO_BLOQUEADO}
+          className={`${CLASE_ITEM_NAV} cursor-not-allowed gap-1.5 text-subtle after:bg-transparent`}
+        >
+          {e.etiqueta}
+          <Candado />
+          <span className="sr-only">, sin acceso</span>
+        </span>
+      </li>
+    ) : (
       <li key={e.href} className="flex">
         <Link
           href={e.href}
@@ -266,7 +318,7 @@ function BarraUsuario() {
           {e.etiqueta}
         </Link>
       </li>
-    ) : null;
+    );
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface">
@@ -286,7 +338,7 @@ function BarraUsuario() {
           <ul className="flex h-full w-max items-stretch gap-1">
             {enlaceSimple(ENLACE_ENTREGAS)}
             {enlaceSimple(ENLACE_TRASLADOS)}
-            {enlacesAnalisis.length > 0 ? <MenuAnalisis enlaces={enlacesAnalisis} /> : null}
+            <MenuAnalisis enlaces={enlacesAnalisis} />
             {enlaceSimple(ENLACE_ADMIN)}
           </ul>
         </nav>
