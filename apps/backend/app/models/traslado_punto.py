@@ -28,6 +28,13 @@ class ItemTrasladoCrear(BaseModel):
     # Opcional: no todos los productos del talonario traen vencimiento.
     fecha_vencimiento: date | None = None
 
+    @field_validator("producto")
+    @classmethod
+    def _producto_en_mayusculas(cls, valor: str) -> str:
+        # Los nombres de producto se guardan siempre en mayusculas, vengan de
+        # la lectura de la foto o de una edicion a mano.
+        return valor.strip().upper()
+
 
 class ExtraerTalonario(BaseModel):
     """Payload de POST /traslados-puntos/extraer -- foto del talonario ya

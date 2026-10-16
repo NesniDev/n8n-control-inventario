@@ -192,7 +192,8 @@ async def extraer_talonario(foto_url: str, punto_origen_id: str, letra: str | No
     destino_texto = (extraido.get("destino") or "").strip()
     transportador = (extraido.get("transportador") or "").strip()
     fecha = (extraido.get("fecha") or "").strip()
-    items = extraido.get("items") or []
+    # Nombres de producto en mayusculas desde la lectura (igual que al guardar).
+    items = [{**i, "producto": (i.get("producto") or "").strip().upper()} for i in (extraido.get("items") or [])]
 
     punto_destino = _resolver_destino(destino_texto, puntos)
 
