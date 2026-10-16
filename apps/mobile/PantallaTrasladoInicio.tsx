@@ -1,10 +1,11 @@
 // Pantalla de entrada de la tab Traslados, post-login: dos caminos posibles
 // (crear un traslado nuevo, o ir a la bandeja de lo que llega a este punto)
 // y el historial del punto en dos pestañas -- Enviados (salieron de aca) y
-// Recibidos (llegaron aca y ya se confirmaron). Debajo, filtros en chips por
-// empresa del talonario y por estado, cada uno con su conteo; la lista va
-// ordenada con lo que pide atencion primero. Tocar una tarjeta abre
-// DetalleTraslado.
+// Recibidos (llegaron aca y ya se confirmaron). Debajo, una barra con el boton
+// "Filtrar" (abre una hoja con empresa del talonario y estado, cada opcion con
+// su conteo) y los filtros activos como pastillas que se quitan al tocarlas;
+// la lista va ordenada con lo que pide atencion primero. Tocar una tarjeta
+// abre DetalleTraslado.
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +23,8 @@ import {
   type Traslado,
 } from './api';
 import { mensajeError } from './errorMessages';
-import { EMPRESAS_TALONARIO, letraTraslado } from './ModalTalonario';
+import HojaModal from './HojaModal';
+import { datosEmpresa, EMPRESAS_TALONARIO, InsigniaEmpresa, letraTraslado } from './ModalTalonario';
 import { ESTADO_TRASLADO } from './PantallaTrasladoDetalle';
 import { HeaderTraslado, useTraslado } from './TrasladoContext';
 import { formatearFechaLarga, haceCuanto } from './SelectorFecha';
@@ -57,16 +59,15 @@ function ordenar(lista: Traslado[]): Traslado[] {
   );
 }
 
-// Chip de filtro: pastilla con un indicador (letra, punto o icono), texto y
-// conteo. 36 px visibles + hitSlop para llegar a 44 px de area tactil.
-function ChipFiltro({
+// Opcion de la hoja de filtros: indicador (letra, punto o icono), texto,
+// conteo y marca de elegida. Fila de 48 px; sin traslados queda apagada.
+function OpcionFiltro({
   activo,
   onPress,
   color,
   indicador,
   texto,
   n,
-  etiquetaAccesible,
 }: {
   activo: boolean;
   onPress: () => void;
@@ -74,29 +75,65 @@ function ChipFiltro({
   indicador: ReactNode;
   texto: string;
   n: number;
-  etiquetaAccesible: string;
 }) {
   const vacio = n === 0 && !activo;
   return (
     <Pressable
       onPress={onPress}
       disabled={vacio}
-      hitSlop={{ top: 4, bottom: 4 }}
       style={({ pressed }) => [
-        estilos.chip,
-        activo && { borderColor: color, backgroundColor: `${color}22` },
+        estilos.opcion,
+        activo && { borderColor: color, backgroundColor: `${color}1f` },
         vacio && { opacity: 0.4 },
         pressed && { opacity: 0.75 },
       ]}
       accessibilityRole="radio"
       accessibilityState={{ selected: activo, disabled: vacio }}
-      accessibilityLabel={`${etiquetaAccesible}, ${n} traslados`}
+      accessibilityLabel={`${texto}, ${n} traslados`}
     >
       {indicador}
-      <Text style={[estilos.chipTexto, activo && estilos.chipTextoActivo]} numberOfLines={1}>
+      <Text style={[estilos.opcionTexto, activo && estilos.opcionTextoActivo]} numberOfLines={1}>
         {texto}
       </Text>
-      <Text style={[estilos.chipConteo, activo && { color }]}>{n}</Text>
+      <Text style={[estilos.opcionConteo, activo && { color }]}>{n}</Text>
+      <Ionicons
+        name={activo ? 'radio-button-on' : 'radio-button-off'}
+        size={20}
+        color={activo ? color : NEUTRAL_500}
+      />
+    </Pressable>
+  );
+}
+
+// Pastilla de un filtro activo en la barra: tocarla lo quita.
+function PastillaActiva({
+  color,
+  indicador,
+  texto,
+  onQuitar,
+}: {
+  color: string;
+  indicador: ReactNode;
+  texto: string;
+  onQuitar: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onQuitar}
+      hitSlop={{ top: 6, bottom: 6 }}
+      style={({ pressed }) => [
+        estilos.pastilla,
+        { borderColor: `${color}80`, backgroundColor: `${color}1a` },
+        pressed && { opacity: 0.7 },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`Quitar filtro ${texto}`}
+    >
+      {indicador}
+      <Text style={estilos.pastillaTexto} numberOfLines={1}>
+        {texto}
+      </Text>
+      <Ionicons name="close" size={14} color={NEUTRAL_400} />
     </Pressable>
   );
 }
@@ -223,6 +260,8 @@ export default function PantallaTrasladoInicio() {
   const [empresa, setEmpresa] = useState('');
   // Estado del traslado a mostrar; '' = todos.
   const [estado, setEstado] = useState<EstadoTraslado | ''>('');
+  // Hoja de filtros abierta.
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
 
   const yaCargado = useRef(false);
   const cargar = useCallback(async (forzar = false) => {
@@ -298,11 +337,13 @@ export default function PantallaTrasladoInicio() {
   const enviadosVisibles = enviados.filter(visible);
   const recibidosVisibles = recibidos.filter(visible);
   const lista = ordenar(pestana === 'enviados' ? enviadosVisibles : recibidosVisibles);
-  // Conteos cruzados: cada grupo de chips cuenta respetando el otro filtro.
+  // Conteos cruzados: cada grupo de la hoja de filtros cuenta respetando el otro.
   const base = pestana === 'enviados' ? enviados : recibidos;
   const porEstado = base.filter(deEmpresa);
   const porEmpresa = base.filter(deEstado);
   const hayFiltro = empresa !== '' || estado !== '';
+  const cuantosFiltros = (empresa ? 1 : 0) + (estado ? 1 : 0);
+  const empresaActiva = empresa ? datosEmpresa(empresa) : null;
   const limpiarFiltros = () => {
     setEmpresa('');
     setEstado('');
@@ -368,88 +409,52 @@ export default function PantallaTrasladoInicio() {
           })}
         </View>
 
-        {/* Filtros: empresa del talonario (los traslados antiguos, sin
-            talonario por punto, solo salen en "Todas") y estado. */}
-        <View style={estilos.filtros}>
-          <View style={estilos.filtrosCabecera}>
-            <Text style={estilos.filtrosTitulo}>
+        {/* Barra de filtros: boton que abre la hoja + filtros activos como
+            pastillas (tocar una la quita). Sin filtros, el total a la derecha. */}
+        <View style={estilos.barraFiltros}>
+          <Pressable
+            onPress={() => setFiltrosAbiertos(true)}
+            style={({ pressed }) => [
+              estilos.botonFiltrar,
+              hayFiltro && estilos.botonFiltrarActivo,
+              pressed && { opacity: 0.75 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={hayFiltro ? `Filtrar, ${cuantosFiltros} filtros activos` : 'Filtrar traslados'}
+          >
+            <Ionicons name="options-outline" size={17} color={hayFiltro ? ACENTO : TEXTO_PRIMARIO} />
+            <Text style={[estilos.botonFiltrarTexto, hayFiltro && { color: ACENTO }]}>Filtrar</Text>
+            {hayFiltro ? (
+              <View style={estilos.insigniaFiltros}>
+                <Text style={estilos.insigniaFiltrosTexto}>{cuantosFiltros}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+
+          {hayFiltro ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={estilos.pastillas}>
+              {empresaActiva ? (
+                <PastillaActiva
+                  color={empresaActiva.claro}
+                  indicador={<InsigniaEmpresa letra={empresaActiva.letra} tamano={18} />}
+                  texto={empresaActiva.corto}
+                  onQuitar={() => setEmpresa('')}
+                />
+              ) : null}
+              {estado ? (
+                <PastillaActiva
+                  color={ESTADO_TRASLADO[estado].color}
+                  indicador={<View style={[estilos.punto, { backgroundColor: ESTADO_TRASLADO[estado].color }]} />}
+                  texto={ESTADO_TRASLADO[estado].texto}
+                  onQuitar={() => setEstado('')}
+                />
+              ) : null}
+            </ScrollView>
+          ) : (
+            <Text style={estilos.total}>
               {lista.length} {lista.length === 1 ? 'traslado' : 'traslados'}
             </Text>
-            {hayFiltro ? (
-              <Pressable
-                onPress={limpiarFiltros}
-                hitSlop={12}
-                style={({ pressed }) => [estilos.limpiar, pressed && { opacity: 0.7 }]}
-                accessibilityRole="button"
-                accessibilityLabel="Quitar los filtros"
-              >
-                <Ionicons name="close-circle" size={15} color={ACENTO} />
-                <Text style={estilos.limpiarTexto}>Quitar filtros</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={estilos.chips}
-            accessibilityRole="radiogroup"
-          >
-            <ChipFiltro
-              activo={empresa === ''}
-              onPress={() => setEmpresa('')}
-              color={ACENTO}
-              indicador={<Ionicons name="layers-outline" size={14} color={empresa === '' ? ACENTO : NEUTRAL_400} />}
-              texto="Todas"
-              n={porEmpresa.length}
-              etiquetaAccesible="Todas las empresas"
-            />
-            {EMPRESAS_TALONARIO.map((e) => (
-              <ChipFiltro
-                key={e.letra}
-                activo={empresa === e.letra}
-                onPress={() => setEmpresa(empresa === e.letra ? '' : e.letra)}
-                color={e.claro}
-                indicador={
-                  <View style={[estilos.chipLetra, { backgroundColor: e.color }]}>
-                    <Text style={[estilos.chipLetraTexto, { color: e.sobreColor }]}>{e.letra}</Text>
-                  </View>
-                }
-                texto={e.corto}
-                n={porEmpresa.filter((t) => letraTraslado(t) === e.letra).length}
-                etiquetaAccesible={e.nombre}
-              />
-            ))}
-          </ScrollView>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={estilos.chips}
-            accessibilityRole="radiogroup"
-          >
-            <ChipFiltro
-              activo={estado === ''}
-              onPress={() => setEstado('')}
-              color={ACENTO}
-              indicador={<Ionicons name="list-outline" size={14} color={estado === '' ? ACENTO : NEUTRAL_400} />}
-              texto="Todos"
-              n={porEstado.length}
-              etiquetaAccesible="Todos los estados"
-            />
-            {(Object.keys(PRIORIDAD) as EstadoTraslado[]).map((e) => (
-              <ChipFiltro
-                key={e}
-                activo={estado === e}
-                onPress={() => setEstado(estado === e ? '' : e)}
-                color={ESTADO_TRASLADO[e].color}
-                indicador={<View style={[estilos.punto, { backgroundColor: ESTADO_TRASLADO[e].color }]} />}
-                texto={ESTADO_TRASLADO[e].texto}
-                n={porEstado.filter((t) => t.estado === e).length}
-                etiquetaAccesible={ESTADO_TRASLADO[e].texto}
-              />
-            ))}
-          </ScrollView>
+          )}
         </View>
 
         {cargando && lista.length === 0 ? (
@@ -498,6 +503,90 @@ export default function PantallaTrasladoInicio() {
         )}
       </ScrollView>
 
+      {/* Hoja de filtros: se aplican al tocar cada opcion (la lista de atras
+          se actualiza al momento); el boton de abajo solo cierra. */}
+      <HojaModal visible={filtrosAbiertos} titulo="Filtrar traslados" onCerrar={() => setFiltrosAbiertos(false)}>
+        <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 16 }} showsVerticalScrollIndicator={false}>
+          <View style={estilos.seccion} accessibilityRole="radiogroup">
+            <Text style={estilos.seccionTitulo}>Empresa</Text>
+            <OpcionFiltro
+              activo={empresa === ''}
+              onPress={() => setEmpresa('')}
+              color={ACENTO}
+              indicador={
+                <View style={estilos.indicadorIcono}>
+                  <Ionicons name="layers-outline" size={15} color={NEUTRAL_400} />
+                </View>
+              }
+              texto="Todas las empresas"
+              n={porEmpresa.length}
+            />
+            {EMPRESAS_TALONARIO.map((e) => (
+              <OpcionFiltro
+                key={e.letra}
+                activo={empresa === e.letra}
+                onPress={() => setEmpresa(e.letra)}
+                color={e.claro}
+                indicador={<InsigniaEmpresa letra={e.letra} tamano={26} />}
+                texto={e.corto}
+                n={porEmpresa.filter((t) => letraTraslado(t) === e.letra).length}
+              />
+            ))}
+          </View>
+
+          <View style={estilos.seccion} accessibilityRole="radiogroup">
+            <Text style={estilos.seccionTitulo}>Estado</Text>
+            <OpcionFiltro
+              activo={estado === ''}
+              onPress={() => setEstado('')}
+              color={ACENTO}
+              indicador={
+                <View style={estilos.indicadorIcono}>
+                  <Ionicons name="list-outline" size={15} color={NEUTRAL_400} />
+                </View>
+              }
+              texto="Todos los estados"
+              n={porEstado.length}
+            />
+            {(Object.keys(PRIORIDAD) as EstadoTraslado[]).map((e) => (
+              <OpcionFiltro
+                key={e}
+                activo={estado === e}
+                onPress={() => setEstado(e)}
+                color={ESTADO_TRASLADO[e].color}
+                indicador={
+                  <View style={[estilos.indicadorIcono, { backgroundColor: ESTADO_TRASLADO[e].fondo }]}>
+                    <Ionicons name={ESTADO_TRASLADO[e].icono} size={15} color={ESTADO_TRASLADO[e].color} />
+                  </View>
+                }
+                texto={ESTADO_TRASLADO[e].texto}
+                n={porEstado.filter((t) => t.estado === e).length}
+              />
+            ))}
+          </View>
+        </ScrollView>
+
+        <View style={estilos.pieFiltros}>
+          {hayFiltro ? (
+            <Pressable
+              style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+              onPress={limpiarFiltros}
+            >
+              <ContenidoBoton icono="refresh-outline" texto="Quitar" color={TEXTO_PRIMARIO} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            style={({ pressed }) => [styles.boton, styles.botonPrimario, { flex: 2 }, pressed && styles.botonPresionado]}
+            onPress={() => setFiltrosAbiertos(false)}
+          >
+            <ContenidoBoton
+              icono="checkmark-outline"
+              texto={`Ver ${lista.length} ${lista.length === 1 ? 'traslado' : 'traslados'}`}
+              color={TEXTO_SOBRE_ACENTO}
+            />
+          </Pressable>
+        </View>
+      </HojaModal>
     </SafeAreaView>
   );
 }
@@ -528,9 +617,81 @@ const estilos = StyleSheet.create({
   pestanaConteo: { minWidth: 22, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 10, backgroundColor: NEUTRAL_800 },
   pestanaConteoActivo: { backgroundColor: ACENTO },
   pestanaConteoTexto: { color: NEUTRAL_400, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, textAlign: 'center' },
-  filtros: { gap: 8 },
-  filtrosCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24, paddingHorizontal: 2 },
-  filtrosTitulo: { color: NEUTRAL_400, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
+  barraFiltros: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  botonFiltrar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_850,
+  },
+  botonFiltrarActivo: { borderColor: 'rgba(245,197,66,0.55)', backgroundColor: 'rgba(245,197,66,0.08)' },
+  botonFiltrarTexto: { color: TEXTO_PRIMARIO, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
+  insigniaFiltros: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ACENTO,
+  },
+  insigniaFiltrosTexto: { color: TEXTO_SOBRE_ACENTO, fontSize: 11, fontFamily: FUENTE_BODY_SEMI },
+  pastillas: { gap: 6, alignItems: 'center', paddingRight: 4 },
+  pastilla: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 32,
+    paddingLeft: 7,
+    paddingRight: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pastillaTexto: { color: TEXTO_PRIMARIO, fontSize: 12.5, fontFamily: FUENTE_BODY_SEMI },
+  total: {
+    flex: 1,
+    textAlign: 'right',
+    color: NEUTRAL_500,
+    fontSize: 12.5,
+    fontFamily: FUENTE_BODY_SEMI,
+  },
+  seccion: { gap: 6 },
+  seccionTitulo: {
+    color: NEUTRAL_400,
+    fontSize: 12,
+    fontFamily: FUENTE_BODY_SEMI,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  opcion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+  },
+  opcionTexto: { flex: 1, color: NEUTRAL_400, fontSize: 14.5, fontFamily: FUENTE_BODY_SEMI },
+  opcionTextoActivo: { color: TEXTO_PRIMARIO },
+  opcionConteo: { color: NEUTRAL_500, fontSize: 13, fontFamily: FUENTE_BODY_SEMI, fontVariant: ['tabular-nums'] },
+  indicadorIcono: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  pieFiltros: { flexDirection: 'row', gap: 10 },
   limpiar: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   limpiarGrande: {
     marginTop: 6,
@@ -541,23 +702,6 @@ const estilos = StyleSheet.create({
     borderColor: 'rgba(245,197,66,0.45)',
   },
   limpiarTexto: { color: ACENTO, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  chips: { gap: 6, paddingRight: 4 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 36,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: NEUTRAL_700,
-    backgroundColor: NEUTRAL_850,
-  },
-  chipTexto: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
-  chipTextoActivo: { color: TEXTO_PRIMARIO },
-  chipConteo: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY_SEMI, fontVariant: ['tabular-nums'] },
-  chipLetra: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  chipLetraTexto: { fontSize: 10.5, fontFamily: FUENTE_DISPLAY },
   punto: { width: 8, height: 8, borderRadius: 4 },
   tarjeta: { flexDirection: 'row', padding: 0, overflow: 'hidden' },
   franja: { width: 5 },
