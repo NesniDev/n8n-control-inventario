@@ -5,13 +5,12 @@
 // marcados con una regla dorada a la izquierda), filtros por punto/estado/fechas,
 // detalle en modal al hacer clic en una fila y feed de "Actividad reciente".
 // Mismo lenguaje visual que Hoy y Entregas. admin/supervisor registran o
-// corrigen el Syscafe en linea o desde el detalle; consulta lo ve en solo lectura.
+// corrigen el Syscafe en un modal propio (ModalSyscafe, con "Guardar y siguiente"
+// para ir por los pendientes) o desde el detalle; consulta lo ve en solo lectura.
 
 import { useDeferredValue, useMemo, useState } from "react";
 import useSWR from "swr";
-import { toast } from "sonner";
 import {
-  asignarSyscafeDashboard,
   fetchActividadTraslados,
   fetchPuntosPublicos,
   listarTrasladosSyscafe,
@@ -41,6 +40,7 @@ import {
 } from "@/components/traslados/compartido";
 import { ModalAnulada } from "@/components/traslados/ModalAnulada";
 import { ModalDetalleTraslado } from "@/components/traslados/ModalDetalleTraslado";
+import { ModalSyscafe } from "@/components/traslados/ModalSyscafe";
 
 // Texto sin tildes ni mayusculas, para comparar busquedas.
 const normalizar = (t: string) => t.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
@@ -105,9 +105,8 @@ export default function TrasladosPage() {
     mutate: recargarActividad,
   } = useSWR("traslados-actividad", () => fetchActividadTraslados(50), { refreshInterval: 5000 });
 
-  const [editandoId, setEditandoId] = useState<string | null>(null);
-  const [valorEditado, setValorEditado] = useState("");
-  const [guardando, setGuardando] = useState(false);
+  // Traslado con el modal de Syscafe abierto.
+  const [syscafeFila, setSyscafeFila] = useState<FilaTrasladoSyscafe | null>(null);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [anuladaDetalle, setAnuladaDetalle] = useState<FilaTrasladoSyscafe | null>(null);
 
@@ -130,24 +129,18 @@ export default function TrasladosPage() {
   }, [porEstado, busquedaDiferida]);
   const textoBuscado = busquedaDiferida.trim();
 
-  const empezarEdicion = (fila: FilaTrasladoSyscafe) => {
-    setEditandoId(fila.id);
-    setValorEditado(fila.numero_syscafe ?? "");
-  };
-
-  const guardar = async (fila: FilaTrasladoSyscafe, valor: string | null) => {
-    setGuardando(true);
-    try {
-      await asignarSyscafeDashboard(fila.id, valor);
-      toast.success(valor ? "Número Syscafe guardado" : "Número Syscafe borrado");
-      setEditandoId(null);
-      recargar();
-      recargarActividad();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo guardar el número Syscafe");
-    } finally {
-      setGuardando(false);
-    }
+  // Pendientes de Syscafe en la vista actual (mismo orden de la tabla): de aqui
+  // salen el "siguiente" del modal y cuantos quedan.
+  const pendientesVista = useMemo(
+    () => visibles.filter((f) => f.tipo !== "anulada" && !f.numero_syscafe),
+    [visibles],
+  );
+  const siguientePendiente = (actual: FilaTrasladoSyscafe): FilaTrasladoSyscafe | null => {
+    const resto = pendientesVista.filter((f) => f.id !== actual.id);
+    if (resto.length === 0) return null;
+    // El que viene despues en la tabla; si era el ultimo, vuelve al primero.
+    const indice = visibles.findIndex((f) => f.id === actual.id);
+    return resto.find((f) => visibles.findIndex((v) => v.id === f.id) > indice) ?? resto[0];
   };
 
   const abrirFila = (fila: FilaTrasladoSyscafe) => {
@@ -404,53 +397,22 @@ export default function TrasladosPage() {
                           <span className="text-xs text-muted" title={fila.motivo ?? undefined}>
                             {fila.motivo ? `Motivo: ${fila.motivo}` : "—"}
                           </span>
-                        ) : editandoId === fila.id ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              autoFocus
-                              value={valorEditado}
-                              onChange={(e) => setValorEditado(e.target.value.toUpperCase())}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") guardar(fila, valorEditado.trim() || null);
-                                if (e.key === "Escape") setEditandoId(null);
-                              }}
-                              placeholder="NBR-945"
-                              aria-label="Número Syscafe"
-                              className="min-h-11 w-36 rounded-md border border-line-strong bg-surface px-2 text-sm text-ink"
-                            />
-                            <button
-                              onClick={() => guardar(fila, valorEditado.trim() || null)}
-                              disabled={guardando}
-                              className={claseBoton("primario")}
-                            >
-                              {guardando ? "Guardando…" : "Guardar"}
-                            </button>
-                            <button onClick={() => setEditandoId(null)} className={claseBoton("fantasma")}>
-                              Cancelar
-                            </button>
-                          </div>
                         ) : (
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-2">
                             {fila.numero_syscafe ? (
                               <span className="cifra text-[16px] text-ink">{fila.numero_syscafe}</span>
                             ) : (
                               <Pildora tono="warn">Pendiente</Pildora>
                             )}
                             {puedeAsignar ? (
-                              <>
-                                <button onClick={() => empezarEdicion(fila)} className={claseBoton("secundario")}>
-                                  {fila.numero_syscafe ? "Editar" : "Registrar"}
-                                </button>
-                                {fila.numero_syscafe ? (
-                                  <button
-                                    onClick={() => guardar(fila, null)}
-                                    disabled={guardando}
-                                    className={claseBoton("fantasma")}
-                                  >
-                                    Borrar
-                                  </button>
-                                ) : null}
-                              </>
+                              <button
+                                type="button"
+                                onClick={() => setSyscafeFila(fila)}
+                                className={claseBoton(fila.numero_syscafe ? "fantasma" : "secundario")}
+                                aria-label={`${fila.numero_syscafe ? "Editar" : "Registrar"} número Syscafe de ${referencia(fila)}`}
+                              >
+                                {fila.numero_syscafe ? "Editar" : "Registrar"}
+                              </button>
                             ) : null}
                           </div>
                         )}
@@ -512,6 +474,21 @@ export default function TrasladosPage() {
             recargar();
             recargarActividad();
           }}
+        />
+      ) : null}
+
+      {syscafeFila ? (
+        <ModalSyscafe
+          key={syscafeFila.id}
+          fila={syscafeFila}
+          siguiente={siguientePendiente(syscafeFila)}
+          pendientesRestantes={pendientesVista.filter((f) => f.id !== syscafeFila.id).length}
+          onCerrar={() => setSyscafeFila(null)}
+          onGuardado={() => {
+            recargar();
+            recargarActividad();
+          }}
+          onSiguiente={setSyscafeFila}
         />
       ) : null}
 
