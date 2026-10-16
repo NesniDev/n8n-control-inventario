@@ -408,10 +408,15 @@ export default function TrasladosPage() {
                               <button
                                 type="button"
                                 onClick={() => setSyscafeFila(fila)}
-                                className={claseBoton(fila.numero_syscafe ? "fantasma" : "secundario")}
+                                title={fila.numero_syscafe ? "Editar número Syscafe" : "Registrar número Syscafe"}
                                 aria-label={`${fila.numero_syscafe ? "Editar" : "Registrar"} número Syscafe de ${referencia(fila)}`}
+                                className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-md transition-colors duration-150 ${
+                                  fila.numero_syscafe
+                                    ? "text-muted hover:bg-surface-2 hover:text-ink"
+                                    : "border border-brand-gold/50 bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20"
+                                }`}
                               >
-                                {fila.numero_syscafe ? "Editar" : "Registrar"}
+                                <Icono nombre={fila.numero_syscafe ? "lapiz" : "mas"} className="h-4 w-4" />
                               </button>
                             ) : null}
                           </div>

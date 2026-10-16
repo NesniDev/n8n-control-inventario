@@ -13,7 +13,7 @@ import { asignarSyscafeDashboard, type FilaTrasladoSyscafe } from "@/lib/api";
 import { claseBoton, Icono, Pildora } from "@/components/ui";
 import { Folio } from "@/components/entregas/Folio";
 import { empresaTalonario, fechaCorta, referencia } from "./compartido";
-import { Dato, ModalBase } from "./ModalBase";
+import { ModalBase } from "./ModalBase";
 
 // Formato habitual: letras, guion y numero (NBR-945). Solo orienta: no bloquea,
 // por si Syscafe usa otro formato en algun punto.
@@ -70,14 +70,14 @@ export function ModalSyscafe({
     <ModalBase
       etiqueta={`Número Syscafe del traslado ${referencia(fila)}`}
       titulo={<Folio tipo="Traslado" numero={referencia(fila)} tamano="modal" />}
-      ancho="max-w-lg"
+      ancho="max-w-sm"
       onCerrar={onCerrar}
       pildora={
         fila.numero_syscafe ? (
           <Pildora tono="ok">Registrado</Pildora>
         ) : (
           <>
-            <Pildora tono="warn">Pendiente de Syscafe</Pildora>
+            <Pildora tono="warn">Pendiente</Pildora>
             {pendientesRestantes > 0 ? (
               <span className="text-xs text-muted">
                 {pendientesRestantes === 1 ? "queda 1 más" : `quedan ${pendientesRestantes} más`}
@@ -87,17 +87,18 @@ export function ModalSyscafe({
         )
       }
     >
-      {/* A que traslado se le esta poniendo el numero. */}
-      <div className="grid grid-cols-2 gap-4 rounded-md border border-line bg-surface-2 p-3">
-        <Dato etiqueta="Origen y destino">
-          {fila.punto_origen_nombre ?? "—"}
-          <Icono nombre="derecha" className="mx-1 inline h-3.5 w-3.5 align-text-bottom text-muted" />
-          <span className="sr-only">a</span>
-          {fila.punto_destino_nombre ?? "—"}
-        </Dato>
-        <Dato etiqueta="Fecha">{fechaCorta(fila.fecha)}</Dato>
-        {empresaTalonario(fila) ? <Dato etiqueta="Empresa">{empresaTalonario(fila)}</Dato> : null}
-      </div>
+      {/* A que traslado se le esta poniendo el numero, en una sola linea. */}
+      <p className="-mt-2 text-sm text-soft">
+        {fila.punto_origen_nombre ?? "—"}
+        <Icono nombre="derecha" className="mx-1 inline h-3.5 w-3.5 align-text-bottom text-muted" />
+        <span className="sr-only">a</span>
+        {fila.punto_destino_nombre ?? "—"}
+        <span className="text-muted">
+          {" · "}
+          {fechaCorta(fila.fecha)}
+          {empresaTalonario(fila) ? ` · ${empresaTalonario(fila)}` : ""}
+        </span>
+      </p>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="syscafe-numero" className="text-xs font-medium text-muted">
@@ -119,34 +120,33 @@ export function ModalSyscafe({
           }}
           placeholder="NBR-945"
           aria-describedby="syscafe-ayuda"
-          className="cifra min-h-14 rounded-md border border-line-strong bg-surface px-4 text-2xl tracking-wide text-ink transition-colors duration-150 focus:border-brand-gold focus:outline-none"
+          className="cifra min-h-12 rounded-md border border-line-strong bg-surface px-3 text-xl tracking-wide text-ink transition-colors duration-150 focus:border-brand-gold focus:outline-none"
         />
         <p id="syscafe-ayuda" className={`text-xs ${formatoRaro ? "text-warn" : "text-subtle"}`}>
           {formatoRaro
-            ? "No tiene el formato habitual (letras, guion y número, ej. NBR-945). Revísalo antes de guardar."
+            ? "No tiene el formato habitual (ej. NBR-945). Revísalo."
             : conSiguiente
-              ? "Enter guarda y pasa al siguiente pendiente."
+              ? "Enter guarda y pasa al siguiente."
               : "Enter guarda."}
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+      {/* Acciones: borrar (icono) a la izquierda; guardar a la derecha. Cancelar
+          no hace falta: cierran la X, Escape o el clic afuera. */}
+      <div className="flex items-center gap-2">
         {fila.numero_syscafe ? (
           <button
             type="button"
             onClick={() => guardar(null, false)}
             disabled={guardando}
-            className={claseBoton("fantasma", "text-danger")}
+            title="Borrar número"
+            aria-label="Borrar número Syscafe"
+            className={claseBoton("fantasma", "w-11 px-0 text-danger hover:text-danger")}
           >
-            Borrar número
+            <Icono nombre="basura" className="h-4.5 w-4.5" />
           </button>
-        ) : (
-          <span />
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={onCerrar} className={claseBoton("fantasma")}>
-            Cancelar
-          </button>
+        ) : null}
+        <div className="ml-auto flex items-center gap-2">
           {conSiguiente ? (
             <button
               type="button"
@@ -154,6 +154,7 @@ export function ModalSyscafe({
               disabled={!limpio || sinCambios || guardando}
               className={claseBoton("secundario")}
             >
+              <Icono nombre="check" className="h-4 w-4" />
               Guardar
             </button>
           ) : null}
@@ -163,8 +164,19 @@ export function ModalSyscafe({
             disabled={!limpio || sinCambios || guardando}
             className={claseBoton("primario")}
           >
-            {guardando ? "Guardando…" : conSiguiente ? "Guardar y siguiente" : "Guardar"}
-            {conSiguiente && !guardando ? <Icono nombre="derecha" /> : null}
+            {guardando ? (
+              "Guardando…"
+            ) : conSiguiente ? (
+              <>
+                Siguiente
+                <Icono nombre="derecha" className="h-4 w-4" />
+              </>
+            ) : (
+              <>
+                <Icono nombre="check" className="h-4 w-4" />
+                Guardar
+              </>
+            )}
           </button>
         </div>
       </div>
