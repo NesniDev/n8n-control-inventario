@@ -15,7 +15,8 @@ import { referencia } from "./compartido";
 // siguiente caja ya lo trae puesto.
 let ultimoPrefijo = "";
 
-const ANCHO_CAJA = 300;
+// Ancho aproximado de la caja, solo para no salirse por la derecha.
+const ANCHO_CAJA = 230;
 
 // "NBR-945" -> ["NBR", "945"]; si no tiene ese formato, todo va al prefijo.
 function separar(numero: string | null): [string, string] {
@@ -87,22 +88,22 @@ export function CajaSyscafe({
 
   // Encima de la celda, sin salirse de la pantalla por la derecha.
   const left = Math.max(8, Math.min(ancla.left, window.innerWidth - ANCHO_CAJA - 8));
-  const top = Math.max(8, ancla.top + ancla.height / 2 - 34);
+  const top = Math.max(8, ancla.top + ancla.height / 2 - 26);
   const claseCampo =
-    "cifra h-10 rounded-md border border-line-strong bg-surface px-2 text-base uppercase tracking-wide text-ink focus:border-brand-gold focus:outline-none";
+    "cifra h-8 rounded border border-line-strong bg-surface px-1.5 text-sm uppercase tracking-wide text-ink focus:border-brand-gold focus:outline-none";
 
   return (
     <div
       ref={caja}
       role="dialog"
       aria-label={`Número Syscafe del traslado ${referencia(fila)}`}
-      style={{ left, top, width: ANCHO_CAJA }}
-      className="fixed z-50 flex flex-col gap-1.5 rounded-lg border border-brand-gold/50 bg-surface p-2.5 shadow-lg shadow-brand-night/30"
+      style={{ left, top }}
+      className="fixed z-50 flex flex-col gap-1 rounded-md border border-brand-gold/50 bg-surface p-1.5 shadow-lg shadow-brand-night/30"
     >
-      <span className="text-[11px] font-medium text-muted">
+      <span className="px-0.5 text-[10px] font-medium text-muted">
         Syscafe · <span className="cifra text-soft">{referencia(fila)}</span>
       </span>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         {/* Con el prefijo ya puesto (el ultimo usado) se arranca en el indicativo. */}
         <input
           autoFocus={!inicialPrefijo}
@@ -112,7 +113,7 @@ export function CajaSyscafe({
           placeholder="NBR"
           aria-label="Prefijo"
           autoComplete="off"
-          className={`${claseCampo} w-20`}
+          className={`${claseCampo} w-14`}
         />
         <span aria-hidden className="text-muted">
           –
@@ -126,7 +127,7 @@ export function CajaSyscafe({
           inputMode="numeric"
           aria-label="Indicativo"
           autoComplete="off"
-          className={`${claseCampo} min-w-0 flex-1`}
+          className={`${claseCampo} w-20`}
         />
         <button
           type="button"
@@ -134,9 +135,9 @@ export function CajaSyscafe({
           disabled={!valido || guardando}
           title="Guardar"
           aria-label="Guardar número Syscafe"
-          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md bg-brand-gold text-brand-ink transition-colors duration-150 hover:bg-gold-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded bg-brand-gold text-brand-ink transition-colors duration-150 hover:bg-gold-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Icono nombre="check" className="h-4.5 w-4.5" />
+          <Icono nombre="check" className="h-3.5 w-3.5" />
         </button>
         {fila.numero_syscafe ? (
           <button
@@ -145,9 +146,9 @@ export function CajaSyscafe({
             disabled={guardando}
             title="Borrar número"
             aria-label="Borrar número Syscafe"
-            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-danger transition-colors duration-150 hover:bg-surface-2 disabled:opacity-50"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded text-danger transition-colors duration-150 hover:bg-surface-2 disabled:opacity-50"
           >
-            <Icono nombre="basura" className="h-4 w-4" />
+            <Icono nombre="basura" className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>
