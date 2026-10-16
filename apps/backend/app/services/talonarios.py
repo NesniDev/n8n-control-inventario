@@ -57,6 +57,9 @@ async def _estado(conn, talonario) -> dict:
     letra = talonario["letra"]
     inicial = talonario["numero_inicial"]
     final = talonario["numero_final"]
+    # Talonario que ya venia en uso al registrarlo: las hojas anteriores a
+    # numero_desde se gastaron fuera del sistema y no se ofrecen.
+    desde = talonario["numero_desde"] or inicial
 
     usadas: set[int] = set()
     filas = await conn.fetch(
@@ -74,7 +77,7 @@ async def _estado(conn, talonario) -> dict:
         )
     }
 
-    pendientes = [n for n in range(inicial, final + 1) if n not in usadas and n not in anuladas]
+    pendientes = [n for n in range(desde, final + 1) if n not in usadas and n not in anuladas]
     siguiente = pendientes[0] if pendientes else None
     return {
         "id": str(talonario["id"]),
@@ -82,6 +85,7 @@ async def _estado(conn, talonario) -> dict:
         "letra": letra,
         "numero_inicial": inicial,
         "numero_final": final,
+        "numero_desde": desde,
         "rango": f"{formatear_hoja(letra, inicial)} – {formatear_hoja(letra, final)}",
         "estado": talonario["estado"],
         "siguiente_numero": siguiente,
@@ -187,6 +191,14 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
     simplemente se dejan de usar."""
     punto_id = str(payload.punto_id)
     usuario_id = str(payload.usuario_id)
+    numero_final = payload.numero_inicial + HOJAS_POR_TALONARIO - 1
+    # Talonario ya en uso: se empieza desde la hoja indicada (las anteriores
+    # ya se gastaron). Sin indicarla, desde la primera hoja.
+    numero_desde = payload.numero_siguiente or payload.numero_inicial
+    if not payload.numero_inicial <= numero_desde <= numero_final:
+        raise TalonarioInvalido(
+            f"La siguiente hoja por usar debe estar entre {payload.numero_inicial} y {numero_final}."
+        )
     pool = await get_pool()
 
     usuario = await pool.fetchrow(
@@ -207,6 +219,19 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
                 punto_id,
                 payload.letra,
             )
+            # "Ya en uso" solo vale para el primer talonario de esa letra en el
+            # punto (el que venia gastandose antes de la app); los siguientes
+            # siempre arrancan en su primera hoja.
+            if numero_desde != payload.numero_inicial:
+                previos = await conn.fetchval(
+                    "select count(*) from talonarios_punto where punto_id = $1::uuid and letra = $2",
+                    punto_id,
+                    payload.letra,
+                )
+                if previos:
+                    raise TalonarioInvalido(
+                        "Solo el primer talonario puede registrarse ya en uso; este debe empezar en su primera hoja."
+                    )
             if activo is not None:
                 anterior_estado = await _estado(conn, activo)
                 if not anterior_estado["agotado"] and not payload.motivo:
@@ -225,14 +250,16 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
             try:
                 nuevo = await conn.fetchrow(
                     """
-                    insert into talonarios_punto (punto_id, letra, numero_inicial, numero_final, creado_por)
-                    values ($1::uuid, $2, $3, $4, $5::uuid)
+                    insert into talonarios_punto
+                        (punto_id, letra, numero_inicial, numero_final, numero_desde, creado_por)
+                    values ($1::uuid, $2, $3, $4, $5, $6::uuid)
                     returning *
                     """,
                     punto_id,
                     payload.letra,
                     payload.numero_inicial,
-                    payload.numero_inicial + HOJAS_POR_TALONARIO - 1,
+                    numero_final,
+                    numero_desde,
                     usuario_id,
                 )
             except asyncpg.UniqueViolationError as exc:
@@ -261,7 +288,12 @@ async def configurar_talonario(payload: TalonarioConfigurar) -> dict:
                 if anterior_estado is not None
                 else None
             ),
-            "hacia": {"talonario_id": nuevo_estado["id"], "rango": nuevo_estado["rango"]},
+            "hacia": {
+                "talonario_id": nuevo_estado["id"],
+                "rango": nuevo_estado["rango"],
+                # Primera hoja que ofrece el sistema (> inicio si ya venia en uso).
+                "desde_hoja": formatear_hoja(nuevo_estado["letra"], numero_desde),
+            },
             "motivo": payload.motivo,
         },
     )

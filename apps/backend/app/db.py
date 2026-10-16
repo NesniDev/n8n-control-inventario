@@ -456,6 +456,11 @@ create table if not exists talonarios_punto (
     check (numero_final = numero_inicial + 49)
 );
 
+-- Primera hoja que ofrece el sistema cuando el talonario ya venia en uso al
+-- registrarlo (las anteriores se gastaron fuera del sistema). Null = desde
+-- numero_inicial, como los talonarios registrados antes de esta columna.
+alter table talonarios_punto add column if not exists numero_desde integer;
+
 -- Un solo talonario activo por punto y letra (indice parcial): es el seguro de
 -- base de datos contra dos configuraciones simultaneas de la misma letra. Un
 -- punto puede llevar a la vez, p. ej., el general "A" y el de veterinaria "V".

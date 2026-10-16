@@ -21,6 +21,9 @@ class TalonarioConfigurar(BaseModel):
     usuario_id: UUID
     letra: str
     numero_inicial: int
+    # Talonario que ya venia en uso: siguiente hoja por usar (entre la primera
+    # y la ultima del rango, lo valida configurar_talonario). None = desde la primera.
+    numero_siguiente: int | None = None
     motivo: str | None = None
 
     @field_validator("letra")
