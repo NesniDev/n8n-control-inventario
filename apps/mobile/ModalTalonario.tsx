@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { anularHojaTalonario, configurarTalonario, type TalonarioPunto } from './api';
 import { mensajeError } from './errorMessages';
 import HojaModal from './HojaModal';
-import { MARCA } from './vidrio';
 import {
   ACENTO,
   ContenidoBoton,
@@ -30,10 +29,25 @@ const HOJAS = 50;
 // Empresas con talonario propio: cada una usa siempre la misma letra, asi el
 // operador elige la empresa y no teclea el prefijo.
 // `color` identifica a la empresa en tarjetas y selectores (insignia con la
-// letra); `sobreColor` es el texto que contrasta encima de ese color.
+// letra); `sobreColor` es el texto que contrasta encima de ese color y `claro`
+// la variante legible como texto o barra sobre el fondo oscuro.
 export const EMPRESAS_TALONARIO = [
-  { letra: 'A', nombre: 'Comercializadora El Imperio', corto: 'El Imperio', color: MARCA.oro, sobreColor: MARCA.tinta },
-  { letra: 'V', nombre: 'Agroveterinaria La Rebaja', corto: 'La Rebaja', color: MARCA.verde, sobreColor: '#ffffff' },
+  {
+    letra: 'A',
+    nombre: 'Comercializadora El Imperio',
+    corto: 'C. El Imperio',
+    color: '#7c3aed',
+    claro: '#a78bfa',
+    sobreColor: '#ffffff',
+  },
+  {
+    letra: 'V',
+    nombre: 'Agroveterinaria La Rebaja',
+    corto: 'Veterinaria',
+    color: '#2563eb',
+    claro: '#60a5fa',
+    sobreColor: '#ffffff',
+  },
 ] as const;
 
 /** Datos de la empresa de una letra (nombre, color), o null si la letra no es de ninguna. */
@@ -140,6 +154,9 @@ export function ModalConfigurarTalonario({
   const actual = talonarios.find((t) => t.letra === letra) ?? null;
   const exigeMotivo = actual !== null && !actual.agotado;
   const letraValida = EMPRESAS_TALONARIO.some((e) => e.letra === letra);
+  // La letra se pinta en el color claro de su empresa (legible sobre el fondo oscuro).
+  const claroEmpresa = datosEmpresa(letra)?.claro;
+  const colorLetra = claroEmpresa ? { color: claroEmpresa } : null;
   const inicial = numero ? Number(numero) : 0;
   const numeroValido = /^\d{1,7}$/.test(numero) && inicial > 0 && inicial + HOJAS - 1 <= 9999999;
   const final = inicial + HOJAS - 1;
@@ -194,7 +211,11 @@ export function ModalConfigurarTalonario({
                 key={empresa.letra}
                 onPress={() => setLetra(empresa.letra)}
                 disabled={!!letraInicial}
-                style={({ pressed }) => [estilos.empresa, activa && estilos.empresaActiva, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [
+                  estilos.empresa,
+                  activa && { borderColor: empresa.claro, backgroundColor: `${empresa.color}24` },
+                  pressed && { opacity: 0.8 },
+                ]}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: activa }}
                 accessibilityLabel={`${empresa.nombre}, talonario ${empresa.letra}`}
@@ -207,7 +228,7 @@ export function ModalConfigurarTalonario({
                 <Ionicons
                   name={activa ? 'radio-button-on' : 'radio-button-off'}
                   size={22}
-                  color={activa ? ACENTO : NEUTRAL_500}
+                  color={activa ? empresa.claro : NEUTRAL_500}
                 />
               </Pressable>
             );
@@ -218,7 +239,9 @@ export function ModalConfigurarTalonario({
       {/* 2. Primera hoja, con la letra fija delante del numero. */}
       <Campo etiqueta="Primera hoja del talonario">
         <View style={[estilos.campoNumero, !letraValida && { opacity: 0.5 }]}>
-          <Text style={estilos.prefijo}>{letra || '—'}</Text>
+          <View style={estilos.prefijo}>
+            <Text style={[estilos.prefijoTexto, colorLetra]}>{letra || '—'}</Text>
+          </View>
           <TextInput
             value={numero}
             onChangeText={(v) => setNumero(v.replace(/[^0-9]/g, '').slice(0, 7))}
@@ -255,7 +278,9 @@ export function ModalConfigurarTalonario({
       {puedeEnUso && enUso ? (
         <Campo etiqueta="Siguiente hoja por usar">
           <View style={[estilos.campoNumero, numeroValido && !!siguiente && !siguienteValido && estilos.campoError]}>
-            <Text style={estilos.prefijo}>{letra || '—'}</Text>
+            <View style={estilos.prefijo}>
+            <Text style={[estilos.prefijoTexto, colorLetra]}>{letra || '—'}</Text>
+          </View>
             <TextInput
               value={siguiente}
               onChangeText={(v) => setSiguiente(v.replace(/[^0-9]/g, '').slice(0, 7))}
@@ -281,14 +306,14 @@ export function ModalConfigurarTalonario({
           <View style={estilos.vistaFila}>
             <View style={{ alignItems: 'center' }}>
               <Text style={estilos.vistaEtiqueta}>Desde</Text>
-              <Text style={estilos.vistaRango}>
+              <Text style={[estilos.vistaRango, colorLetra]}>
                 {letra} {inicial}
               </Text>
             </View>
             <Ionicons name="arrow-forward" size={18} color={NEUTRAL_500} />
             <View style={{ alignItems: 'center' }}>
               <Text style={estilos.vistaEtiqueta}>Hasta</Text>
-              <Text style={estilos.vistaRango}>
+              <Text style={[estilos.vistaRango, colorLetra]}>
                 {letra} {final}
               </Text>
             </View>
@@ -470,7 +495,6 @@ const estilos = StyleSheet.create({
     borderColor: NEUTRAL_700,
     backgroundColor: NEUTRAL_800,
   },
-  empresaActiva: { borderColor: ACENTO, backgroundColor: 'rgba(245,197,66,0.08)' },
   empresaNombre: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   empresaDetalle: { color: NEUTRAL_500, fontSize: 12.5, fontFamily: FUENTE_BODY },
   campoNumero: {
@@ -484,19 +508,17 @@ const estilos = StyleSheet.create({
     overflow: 'hidden',
   },
   campoError: { borderColor: '#f87171' },
+  // Caja de la letra: centra el texto en ambos ejes sin depender de padding.
   prefijo: {
     minWidth: 48,
     alignSelf: 'stretch',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    paddingTop: 13,
-    color: ACENTO,
-    fontSize: 18,
-    fontFamily: FUENTE_DISPLAY,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRightWidth: 1,
     borderRightColor: NEUTRAL_700,
   },
+  prefijoTexto: { color: ACENTO, fontSize: 18, fontFamily: FUENTE_DISPLAY, includeFontPadding: false },
   inputNumero: {
     flex: 1,
     paddingHorizontal: 14,

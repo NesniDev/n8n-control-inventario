@@ -327,30 +327,37 @@ export default function PantallaTrasladoInicio() {
             letra del talonario y cuantos traslados tiene cada opcion en la
             pestaña actual. */}
         <View style={estilos.empresas} accessibilityRole="radiogroup">
-          {[{ letra: '', corto: 'Todas' }, ...EMPRESAS_TALONARIO].map((e) => {
+          {[{ letra: '', corto: 'Todas', color: ACENTO, claro: ACENTO, sobreColor: TEXTO_SOBRE_ACENTO }, ...EMPRESAS_TALONARIO].map((e) => {
             const activa = empresa === e.letra;
+            // Cada empresa con su color; "Todas" con el acento dorado.
             const base = pestana === 'enviados' ? enviados : recibidos;
             const n = e.letra ? base.filter((t) => letraTraslado(t) === e.letra).length : base.length;
             return (
               <Pressable
                 key={e.letra || 'todas'}
                 onPress={() => setEmpresa(e.letra)}
-                style={({ pressed }) => [estilos.empresa, activa && estilos.empresaActiva, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [
+                  estilos.empresa,
+                  // "Todas" ocupa solo lo necesario: deja mas ancho a los nombres.
+                  !e.letra && { flex: 0, paddingHorizontal: 12 },
+                  activa && { borderColor: e.claro, backgroundColor: `${e.color}24` },
+                  pressed && { opacity: 0.8 },
+                ]}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: activa }}
                 accessibilityLabel={`${e.letra ? e.corto : 'Todas las empresas'}, ${n} traslados`}
               >
-                <View style={[estilos.empresaLetra, activa && estilos.empresaLetraActiva]}>
+                <View style={[estilos.empresaLetra, (activa || e.letra !== '') && { backgroundColor: e.color }]}>
                   {e.letra ? (
-                    <Text style={[estilos.empresaLetraTexto, activa && { color: TEXTO_SOBRE_ACENTO }]}>{e.letra}</Text>
+                    <Text style={[estilos.empresaLetraTexto, { color: e.sobreColor }]}>{e.letra}</Text>
                   ) : (
-                    <Ionicons name="layers-outline" size={12} color={activa ? TEXTO_SOBRE_ACENTO : NEUTRAL_400} />
+                    <Ionicons name="layers-outline" size={12} color={activa ? e.sobreColor : NEUTRAL_400} />
                   )}
                 </View>
                 <Text style={[estilos.empresaTexto, activa && estilos.empresaTextoActiva]} numberOfLines={1}>
                   {e.corto}
                 </Text>
-                <Text style={[estilos.empresaConteo, activa && { color: ACENTO }]}>{n}</Text>
+                <Text style={[estilos.empresaConteo, activa && { color: e.claro }]}>{n}</Text>
               </Pressable>
             );
           })}
@@ -438,14 +445,13 @@ const estilos = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 5,
     minHeight: 40,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: NEUTRAL_700,
   },
-  empresaActiva: { borderColor: ACENTO, backgroundColor: 'rgba(245,197,66,0.10)' },
   empresaLetra: {
     width: 20,
     height: 20,
@@ -454,7 +460,6 @@ const estilos = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: NEUTRAL_800,
   },
-  empresaLetraActiva: { backgroundColor: ACENTO },
   empresaLetraTexto: { color: NEUTRAL_400, fontSize: 11, fontFamily: FUENTE_DISPLAY },
   empresaTexto: { flexShrink: 1, color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY_SEMI },
   empresaTextoActiva: { color: TEXTO_PRIMARIO },

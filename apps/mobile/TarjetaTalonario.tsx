@@ -66,15 +66,21 @@ function FilaTalonario({
         </View>
       </View>
 
-      {/* Dato principal: la hoja que toca fotografiar ahora. */}
+      {/* Dato principal: la hoja que toca fotografiar ahora y cuantas quedan,
+          en dos columnas iguales y centradas. */}
       <View style={estilos.siguiente}>
-        <View style={{ flex: 1 }}>
+        <View style={estilos.columna}>
           <Text style={estilos.etiqueta}>Siguiente hoja</Text>
-          <Text style={[estilos.hoja, talonario.agotado && { color: ROJO }]}>
+          <Text
+            style={[estilos.hoja, { color: empresa?.claro ?? MARCA.oro }, talonario.agotado && { color: ROJO }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
             {talonario.agotado ? 'Sin hojas' : talonario.siguiente_hoja}
           </Text>
         </View>
-        <View style={{ alignItems: 'flex-end' }}>
+        <View style={estilos.divisor} />
+        <View style={estilos.columna}>
           <Text style={estilos.etiqueta}>Quedan</Text>
           <Text style={[estilos.quedan, alerta && { color: estado.color }]}>
             {talonario.quedan}
@@ -88,11 +94,11 @@ function FilaTalonario({
           <View
             style={[
               estilos.barraRelleno,
-              { width: `${(usadas / total) * 100}%`, backgroundColor: alerta ? estado.color : empresa?.color ?? MARCA.oro },
+              { width: `${(usadas / total) * 100}%`, backgroundColor: alerta ? estado.color : empresa?.claro ?? MARCA.oro },
             ]}
           />
         </View>
-        <Text style={[estilos.ayuda, alerta && { color: estado.color, fontFamily: FUENTE_BODY_SEMI }]}>
+        <Text style={[estilos.ayuda, estilos.centrado, alerta && { color: estado.color, fontFamily: FUENTE_BODY_SEMI }]}>
           {talonario.agotado
             ? 'Pide un talonario nuevo y cámbialo para seguir creando traslados.'
             : alerta
@@ -302,14 +308,17 @@ const estilos = StyleSheet.create({
   estadoTexto: { fontSize: 12, fontFamily: FUENTE_BODY_SEMI },
   siguiente: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 8,
     borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
+  columna: { flex: 1, alignItems: 'center', gap: 2 },
+  divisor: { width: 1, alignSelf: 'stretch', marginVertical: 4, backgroundColor: 'rgba(255,255,255,0.10)' },
+  centrado: { textAlign: 'center' },
   etiqueta: { color: NEUTRAL_500, fontSize: 11.5, fontFamily: FUENTE_BODY_SEMI, textTransform: 'uppercase', letterSpacing: 0.6 },
-  hoja: { color: MARCA.oro, fontSize: 26, fontFamily: FUENTE_DISPLAY, lineHeight: 32 },
+  hoja: { fontSize: 26, fontFamily: FUENTE_DISPLAY, lineHeight: 32, textAlign: 'center' },
   quedan: { color: TEXTO_PRIMARIO, fontSize: 22, fontFamily: FUENTE_DISPLAY, lineHeight: 28, fontVariant: ['tabular-nums'] },
   quedanTotal: { color: NEUTRAL_500, fontSize: 14, fontFamily: FUENTE_BODY_SEMI },
   ayuda: { color: NEUTRAL_400, fontSize: 13, fontFamily: FUENTE_BODY },
@@ -342,6 +351,7 @@ const estilos = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     paddingVertical: 8,
     paddingHorizontal: 10,
