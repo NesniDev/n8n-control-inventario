@@ -21,6 +21,7 @@ import { mensajeError } from './errorMessages';
 import CampoFirma from './CampoFirma';
 import { comprimirParaEnvio } from './EntregaContext';
 import HojaModal from './HojaModal';
+import { datosEmpresa, EMPRESAS_TALONARIO, InsigniaEmpresa } from './ModalTalonario';
 import ModalProducto, { productoValido } from './ModalProducto';
 import { formatearFechaCorta, formatearFechaLarga } from './SelectorFecha';
 import { AvisoRol } from './ResumenTraslado';
@@ -28,6 +29,7 @@ import { HeaderTraslado, nuevoItemDraft, useTraslado, type ItemTrasladoDraft } f
 import {
   ACENTO,
   ContenidoBoton,
+  FUENTE_BODY,
   FUENTE_BODY_SEMI,
   FUENTE_DISPLAY,
   NEUTRAL_400,
@@ -123,6 +125,11 @@ export default function PantallaTrasladoNuevo() {
   const [talonarios, setTalonarios] = useState<TalonarioPunto[] | undefined>(undefined);
   // Hoja esperada segun la ultima lectura (el backend la devuelve en cada extraccion).
   const [hojaEsperada, setHojaEsperada] = useState<string | null>(null);
+  // Empresa (letra del talonario) elegida antes de la foto; si se vuelve a
+  // esta pantalla con una lectura hecha, sale de la hoja ya leida.
+  const [letra, setLetra] = useState(() => /^\s*([A-Za-z]{1,3})/.exec(draft.numeroTalonario)?.[1].toUpperCase() ?? '');
+  // Letra que la IA leyo en la ultima foto (para avisar si es de otra empresa).
+  const [letraLeida, setLetraLeida] = useState<string | null>(null);
 
   useEffect(() => {
     if (!punto) return;
@@ -133,10 +140,17 @@ export default function PantallaTrasladoNuevo() {
 
   const sinConfigurar = talonarios !== undefined && talonarios.length === 0;
   const sinTalonario = sinConfigurar || (talonarios !== undefined && talonarios.every((t) => t.agotado));
-  // Siguientes hojas de los talonarios con hojas: ["A 6305", "V 120"].
-  const hojasDisponibles = (talonarios ?? []).flatMap((t) => (t.siguiente_hoja ? [t.siguiente_hoja] : []));
-  // Para el aviso de numero faltante: lo que dijo el backend o, si no, las disponibles unidas.
-  const esperada = hojaEsperada ?? (hojasDisponibles.length > 0 ? hojasDisponibles.join(' o ') : null);
+  // Talonario de la empresa elegida (solo si tiene hojas).
+  const elegido = (talonarios ?? []).find((t) => t.letra === letra && !t.agotado) ?? null;
+  // Para el aviso de numero faltante: lo que dijo el backend o, si no, la del elegido.
+  const esperada = hojaEsperada ?? elegido?.siguiente_hoja ?? null;
+
+  // Con un solo talonario con hojas no hay nada que elegir: se marca solo.
+  useEffect(() => {
+    if (letra || !talonarios) return;
+    const conHojas = talonarios.filter((t) => !t.agotado);
+    if (conHojas.length === 1) setLetra(conHojas[0].letra);
+  }, [talonarios, letra]);
 
   const limpiarLectura = () => {
     actualizarDraft({
@@ -161,8 +175,9 @@ export default function PantallaTrasladoNuevo() {
       const uri = await comprimirParaEnvio(uriOriginal);
       setFotoUri(uri);
       const { url } = await subirEvidencia(uri);
-      const lectura = await extraerTalonario(url, punto.id);
+      const lectura = await extraerTalonario(url, punto.id, letra);
       setHojaEsperada(lectura.numero_esperado ?? null);
+      setLetraLeida(lectura.letra_leida ?? null);
       if (lectura.faltantes.length > 0 || !lectura.punto_destino) {
         setFaltantes(lectura.faltantes.length > 0 ? lectura.faltantes : ['Destino']);
         return;
@@ -188,6 +203,18 @@ export default function PantallaTrasladoNuevo() {
       setLeyendo(false);
       setCargando(false);
     }
+  };
+
+  // Cambiar de empresa descarta la foto y lo leido: era de otro talonario.
+  const elegirEmpresa = (nueva: string) => {
+    if (nueva === letra || leyendo) return;
+    setLetra(nueva);
+    setFotoUri(null);
+    setErrorLectura(null);
+    setFaltantes([]);
+    setHojaEsperada(null);
+    setLetraLeida(null);
+    limpiarLectura();
   };
 
   const usarResultado = async (resultado: ImagePicker.ImagePickerResult) => {
@@ -240,7 +267,12 @@ export default function PantallaTrasladoNuevo() {
     !!draft.firmaDespachaBase64;
 
   const hayFoto = fotoUri !== null || draft.fotoTalonarioUrl !== '';
+  // Mientras se cargan los talonarios no se bloquea (el backend valida igual).
+  const puedeFotografiar = talonarios === undefined || elegido !== null;
   const hayProblema = errorLectura !== null || faltantes.length > 0;
+  // La foto era de otra empresa (letra leida distinta de la elegida).
+  const empresaLeida = letraLeida && letraLeida !== letra ? datosEmpresa(letraLeida) : null;
+  const empresaElegida = datosEmpresa(letra);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -261,15 +293,60 @@ export default function PantallaTrasladoNuevo() {
           {/* Foto del talonario: sin foto, las dos formas de cargarla; con foto,
               miniatura + "Repetir foto" (que vuelve a leer y reemplaza todo). */}
           <View style={styles.tarjeta}>
-            <Text style={styles.etiquetaSeccion}>Foto del talonario</Text>
-            {hojasDisponibles.length > 0 && !sinTalonario ? (
+            {/* 1. Empresa: define que talonario se usa; sin elegirla no hay foto.
+                Solo se pueden elegir las que tienen talonario con hojas. */}
+            {!sinTalonario ? (
+              <>
+                <Text style={styles.etiquetaSeccion}>Empresa del talonario</Text>
+                <View style={estilos.empresas} accessibilityRole="radiogroup">
+                  {EMPRESAS_TALONARIO.map((e) => {
+                    const t = (talonarios ?? []).find((x) => x.letra === e.letra);
+                    const disponible = !!t && !t.agotado;
+                    const activa = letra === e.letra;
+                    return (
+                      <Pressable
+                        key={e.letra}
+                        onPress={() => elegirEmpresa(e.letra)}
+                        disabled={!disponible || leyendo}
+                        style={({ pressed }) => [
+                          estilos.empresa,
+                          activa && { borderColor: e.claro, backgroundColor: `${e.color}26` },
+                          !disponible && { opacity: 0.4 },
+                          pressed && { opacity: 0.8 },
+                        ]}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: activa, disabled: !disponible }}
+                        accessibilityLabel={`${e.nombre}${disponible ? `, hoja ${t!.siguiente_hoja}` : ', sin talonario disponible'}`}
+                      >
+                        <InsigniaEmpresa letra={e.letra} tamano={30} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={estilos.empresaNombre} numberOfLines={1}>
+                            {e.corto}
+                          </Text>
+                          <Text style={[estilos.empresaHoja, activa && { color: e.claro }]} numberOfLines={1}>
+                            {disponible ? `Hoja ${t!.siguiente_hoja}` : t ? 'Agotado' : 'Sin talonario'}
+                          </Text>
+                        </View>
+                        {activa ? <Ionicons name="checkmark-circle" size={18} color={e.claro} /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
+
+            {/* 2. Foto de la hoja del talonario elegido. */}
+            <Text style={styles.etiquetaSeccion}>Foto de la hoja</Text>
+            {elegido && !sinTalonario ? (
               <View style={estilos.hojaEsperada}>
-                <Ionicons name="document-text-outline" size={16} color={ACENTO} />
+                <Ionicons name="document-text-outline" size={16} color={empresaElegida?.claro ?? ACENTO} />
                 <Text style={estilos.hojaEsperadaTexto}>
-                  {hojasDisponibles.length > 1 ? 'Hojas esperadas: ' : 'Hoja esperada: '}
-                  <Text style={{ color: ACENTO }}>{hojasDisponibles.join(' · ')}</Text>
+                  Fotografía la hoja{' '}
+                  <Text style={{ color: empresaElegida?.claro ?? ACENTO }}>{elegido.siguiente_hoja}</Text>
                 </Text>
               </View>
+            ) : !sinTalonario && talonarios !== undefined ? (
+              <Text style={styles.previewSubtexto}>Primero elige la empresa del talonario.</Text>
             ) : null}
             {sinTalonario ? (
               <Text style={styles.textoErrorInline}>
@@ -289,8 +366,14 @@ export default function PantallaTrasladoNuevo() {
             ) : sinTalonario ? null : (
               <View style={estilos.filaBotones}>
                 <Pressable
-                  style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                  style={({ pressed }) => [
+                    styles.boton,
+                    { flex: 1 },
+                    !puedeFotografiar && styles.botonDeshabilitado,
+                    pressed && styles.botonPresionado,
+                  ]}
                   onPress={tomarFoto}
+                  disabled={!puedeFotografiar}
                 >
                   <ContenidoBoton
                     icono="camera-outline"
@@ -299,8 +382,14 @@ export default function PantallaTrasladoNuevo() {
                   />
                 </Pressable>
                 <Pressable
-                  style={({ pressed }) => [styles.boton, { flex: 1 }, pressed && styles.botonPresionado]}
+                  style={({ pressed }) => [
+                    styles.boton,
+                    { flex: 1 },
+                    !puedeFotografiar && styles.botonDeshabilitado,
+                    pressed && styles.botonPresionado,
+                  ]}
                   onPress={elegirDeGaleria}
+                  disabled={!puedeFotografiar}
                 >
                   <ContenidoBoton icono="images-outline" texto="Galería" color={NEUTRAL_400} />
                 </Pressable>
@@ -311,7 +400,12 @@ export default function PantallaTrasladoNuevo() {
                 <Text style={styles.textoErrorInline}>
                   {errorLectura ?? 'No se pudo leer el talonario con claridad.'}
                 </Text>
-                {faltantes.includes('Número de talonario') && esperada ? (
+                {faltantes.includes('Número de talonario') && empresaLeida && empresaElegida ? (
+                  <Text style={styles.textoErrorInline}>
+                    La foto es de una hoja de {empresaLeida.corto} ({empresaLeida.letra}), pero elegiste{' '}
+                    {empresaElegida.corto}. Cambia la empresa o fotografía la hoja {esperada}.
+                  </Text>
+                ) : faltantes.includes('Número de talonario') && esperada ? (
                   <Text style={styles.textoErrorInline}>
                     La foto debe ser de la hoja {esperada}.
                   </Text>
@@ -517,6 +611,22 @@ export default function PantallaTrasladoNuevo() {
 
 const estilos = StyleSheet.create({
   hojaEsperada: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  empresas: { flexDirection: 'row', gap: 8 },
+  empresa: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 52,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: NEUTRAL_700,
+    backgroundColor: NEUTRAL_800,
+  },
+  empresaNombre: { color: TEXTO_PRIMARIO, fontSize: 13.5, fontFamily: FUENTE_BODY_SEMI },
+  empresaHoja: { color: NEUTRAL_500, fontSize: 12, fontFamily: FUENTE_BODY },
   hojaEsperadaTexto: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   valorLectura: { color: TEXTO_PRIMARIO, fontSize: 15, fontFamily: FUENTE_BODY_SEMI },
   encabezadoLectura: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },

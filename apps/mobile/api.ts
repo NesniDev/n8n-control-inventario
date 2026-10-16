@@ -866,6 +866,8 @@ export interface ExtraccionTalonario {
   numero_esperado: string;
   // Siguiente hoja de cada talonario activo disponible (["A 6305", "V 120"]).
   hojas_esperadas?: string[];
+  // Letra que se leyo en la foto ("V"), aunque no coincida con la empresa elegida.
+  letra_leida?: string | null;
   destino: string;
   transportador: string;
   // ISO YYYY-MM-DD o "" si no se pudo leer.
@@ -954,11 +956,17 @@ export async function anularHojaTalonario(payload: {
 }
 
 /** Le pide al backend que lea la foto del talonario (ya subida a Storage). */
-export async function extraerTalonario(fotoUrl: string, puntoOrigenId: string): Promise<ExtraccionTalonario> {
+export async function extraerTalonario(
+  fotoUrl: string,
+  puntoOrigenId: string,
+  // Letra del talonario de la empresa elegida antes de la foto: el backend
+  // solo acepta una hoja de ese talonario.
+  letra?: string
+): Promise<ExtraccionTalonario> {
   const res = await fetchConTimeout(`${API_BASE_URL}/traslados-puntos/extraer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ foto_url: fotoUrl, punto_origen_id: puntoOrigenId }),
+    body: JSON.stringify({ foto_url: fotoUrl, punto_origen_id: puntoOrigenId, letra: letra || null }),
   });
   return parsearRespuesta<ExtraccionTalonario>(res);
 }
